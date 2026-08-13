@@ -28,38 +28,80 @@
     refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey), 150);
   };
   refresh();
+  window.addEventListener('resize', refresh, { passive: true });
+  let coverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
   new MutationObserver((records) => {
-    if (records.some((record) => [...record.addedNodes, ...record.removedNodes].some(isNonHclNode))) refresh();
+    // Humble renders covers lazily. Only re-run when its actual cover set
+    // changes; observing every DOM mutation reset expandable result lists as
+    // the page updated incidental interface elements.
+    if (!records.length) return;
+    const nextCoverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
+    const coversLostAnnotations = [...document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')]
+      .some((cover) => likelyBookTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible'));
+    if (nextCoverCount !== coverCount || coversLostAnnotations) {
+      coverCount = nextCoverCount;
+      refresh();
+    }
   }).observe(document.documentElement, { childList: true, subtree: true });
 }()).catch((error) => console.warn('Humble Comic Library failed to initialise:', error));
 
-function isNonHclNode(node) {
-  if (node.nodeType === Node.TEXT_NODE) return !node.parentElement?.closest('[id^="hcl-"], [class^="hcl-"]');
-  return node.nodeType !== Node.ELEMENT_NODE || !node.matches?.('[id^="hcl-"], [class^="hcl-"]') && !node.closest?.('[id^="hcl-"], [class^="hcl-"]');
-}
-
 function renderBundleComparison(libraryByKey) {
-  document.querySelectorAll('.hcl-owned-badge, .hcl-possible-badge').forEach((badge) => badge.remove());
-  document.querySelectorAll('.hcl-owned-item, .hcl-possible-item').forEach((item) => item.classList.remove('hcl-owned-item', 'hcl-possible-item'));
+  document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge').forEach((badge) => badge.remove());
+  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item').forEach((item) => {
+    item.style.removeProperty('border-left');
+    item.style.removeProperty('box-shadow');
+    item.style.removeProperty('background-color');
+    item.querySelectorAll('h1, h2, h3, h4, h5, p, a, span').forEach((text) => text.style.removeProperty('color'));
+  });
+  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible').forEach((cover) => {
+    cover.style.removeProperty('outline');
+    cover.style.removeProperty('outline-offset');
+    cover.style.removeProperty('box-shadow');
+  });
+  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-new, .hcl-card-possible, .hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible').forEach((item) => {
+    item.classList.remove('hcl-owned-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-new', 'hcl-card-possible', 'hcl-cover-owned', 'hcl-cover-new', 'hcl-cover-possible');
+    delete item.dataset.hclBadge;
+  });
+  document.querySelectorAll('.hcl-title-colored').forEach((item) => {
+    item.classList.remove('hcl-title-colored');
+    item.style.removeProperty('color');
+    item.style.removeProperty('font-weight');
+  });
   document.querySelector('#hcl-summary')?.remove();
 
   const items = collectBundleItems();
   if (!items.length) return;
   const counts = { owned: 0, possible: 0, new: 0 };
+  const titlesByState = { owned: [], possible: [], new: [] };
+  const matchesByTitleKey = new Map();
   const tiers = new Map();
   for (const item of items) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
     const possible = exact ? null : findPossibleMatch(item.title, libraryByKey);
     const match = exact ? { state: 'owned', item: exact } : possible ? { state: 'possible', item: possible } : { state: 'new' };
+    matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
     counts[match.state] += 1;
-    annotateBundleItem(item, match);
+    titlesByState[match.state].push({ title: item.title, sourceBundle: match.item?.sourceBundle ?? null });
     const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, possible: 0 };
     tier.total += 1;
     if (match.state === 'owned') tier.owned += 1;
     if (match.state === 'possible') tier.possible += 1;
     tiers.set(item.tier.label, tier);
   }
-  renderComparisonSummary(counts, tiers);
+  // Tier-detail cards are reliable for item/tier counts, but Humble can show
+  // a separate un-tiered gallery as the actual visible card grid. Mirror the
+  // already-resolved status onto all cover copies with the same title.
+  annotateAllCoverCopies(matchesByTitleKey);
+  renderComparisonSummary(counts, tiers, titlesByState);
+}
+
+function annotateAllCoverCopies(matchesByTitleKey) {
+  for (const image of document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')) {
+    const key = HumbleComicLibrary.titleKey(image.alt);
+    const match = matchesByTitleKey.get(key);
+    if (!match) continue;
+    annotateBundleItem({ title: image.alt, element: image, container: productContainer(image) }, match);
+  }
 }
 
 function collectBundleItems() {
@@ -175,24 +217,86 @@ function significantTokens(title) {
 
 function annotateBundleItem(bundleItem, match) {
   if (!bundleItem.element.isConnected) return;
-  const badge = document.createElement('span');
   const isOwned = match.state === 'owned';
-  if (isOwned || match.state === 'possible') {
-    badge.className = isOwned ? 'hcl-owned-badge' : 'hcl-possible-badge';
-    badge.textContent = isOwned ? 'Owned' : 'Possible match';
-    badge.title = match.item.sourceBundle ? `${isOwned ? 'Owned' : 'Possibly owned'} from ${match.item.sourceBundle}` : isOwned ? 'In your local Humble library' : 'Review this match';
-    bundleItem.element.insertAdjacentElement('afterend', badge);
-    bundleItem.container?.classList.add(isOwned ? 'hcl-owned-item' : 'hcl-possible-item');
+  const isPossible = match.state === 'possible';
+  // The image wrapper scales on Humble hover, which turns a label attached to
+  // it into a giant pill. Anchor the status to the stable item card instead.
+  const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
+  badgeHost?.classList.add('hcl-badge-host');
+  if (badgeHost) {
+    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isPossible ? 'Possible' : 'New';
+    badgeHost.removeAttribute('title');
+  }
+  const stateClass = isOwned ? 'owned' : isPossible ? 'possible' : 'new';
+  bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
+  bundleItem.element.classList.add(`hcl-cover-${stateClass}`);
+  const card = findSingleCoverCard(bundleItem.element);
+  card?.classList.add(`hcl-card-${stateClass}`);
+  colorExactCardTitle(card, bundleItem.title, stateClass);
+  applyVisibleCardStatus(bundleItem.container, stateClass);
+  applyCoverStatus(bundleItem.element, stateClass);
+}
+
+function applyCoverStatus(cover, state) {
+  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  cover.style.setProperty('outline', `2px solid ${color}`, 'important');
+  cover.style.setProperty('outline-offset', '2px', 'important');
+  cover.style.removeProperty('box-shadow');
+}
+
+function applyVisibleCardStatus(card, state) {
+  if (!card) return;
+  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  // Humble attaches component CSS after the content script on some pages.
+  // Inline !important styles are intentional here: this is the visible,
+  // report-verified tier-item-details-view node, not an inferred wrapper.
+  card.style.removeProperty('border-left');
+  card.style.removeProperty('box-shadow');
+  card.style.removeProperty('background-color');
+  for (const text of card.querySelectorAll('h1, h2, h3, h4, h5, p, a, span')) {
+    if (!text.textContent?.trim()) continue;
+    text.style.setProperty('color', color, 'important');
   }
 }
 
-function renderComparisonSummary(counts, tiers) {
+function findSingleCoverCard(cover) {
+  let candidate = null;
+  for (let node = cover.parentElement; node && node !== document.body; node = node.parentElement) {
+    const covers = node.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
+    if (covers.length !== 1) break;
+    candidate = node;
+  }
+  return candidate;
+}
+
+function colorExactCardTitle(card, title, state) {
+  if (!card) return;
+  const expected = displayTitle(title).toLocaleLowerCase();
+  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  const candidates = [...card.querySelectorAll('*')].filter((element) => {
+    const text = displayTitle(element.textContent ?? '').toLocaleLowerCase();
+    return text === expected;
+  });
+  // Use the deepest exact match to avoid coloring the card wrapper when a
+  // smaller title element exists.
+  const titleElement = candidates.at(-1);
+  if (!titleElement) return;
+  titleElement.classList.add('hcl-title-colored');
+  titleElement.style.setProperty('color', color, 'important');
+  titleElement.style.setProperty('font-weight', '700', 'important');
+}
+
+function renderComparisonSummary(counts, tiers, titlesByState) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
   headline.textContent = `Your library: ${counts.owned} owned · ${counts.new} new`;
   summary.append(headline);
+  const legend = document.createElement('div');
+  legend.className = 'hcl-legend';
+  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-possible">Possible</span>';
+  summary.append(legend);
   if (counts.possible) {
     const possible = document.createElement('p');
     possible.textContent = `${counts.possible} possible match${counts.possible === 1 ? '' : 'es'} — not counted as owned.`;
@@ -220,6 +324,23 @@ function renderComparisonSummary(counts, tiers) {
     }
     summary.append(tierList);
   }
+  for (const state of ['owned', 'new', 'possible']) {
+    if (!titlesByState[state].length) continue;
+    const detail = document.createElement('details');
+    detail.className = 'hcl-title-list';
+    const heading = document.createElement('summary');
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'new' ? 'New' : 'Possible matches'} (${titlesByState[state].length})`;
+    detail.append(heading);
+    const list = document.createElement('ol');
+    for (const item of titlesByState[state].sort((left, right) => left.title.localeCompare(right.title))) {
+      const row = document.createElement('li');
+      row.textContent = displayTitle(item.title);
+      row.title = item.sourceBundle ? `Owned from ${item.sourceBundle}` : '';
+      list.append(row);
+    }
+    detail.append(list);
+    summary.append(detail);
+  }
   const diagnostic = document.createElement('button');
   diagnostic.className = 'hcl-diagnostic-button';
   diagnostic.textContent = 'Download detection report';
@@ -228,14 +349,40 @@ function renderComparisonSummary(counts, tiers) {
   document.body.append(summary);
 }
 
+function displayTitle(title) {
+  return String(title).replace(/\s+preview$/iu, '').trim();
+}
+
 function itemsForReport() {
   return collectBundleItems().map((item) => ({
     title: item.title,
     tier: item.tier,
     element: item.element.tagName,
     elementClass: item.element.className || null,
-    containerClass: item.container?.className || null
+    elementVisible: isVisible(item.element),
+    elementBounds: elementBounds(item.element),
+    containerClass: item.container?.className || null,
+    ancestors: ancestorSnapshot(item.element)
   }));
+}
+
+function isVisible(element) {
+  const style = getComputedStyle(element);
+  const bounds = element.getBoundingClientRect();
+  return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && bounds.width > 0 && bounds.height > 0;
+}
+
+function elementBounds(element) {
+  const bounds = element.getBoundingClientRect();
+  return { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+}
+
+function ancestorSnapshot(element) {
+  const ancestors = [];
+  for (let node = element.parentElement; node && ancestors.length < 6; node = node.parentElement) {
+    ancestors.push({ tag: node.tagName, id: node.id || null, className: node.className || null, bounds: elementBounds(node) });
+  }
+  return ancestors;
 }
 
 function downloadDetectionReport(items) {
