@@ -343,8 +343,8 @@ function renderComparisonSummary(counts, tiers, titlesByState) {
   }
   const diagnostic = document.createElement('button');
   diagnostic.className = 'hcl-diagnostic-button';
-  diagnostic.textContent = 'Download detection report';
-  diagnostic.addEventListener('click', () => downloadDetectionReport(itemsForReport()));
+  diagnostic.textContent = 'Download tier title list';
+  diagnostic.addEventListener('click', () => downloadTierTitleList(itemsForReport()));
   summary.append(diagnostic);
   document.body.append(summary);
 }
@@ -354,45 +354,24 @@ function displayTitle(title) {
 }
 
 function itemsForReport() {
-  return collectBundleItems().map((item) => ({
-    title: item.title,
-    tier: item.tier,
-    element: item.element.tagName,
-    elementClass: item.element.className || null,
-    elementVisible: isVisible(item.element),
-    elementBounds: elementBounds(item.element),
-    containerClass: item.container?.className || null,
-    ancestors: ancestorSnapshot(item.element)
-  }));
+  return collectBundleItems().map((item) => ({ title: displayTitle(item.title), tier: item.tier }));
 }
 
-function isVisible(element) {
-  const style = getComputedStyle(element);
-  const bounds = element.getBoundingClientRect();
-  return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && bounds.width > 0 && bounds.height > 0;
-}
-
-function elementBounds(element) {
-  const bounds = element.getBoundingClientRect();
-  return { width: Math.round(bounds.width), height: Math.round(bounds.height) };
-}
-
-function ancestorSnapshot(element) {
-  const ancestors = [];
-  for (let node = element.parentElement; node && ancestors.length < 6; node = node.parentElement) {
-    ancestors.push({ tag: node.tagName, id: node.id || null, className: node.className || null, bounds: elementBounds(node) });
+function downloadTierTitleList(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const group = groups.get(item.tier.label) ?? [];
+    group.push(item.title);
+    groups.set(item.tier.label, group);
   }
-  return ancestors;
-}
-
-function downloadDetectionReport(items) {
-  const report = {
-    page: location.href,
-    generatedAt: new Date().toISOString(),
-    detectedItems: items
-  };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
-  const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-bundle-detection-report.json' });
+  const lines = [document.title, location.href, ''];
+  for (const [tier, titles] of [...groups].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }))) {
+    lines.push(`${tier} — ${titles.length} title${titles.length === 1 ? '' : 's'}`);
+    for (const title of titles.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))) lines.push(`- ${title}`);
+    lines.push('');
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
+  const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-bundle-tier-titles.txt' });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
