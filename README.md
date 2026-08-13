@@ -9,10 +9,10 @@ A local-only browser extension that marks books or comics you already own while 
 - Import a local JSON library of title strings or `{ "title", "sourceBundle" }` records as a fallback.
 - See an `Owned`, `New`, or `Possible match` status for every detected item on Humble Books bundle pages. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
-- Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer.
+- Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
 - Export or clear the browser-local library.
 
-Nothing is sent anywhere except the Humble page already open in your browser. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie.
+Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie.
 
 ## Load it
 
@@ -36,4 +36,4 @@ Nothing is sent anywhere except the Humble page already open in your browser. Th
 
 ## Next milestone
 
-Improve title matching beyond exact normalized matches, then add a review queue for potential matches. Humble does not provide a stable public API, so the importer is deliberately defensive and reports unexpected responses instead of guessing.
+Add a review queue for conservative possible matches. Humble does not provide a stable public API, so the importer and tier-data reader are deliberately defensive and report unexpected responses instead of guessing.

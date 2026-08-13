@@ -183,11 +183,33 @@ function productContainer(element) {
 }
 
 function findTier(element) {
-  const tierElement = element.closest('[data-testid*="tier" i], [class*="tier" i], [data-tier]');
-  const text = tierElement?.textContent ?? element.parentElement?.parentElement?.textContent ?? '';
-  const price = extractPagePrice(text);
-  const label = price === null ? 'All detected items' : `$${price.toFixed(2)} tier`;
+  const tierElement = findTierContainer(element);
+  const price = tierElement ? extractTierPrice(tierElement) : null;
+  const label = price === null ? 'Unresolved tier' : `$${price.toFixed(2)} tier`;
   return { label, price };
+}
+
+function findTierContainer(element) {
+  for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+    if (node.hasAttribute('data-tier') || /tier(?:[-_](?!item\b)|\b)/iu.test(String(node.className ?? '')) && !/tier[-_]?item/iu.test(String(node.className ?? ''))) return node;
+  }
+  return null;
+}
+
+function extractTierPrice(tierElement) {
+  // A real tier heading precedes its item cards. Inspect headings/labels first
+  // so Packt's individual ebook retail values cannot be mistaken for the
+  // bundle price.
+  const preferred = tierElement.querySelectorAll('[data-testid*="tier" i], [class*="tier" i]:not([class*="tier-item" i]), h1, h2, h3, h4');
+  for (const element of preferred) {
+    const price = extractPagePrice(element.textContent);
+    if (price !== null) return price;
+  }
+  const text = tierElement.textContent ?? '';
+  // Only accept a fallback price when the tier explicitly frames it as a
+  // bundle threshold rather than merely listing a book's retail price.
+  const threshold = text.match(/(?:pay|tier|unlock|get)\D{0,40}(?:\$|USD\s*)(\d+(?:\.\d{1,2})?)/iu);
+  return threshold ? Number(threshold[1]) : null;
 }
 
 function extractPagePrice(text) {
@@ -343,8 +365,24 @@ function renderComparisonSummary(counts, tiers, titlesByState) {
   }
   const diagnostic = document.createElement('button');
   diagnostic.className = 'hcl-diagnostic-button';
-  diagnostic.textContent = 'Download tier title list';
-  diagnostic.addEventListener('click', () => downloadTierTitleList(itemsForReport()));
+  diagnostic.textContent = 'Download complete tier list';
+  diagnostic.title = 'Downloads Humble’s complete tier data without changing your selected tier.';
+  diagnostic.addEventListener('click', async () => {
+    diagnostic.disabled = true;
+    const originalLabel = diagnostic.textContent;
+    diagnostic.textContent = 'Preparing tier list…';
+    try {
+      const tierTitles = await tierTitlesFromPageData();
+      if (!tierTitles.size) throw new Error('This page does not expose complete tier data.');
+      downloadTierTitleList(tierTitles);
+    } catch (error) {
+      diagnostic.textContent = error.message;
+      setTimeout(() => { diagnostic.textContent = originalLabel; diagnostic.disabled = false; }, 2500);
+      return;
+    }
+    diagnostic.textContent = originalLabel;
+    diagnostic.disabled = false;
+  });
   summary.append(diagnostic);
   document.body.append(summary);
 }
@@ -353,20 +391,12 @@ function displayTitle(title) {
   return String(title).replace(/\s+preview$/iu, '').trim();
 }
 
-function itemsForReport() {
-  return collectBundleItems().map((item) => ({ title: displayTitle(item.title), tier: item.tier }));
-}
-
-function downloadTierTitleList(items) {
-  const groups = new Map();
-  for (const item of items) {
-    const group = groups.get(item.tier.label) ?? [];
-    group.push(item.title);
-    groups.set(item.tier.label, group);
-  }
+function downloadTierTitleList(tierTitles) {
   const lines = [document.title, location.href, ''];
-  for (const [tier, titles] of [...groups].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }))) {
-    lines.push(`${tier} — ${titles.length} title${titles.length === 1 ? '' : 's'}`);
+  const ordered = [...tierTitles.values()].sort((left, right) => left.price - right.price);
+  for (const tier of ordered) {
+    const titles = [...tier.titles.values()];
+    lines.push(`${tier.label} — ${titles.length} title${titles.length === 1 ? '' : 's'}`);
     for (const title of titles.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))) lines.push(`- ${title}`);
     lines.push('');
   }
@@ -374,6 +404,42 @@ function downloadTierTitleList(items) {
   const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-bundle-tier-titles.txt' });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function tierTitlesFromPageData() {
+  // Some Humble page variants hydrate this JSON after the content script runs,
+  // so read the DOM first and then use a same-origin page fetch as a fallback.
+  let source = document.querySelector('#webpack-bundle-page-data')?.textContent?.trim();
+  if (!source) {
+    try {
+      const response = await fetch(location.href, { credentials: 'same-origin' });
+      const html = await response.text();
+      source = html.match(/<script\s+id=["']webpack-bundle-page-data["'][^>]*>\s*([\s\S]*?)\s*<\/script>/iu)?.[1];
+    } catch (error) {
+      console.warn('Humble Comic Library could not retrieve this bundle page:', error);
+    }
+  }
+  if (!source) return new Map();
+  try {
+    const bundle = JSON.parse(source).bundleData;
+    if (!bundle?.tier_display_data || !bundle?.tier_pricing_data || !bundle?.tier_item_data) return new Map();
+    const tierTitles = new Map();
+    for (const identifier of bundle.tier_order ?? Object.keys(bundle.tier_display_data)) {
+      const display = bundle.tier_display_data[identifier];
+      const price = Number(bundle.tier_pricing_data[identifier]?.['price|money']?.amount);
+      if (!display || !Number.isFinite(price)) continue;
+      const titles = new Map();
+      for (const itemId of display.tier_item_machine_names ?? []) {
+        const title = bundle.tier_item_data[itemId]?.human_name;
+        if (title) titles.set(HumbleComicLibrary.titleKey(title), displayTitle(title));
+      }
+      tierTitles.set(identifier, { label: `$${price.toFixed(2)} tier`, price, titles });
+    }
+    return tierTitles;
+  } catch (error) {
+    console.warn('Humble Comic Library could not read the page tier data:', error);
+    return new Map();
+  }
 }
 
 function addPurchaseImporter() {
