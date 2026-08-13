@@ -12,6 +12,20 @@
 
 .hcl-owned-item { opacity: 0.62; }
 
+.hcl-possible-badge {
+  display: inline-block;
+  margin: 0.35rem 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #b06d00;
+  color: #fff;
+  font: 700 0.75rem/1 Arial, sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hcl-possible-item { outline: 2px dashed #b06d00; outline-offset: 0.25rem; }
+
 .hcl-summary {
   position: fixed;
   right: 1rem;
@@ -25,6 +39,11 @@
   color: #fff;
   font: 600 0.875rem/1.35 Arial, sans-serif;
 }
+
+.hcl-summary strong { display: block; }
+.hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
+.hcl-summary ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.8rem; }
+.hcl-diagnostic-button { margin-top: 0.75rem; padding: 0.35rem 0.45rem; border: 1px solid #777; border-radius: 0.25rem; background: transparent; color: inherit; font: inherit; font-size: 0.75rem; cursor: pointer; }
 
 .hcl-importer {
   display: flex;

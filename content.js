@@ -21,51 +21,234 @@
     byKey.set(key, existing);
   }
 
-  const seen = new Set();
-  let owned = 0;
-  let candidates = 0;
-
-  function likelyBookTitle(element) {
-    const text = element.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
-    if (text.length < 2 || text.length > 180) return null;
-    const ignored = /^(buy|pay|details|learn more|view all|share|books|bundle)$/iu;
-    return ignored.test(text) ? null : text;
-  }
-
-  // Humble changes class names regularly. Prefer likely product headings and retain
-  // data attributes as a second source when present.
-  const selector = [
-    '[data-testid*="product" i] h1', '[data-testid*="product" i] h2', '[data-testid*="product" i] h3',
-    '[class*="product" i] h1', '[class*="product" i] h2', '[class*="product" i] h3',
-    '[class*="item" i] h2', '[class*="item" i] h3'
-  ].join(', ');
-
-  for (const heading of document.querySelectorAll(selector)) {
-    if (seen.has(heading)) continue;
-    seen.add(heading);
-    const title = likelyBookTitle(heading);
-    if (!title) continue;
-    candidates += 1;
-    const matches = byKey.get(HumbleComicLibrary.titleKey(title));
-    if (!matches?.length) continue;
-
-    owned += 1;
-    const item = matches[0];
-    const badge = document.createElement('span');
-    badge.className = 'hcl-owned-badge';
-    badge.textContent = 'Owned';
-    badge.title = item.sourceBundle ? `Owned from ${item.sourceBundle}` : 'In your local Humble library';
-    heading.insertAdjacentElement('afterend', badge);
-    heading.closest('[class*="product" i], [class*="item" i], li, article')?.classList.add('hcl-owned-item');
-  }
-
-  if (candidates) {
-    const summary = document.createElement('aside');
-    summary.className = 'hcl-summary';
-    summary.textContent = `Humble Comic Library: ${owned} of ${candidates} detected titles owned`;
-    document.body.append(summary);
-  }
+  const libraryByKey = new Map([...byKey].map(([key, items]) => [key, items[0]]));
+  let refreshTimer;
+  const refresh = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey), 150);
+  };
+  refresh();
+  new MutationObserver((records) => {
+    if (records.some((record) => [...record.addedNodes, ...record.removedNodes].some(isNonHclNode))) refresh();
+  }).observe(document.documentElement, { childList: true, subtree: true });
 }()).catch((error) => console.warn('Humble Comic Library failed to initialise:', error));
+
+function isNonHclNode(node) {
+  if (node.nodeType === Node.TEXT_NODE) return !node.parentElement?.closest('[id^="hcl-"], [class^="hcl-"]');
+  return node.nodeType !== Node.ELEMENT_NODE || !node.matches?.('[id^="hcl-"], [class^="hcl-"]') && !node.closest?.('[id^="hcl-"], [class^="hcl-"]');
+}
+
+function renderBundleComparison(libraryByKey) {
+  document.querySelectorAll('.hcl-owned-badge, .hcl-possible-badge').forEach((badge) => badge.remove());
+  document.querySelectorAll('.hcl-owned-item, .hcl-possible-item').forEach((item) => item.classList.remove('hcl-owned-item', 'hcl-possible-item'));
+  document.querySelector('#hcl-summary')?.remove();
+
+  const items = collectBundleItems();
+  if (!items.length) return;
+  const counts = { owned: 0, possible: 0, new: 0 };
+  const tiers = new Map();
+  for (const item of items) {
+    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
+    const possible = exact ? null : findPossibleMatch(item.title, libraryByKey);
+    const match = exact ? { state: 'owned', item: exact } : possible ? { state: 'possible', item: possible } : { state: 'new' };
+    counts[match.state] += 1;
+    annotateBundleItem(item, match);
+    const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, possible: 0 };
+    tier.total += 1;
+    if (match.state === 'owned') tier.owned += 1;
+    if (match.state === 'possible') tier.possible += 1;
+    tiers.set(item.tier.label, tier);
+  }
+  renderComparisonSummary(counts, tiers);
+}
+
+function collectBundleItems() {
+  const coverItems = collectCoverImageItems();
+  // On current Humble bundle pages the cover image alt text is the item title.
+  // It is much less ambiguous than nearby headings, which can include author,
+  // promotion, or cumulative-tier text. Keep the heading strategy solely as a
+  // fallback for older layouts without usable cover alt text.
+  if (coverItems.length) return coverItems;
+
+  const candidates = new Set();
+  const titleSelector = [
+    '[data-testid*="product" i] [data-testid*="title" i]',
+    '[data-testid*="item" i] [data-testid*="title" i]',
+    '[class*="product" i] h2', '[class*="product" i] h3', '[class*="product" i] h4',
+    '[class*="item" i] h2', '[class*="item" i] h3', '[class*="item" i] h4',
+    '[class*="entity" i] h2', '[class*="entity" i] h3', '[class*="entity" i] h4'
+  ].join(', ');
+  document.querySelectorAll(titleSelector).forEach((element) => candidates.add(element));
+
+  // The last fallback intentionally requires a product-like ancestor so page
+  // headings, navigation and tier names do not become false book titles.
+  document.querySelectorAll('h2, h3, h4').forEach((element) => {
+    if (element.closest('[data-testid*="product" i], [data-testid*="item" i], [class*="product" i], [class*="item" i], [class*="entity" i]')) candidates.add(element);
+  });
+
+  const byKey = new Map();
+  for (const element of candidates) {
+    const title = likelyBookTitle(element);
+    if (!title) continue;
+    const key = HumbleComicLibrary.titleKey(title);
+    if (!key || byKey.has(key)) continue;
+    byKey.set(key, { title, element, container: productContainer(element), tier: findTier(element) });
+  }
+  const items = [...byKey.values()];
+  // A bundle detail page may include an un-tiered all-items gallery for
+  // browsing. When the same page also exposes priced tier groups, the gallery
+  // must not become a fourth tier or double the bundle total.
+  const tieredItems = items.filter((item) => item.tier.price !== null);
+  return tieredItems.length ? tieredItems : items;
+}
+
+function collectCoverImageItems() {
+  const byKey = new Map();
+  const images = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
+  for (const image of images) {
+    const title = String(image.alt ?? '').replace(/\s+/gu, ' ').trim();
+    if (!likelyBookTitle({ textContent: title })) continue;
+    const key = HumbleComicLibrary.titleKey(title);
+    if (!key) continue;
+    const container = productContainer(image);
+    // Ignore a campaign/brand image that happens to live in a generic product
+    // wrapper. Book covers have a non-empty alt and a reasonably local card.
+    if (!container || container === document.body) continue;
+    const candidate = { title, element: image, container, tier: findTier(image) };
+    const existing = byKey.get(key);
+    // Humble often renders the same cover in an un-tiered gallery and in the
+    // paid tier where it belongs. Prefer the paid-tier copy so counts remain
+    // correct and a book is counted only once.
+    if (!existing || (existing.tier.price === null && candidate.tier.price !== null)) byKey.set(key, candidate);
+  }
+  const items = [...byKey.values()];
+  // A bundle detail page may include an un-tiered all-items gallery for
+  // browsing. When the same page also exposes priced tier groups, the gallery
+  // must not become a fourth tier or double the bundle total.
+  const tieredItems = items.filter((item) => item.tier.price !== null);
+  return tieredItems.length ? tieredItems : items;
+}
+
+function likelyBookTitle(element) {
+  const text = element.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+  if (text.length < 2 || text.length > 180) return null;
+  const ignored = /^(buy|pay|details|learn more|view all|share|books|bundle|choose what you pay|about this bundle)$/iu;
+  return ignored.test(text) || /^\$?\d+(?:\.\d{2})?$/u.test(text) ? null : text;
+}
+
+function productContainer(element) {
+  return element.parentElement?.closest('[data-testid*="product" i], [data-testid*="item" i], [class*="product" i], [class*="item" i], [class*="entity" i], li, article') ?? element.parentElement;
+}
+
+function findTier(element) {
+  const tierElement = element.closest('[data-testid*="tier" i], [class*="tier" i], [data-tier]');
+  const text = tierElement?.textContent ?? element.parentElement?.parentElement?.textContent ?? '';
+  const price = extractPagePrice(text);
+  const label = price === null ? 'All detected items' : `$${price.toFixed(2)} tier`;
+  return { label, price };
+}
+
+function extractPagePrice(text) {
+  const match = String(text).match(/(?:\$|USD\s*)(\d+(?:\.\d{1,2})?)/iu);
+  return match ? Number(match[1]) : null;
+}
+
+function findPossibleMatch(title, libraryByKey) {
+  const titleTokens = significantTokens(title);
+  if (titleTokens.size < 2) return null;
+  let best = null;
+  for (const [key, item] of libraryByKey) {
+    const candidateTokens = new Set(key.split(' ').filter(Boolean));
+    const overlap = [...titleTokens].filter((token) => candidateTokens.has(token)).length;
+    const score = overlap / new Set([...titleTokens, ...candidateTokens]).size;
+    // Potential matches are never counted as owned. This deliberately high
+    // threshold catches trivial title variation while avoiding guesswork.
+    if (score >= 0.82 && (!best || score > best.score)) best = { item, score };
+  }
+  return best?.item ?? null;
+}
+
+function significantTokens(title) {
+  const ignore = new Set(['the', 'and', 'of', 'a', 'an', 'vol', 'volume', 'book', 'edition']);
+  return new Set(HumbleComicLibrary.titleKey(title).split(' ').filter((token) => token.length > 1 && !ignore.has(token)));
+}
+
+function annotateBundleItem(bundleItem, match) {
+  if (!bundleItem.element.isConnected) return;
+  const badge = document.createElement('span');
+  const isOwned = match.state === 'owned';
+  if (isOwned || match.state === 'possible') {
+    badge.className = isOwned ? 'hcl-owned-badge' : 'hcl-possible-badge';
+    badge.textContent = isOwned ? 'Owned' : 'Possible match';
+    badge.title = match.item.sourceBundle ? `${isOwned ? 'Owned' : 'Possibly owned'} from ${match.item.sourceBundle}` : isOwned ? 'In your local Humble library' : 'Review this match';
+    bundleItem.element.insertAdjacentElement('afterend', badge);
+    bundleItem.container?.classList.add(isOwned ? 'hcl-owned-item' : 'hcl-possible-item');
+  }
+}
+
+function renderComparisonSummary(counts, tiers) {
+  const summary = document.createElement('aside');
+  summary.id = 'hcl-summary';
+  summary.className = 'hcl-summary';
+  const headline = document.createElement('strong');
+  headline.textContent = `Your library: ${counts.owned} owned · ${counts.new} new`;
+  summary.append(headline);
+  if (counts.possible) {
+    const possible = document.createElement('p');
+    possible.textContent = `${counts.possible} possible match${counts.possible === 1 ? '' : 'es'} — not counted as owned.`;
+    summary.append(possible);
+  }
+  if (tiers.size > 1 || [...tiers.values()][0]?.price !== null) {
+    const tierList = document.createElement('ul');
+    const orderedTiers = [...tiers.values()].sort((left, right) => (left.price ?? Number.POSITIVE_INFINITY) - (right.price ?? Number.POSITIVE_INFINITY));
+    let cumulativeTotal = 0;
+    let cumulativeOwned = 0;
+    let cumulativePossible = 0;
+    for (const tier of orderedTiers) {
+      // Humble's price levels are cumulative: the $15 level includes $5 items,
+      // and so on. Each visual group contains the items first unlocked at that
+      // price, so display the total actually received at each tier.
+      cumulativeTotal += tier.total;
+      cumulativeOwned += tier.owned;
+      cumulativePossible += tier.possible;
+      const newItems = cumulativeTotal - cumulativeOwned - cumulativePossible;
+      const row = document.createElement('li');
+      const priceText = tier.price === null ? tier.label : `${tier.label}: `;
+      const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
+      row.textContent = `${priceText}${newItems} confirmed new / ${cumulativeTotal} items${perNew}`;
+      tierList.append(row);
+    }
+    summary.append(tierList);
+  }
+  const diagnostic = document.createElement('button');
+  diagnostic.className = 'hcl-diagnostic-button';
+  diagnostic.textContent = 'Download detection report';
+  diagnostic.addEventListener('click', () => downloadDetectionReport(itemsForReport()));
+  summary.append(diagnostic);
+  document.body.append(summary);
+}
+
+function itemsForReport() {
+  return collectBundleItems().map((item) => ({
+    title: item.title,
+    tier: item.tier,
+    element: item.element.tagName,
+    elementClass: item.element.className || null,
+    containerClass: item.container?.className || null
+  }));
+}
+
+function downloadDetectionReport(items) {
+  const report = {
+    page: location.href,
+    generatedAt: new Date().toISOString(),
+    detectedItems: items
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+  const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-bundle-detection-report.json' });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 function addPurchaseImporter() {
   if (document.querySelector('#hcl-importer')) return;

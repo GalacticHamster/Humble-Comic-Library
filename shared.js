@@ -3,6 +3,7 @@
   'use strict';
 
   const FORMAT_WORDS = /\b(?:pdf|cbz|cbr|epub|mobi|kindle|digital\s+edition)\b/giu;
+  const PRESENTATION_WORDS = /\b(?:preview|sample|read\s+now)\b/giu;
   const ROMAN_NUMERALS = new Map([
     ['i', '1'], ['ii', '2'], ['iii', '3'], ['iv', '4'], ['v', '5'],
     ['vi', '6'], ['vii', '7'], ['viii', '8'], ['ix', '9'], ['x', '10']
@@ -15,6 +16,7 @@
       .toLowerCase()
       .replace(/&/gu, ' and ')
       .replace(FORMAT_WORDS, ' ')
+      .replace(PRESENTATION_WORDS, ' ')
       .replace(/\bvolume\b|\bvol\.?\b/giu, ' vol ')
       .replace(/[’'`]/gu, '')
       .replace(/[^a-z0-9]+/gu, ' ')
