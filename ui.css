@@ -1,0 +1,12 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: Canvas; color: CanvasText; }
+main { padding: 1.25rem; }
+.popup { min-width: 20rem; }
+.popup h1, .settings h1 { margin-top: 0; font-size: 1.25rem; }
+.settings { max-width: 45rem; margin: 2rem auto; }
+section { margin-top: 2rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+button { padding: 0.55rem 0.8rem; cursor: pointer; }
+.danger { color: #fff; background: #a51d2d; border-color: #a51d2d; }
+.actions { display: flex; gap: 0.75rem; }
+#library-preview { max-height: 24rem; overflow: auto; padding-left: 1.5rem; }
+code { font-family: ui-monospace, monospace; }

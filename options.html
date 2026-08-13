@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Humble Comic Library settings</title><link rel="stylesheet" href="ui.css"></head>
+  <body>
+    <main class="settings">
+      <h1>Humble Comic Library</h1>
+      <p>Your library stays in this browser. This starter imports a JSON list now; the authenticated Humble importer is the next milestone.</p>
+      <section>
+        <h2>Import from Humble</h2>
+        <p>While signed into Humble in this browser, open your Purchases page and select <em>Import book &amp; comic titles</em>. The importer only requests Humble purchase records and only saves detected DRM-free book/comic titles locally.</p>
+        <button id="open-purchases">Open Humble purchases importer</button>
+        <p id="last-import" role="status"></p>
+      </section>
+      <section>
+        <h2>Import titles</h2>
+        <p>Choose a JSON file containing either an array of title strings, or objects with <code>title</code> and optional <code>sourceBundle</code> fields.</p>
+        <input id="import-file" type="file" accept="application/json,.json">
+        <p id="import-status" role="status"></p>
+      </section>
+      <section>
+        <h2>Library</h2>
+        <p id="library-count">Loading…</p>
+        <div class="actions"><button id="export-library">Export backup</button><button id="clear-library" class="danger">Clear library</button></div>
+        <ol id="library-preview"></ol>
+      </section>
+    </main>
+    <script src="shared.js"></script><script src="options.js"></script>
+  </body>
+</html>

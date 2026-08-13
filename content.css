@@ -1,0 +1,48 @@
+.hcl-owned-badge {
+  display: inline-block;
+  margin: 0.35rem 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #0a7a42;
+  color: #fff;
+  font: 700 0.75rem/1 Arial, sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hcl-owned-item { opacity: 0.62; }
+
+.hcl-summary {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2147483647;
+  max-width: 22rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.5rem;
+  background: #171717;
+  box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 35%);
+  color: #fff;
+  font: 600 0.875rem/1.35 Arial, sans-serif;
+}
+
+.hcl-importer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  box-sizing: border-box;
+  width: min(72rem, calc(100% - 2rem));
+  margin: 1rem auto;
+  padding: 0.85rem 1rem;
+  border: 1px solid #16814b;
+  border-radius: 0.5rem;
+  background: #f3fff7;
+  color: #12261a;
+  font: 500 0.9rem/1.35 Arial, sans-serif;
+}
+
+.hcl-importer strong { color: #075c30; }
+.hcl-importer button { margin-left: auto; padding: 0.45rem 0.7rem; border: 0; border-radius: 0.25rem; background: #0a7a42; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.hcl-importer button:disabled { cursor: progress; opacity: 0.7; }
+.hcl-importer output { flex-basis: 100%; font-size: 0.82rem; }

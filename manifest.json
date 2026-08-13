@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Humble Comic Library",
+  "version": "0.1.0",
+  "description": "Locally mark Humble Bundle books and comics you already own.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.humblebundle.com/*"],
+  "action": {
+    "default_title": "Humble Comic Library",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://www.humblebundle.com/*"],
+      "js": ["shared.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
