@@ -4,4 +4,4 @@ node_modules/
 dist/
 
 # Never commit a personal library export or browser profile data.
-library-export*.json
+*library-export*.json

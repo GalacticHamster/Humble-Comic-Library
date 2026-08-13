@@ -19,7 +19,7 @@ Nothing is sent anywhere except the Humble page already open in your browser. Th
 3. Select **Load unpacked** and choose this folder.
 4. For a Humble import, open **Extension options**, select **Open Humble purchases importer**, and click **Import book & comic titles** on that page. Keep the page open until it completes.
 
-   The importer requests Humble's purchase list and each purchase's detail record through the tab where you are already signed in. It extracts only item names that have a DRM-free book/comic download (PDF, EPUB, CBZ, CBR, or MOBI), then retains the title, purchase date, bundle name, and purchase key in browser-local extension storage. It does not store the response or any account session token.
+   The importer requests Humble's purchase list and each purchase's detail record through the tab where you are already signed in. It extracts only item names that have a DRM-free book/comic download (PDF, EPUB, CBZ, CBR, or MOBI), then retains the title, purchase date when Humble supplies it, bundle name, and purchase key in browser-local extension storage. It also records each purchase separately with its paid price and a `pricePerItem` value (paid price divided by detected book/comic items). It does not store the response or any account session token. Re-importing is safe and can fill in additional metadata without duplicating titles.
 
 5. Or use the manual JSON importer:
 

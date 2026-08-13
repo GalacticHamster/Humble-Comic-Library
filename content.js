@@ -83,7 +83,7 @@ function addPurchaseImporter() {
     button.disabled = true;
     try {
       const result = await importPurchases((message) => { status.textContent = message; });
-      status.textContent = `Imported ${result.added} new title${result.added === 1 ? '' : 's'}; ${result.total} total in your local library.`;
+      status.textContent = `Imported ${result.added} new title${result.added === 1 ? '' : 's'}${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; found prices for ${result.pricedPurchases} purchase${result.pricedPurchases === 1 ? '' : 's'}; ${result.total} total titles.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
       console.warn('Humble Comic Library import failed:', error);
@@ -103,6 +103,7 @@ async function importPurchases(report) {
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
 
   const imported = [];
+  const purchaseSummaries = [];
   const failures = [];
   for (let index = 0; index < orderList.length; index += 1) {
     const order = orderList[index];
@@ -111,7 +112,9 @@ async function importPurchases(report) {
     report(`Checking purchase ${index + 1} of ${orderList.length}…`);
     try {
       const detail = await fetchJson(`/api/v1/order/${encodeURIComponent(key)}`);
-      imported.push(...extractBookItems(detail, order, key));
+      const items = extractBookItems(detail, order, key);
+      imported.push(...items);
+      purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
     } catch (error) {
       failures.push(key);
       console.warn(`Could not import Humble purchase ${key}:`, error);
@@ -120,12 +123,23 @@ async function importPurchases(report) {
     await new Promise((resolve) => setTimeout(resolve, 175));
   }
 
-  const { libraryItems = [] } = await chrome.storage.local.get({ libraryItems: [] });
+  const { libraryItems = [], purchaseSummaries: existingPurchases = [] } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
   const merged = new Map(libraryItems.map((item) => [HumbleComicLibrary.titleKey(item.title), item]));
   let added = 0;
+  let datesBackfilled = 0;
   for (const item of imported) {
     const key = HumbleComicLibrary.titleKey(item.title);
-    if (!key || merged.has(key)) continue;
+    if (!key) continue;
+    const existing = merged.get(key);
+    if (existing) {
+      // Re-imports are safe and let us enrich older entries when Humble reveals
+      // more purchase metadata than an earlier response exposed.
+      if (!existing.purchasedAt && item.purchasedAt) {
+        merged.set(key, { ...existing, purchasedAt: item.purchasedAt, purchaseKey: existing.purchaseKey || item.purchaseKey });
+        datesBackfilled += 1;
+      }
+      continue;
+    }
     merged.set(key, item);
     added += 1;
   }
@@ -133,10 +147,14 @@ async function importPurchases(report) {
     importedAt: new Date().toISOString(),
     scannedPurchases: orderList.length,
     addedTitles: added,
+    datesBackfilled,
+    pricedPurchases: purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length,
     skippedPurchases: failures.length
   };
-  await chrome.storage.local.set({ libraryItems: [...merged.values()], lastImport: importSummary });
-  return { added, total: merged.size, failures: failures.length };
+  const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
+  for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
+  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary });
+  return { added, datesBackfilled, pricedPurchases: importSummary.pricedPurchases, total: merged.size, failures: failures.length };
 }
 
 async function fetchJson(path) {
@@ -152,8 +170,8 @@ async function fetchJson(path) {
 function extractBookItems(detail, order, purchaseKey) {
   const products = Array.isArray(detail?.subproducts) ? detail.subproducts
     : Array.isArray(detail?.products) ? detail.products : [];
-  const sourceBundle = String(order.product?.human_name ?? order.product ?? detail?.product?.human_name ?? detail?.product ?? order.name ?? '').trim();
-  const purchasedAt = order.created ?? order.created_at ?? order.purchase_date ?? null;
+  const sourceBundle = extractBundleName(order, detail);
+  const purchasedAt = extractPurchasedAt(order, detail);
   const candidates = products.length ? products : [detail];
   return candidates
     .filter(hasBookDownload)
@@ -166,6 +184,123 @@ function extractBookItems(detail, order, purchaseKey) {
       purchaseKey,
       purchasedAt
     }));
+}
+
+function createPurchaseSummary(detail, order, purchaseKey, items) {
+  const price = extractPaidPrice(order, detail);
+  const itemCount = items.length;
+  return {
+    purchaseKey,
+    sourceBundle: extractBundleName(order, detail),
+    purchasedAt: extractPurchasedAt(order, detail),
+    itemCount,
+    pricePaid: price.amount,
+    currency: price.currency,
+    pricePerItem: price.amount !== null && itemCount ? roundMoney(price.amount / itemCount) : null
+  };
+}
+
+function extractBundleName(order, detail) {
+  return String(order.product?.human_name ?? order.product ?? detail?.product?.human_name ?? detail?.product ?? order.name ?? '').trim();
+}
+
+function extractPurchasedAt(order, detail) {
+  // The purchase-list endpoint has used different names across Humble's site
+  // revisions, and some accounts expose the timestamp only in order detail.
+  // Inspect only order-level metadata so an e-book's publication date cannot
+  // accidentally become its Humble purchase date.
+  const records = [
+    order,
+    order?.order,
+    order?.purchase,
+    order?.metadata,
+    detail,
+    detail?.order,
+    detail?.purchase,
+    detail?.metadata
+  ];
+  const dateKeys = ['purchased_at', 'purchase_date', 'order_date', 'created_at', 'created', 'date', 'timestamp'];
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    for (const key of dateKeys) {
+      const normalized = normalizeDate(record[key]);
+      if (normalized) return normalized;
+    }
+  }
+  return null;
+}
+
+function extractPaidPrice(order, detail) {
+  // Like the date, payment data has changed names over the lifetime of the
+  // purchase API. Restrict this search to order/payment metadata: individual
+  // books often have a list price, which is not what the customer paid.
+  const records = [
+    order,
+    order?.order,
+    order?.purchase,
+    order?.payment,
+    order?.metadata,
+    detail,
+    detail?.order,
+    detail?.purchase,
+    detail?.payment,
+    detail?.metadata
+  ];
+  const priceKeys = ['amount_paid', 'amount_spent', 'price_paid', 'total_amount', 'amount', 'total', 'price'];
+  let currency = null;
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    currency ??= normalizeCurrency(record.currency_code ?? record.currency ?? record.iso_currency);
+    for (const key of priceKeys) {
+      const amount = normalizeMoney(record[key]);
+      if (amount !== null) return { amount, currency: currency ?? currencyFromValue(record[key]) };
+    }
+  }
+  return { amount: null, currency };
+}
+
+function normalizeMoney(value) {
+  if (typeof value === 'object' && value) value = value.amount ?? value.value ?? null;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    // Whole values in the thousands are conventionally minor units. A Humble
+    // bundle price above $500 is implausible, so this avoids showing 1500.00
+    // when the response means 15.00.
+    return roundMoney(value >= 500 ? value / 100 : value);
+  }
+  if (typeof value !== 'string') return null;
+  const match = value.replace(/,/gu, '').match(/-?\d+(?:\.\d+)?/u);
+  if (!match) return null;
+  const amount = Number(match[0]);
+  return Number.isFinite(amount) && amount >= 0 ? roundMoney(amount) : null;
+}
+
+function normalizeCurrency(value) {
+  return typeof value === 'string' && /^[A-Z]{3}$/iu.test(value.trim()) ? value.trim().toUpperCase() : null;
+}
+
+function currencyFromValue(value) {
+  if (typeof value !== 'string') return null;
+  const code = value.match(/\b([A-Z]{3})\b/iu)?.[1];
+  if (code) return code.toUpperCase();
+  return value.includes('$') ? 'USD' : value.includes('€') ? 'EUR' : value.includes('£') ? 'GBP' : null;
+}
+
+function roundMoney(value) {
+  return Math.round((value + Number.EPSILON) * 10000) / 10000;
+}
+
+function normalizeDate(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const milliseconds = value < 100000000000 ? value * 1000 : value;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const trimmed = value.trim();
+  if (/^\d{10,13}$/u.test(trimmed)) return normalizeDate(Number(trimmed));
+  // Preserve an API-provided date string if the browser can validate it. This
+  // keeps the original timezone where Humble supplied one.
+  return Number.isNaN(Date.parse(trimmed)) ? null : trimmed;
 }
 
 function hasBookDownload(product) {
