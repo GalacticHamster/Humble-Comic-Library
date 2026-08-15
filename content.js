@@ -226,6 +226,14 @@ function extractPagePrice(text) {
 }
 
 function findPossibleMatch(title, libraryByKey) {
+  const numberedBase = numberedTitleBase(title);
+  if (numberedBase) {
+    const candidate = libraryByKey.get(numberedBase);
+    // A listing such as "HAPPY 1" may be an issue-numbered presentation of
+    // an imported title such as "Happy!". Keep this conservative: it is a
+    // Possible match, never an automatic ownership claim.
+    if (candidate) return candidate;
+  }
   const titleTokens = significantTokens(title);
   if (titleTokens.size < 2) return null;
   let best = null;
@@ -238,6 +246,12 @@ function findPossibleMatch(title, libraryByKey) {
     if (score >= 0.82 && (!best || score > best.score)) best = { item, score };
   }
   return best?.item ?? null;
+}
+
+function numberedTitleBase(title) {
+  const key = HumbleComicLibrary.titleKey(title);
+  const match = /^(.*?)\s+#?(\d+)$/u.exec(key);
+  return match?.[1]?.trim() || null;
 }
 
 function findOwnedVolumeRange(title, libraryByKey) {
