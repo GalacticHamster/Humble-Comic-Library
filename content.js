@@ -6,10 +6,11 @@
     return;
   }
 
-  if (!location.pathname.startsWith('/books/')) return;
+  const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
+  if (!itemKind) return;
 
   const storage = await chrome.storage.local.get({ libraryItems: [] });
-  const libraryItems = storage.libraryItems;
+  const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
   if (!libraryItems.length) return;
 
   const byKey = new Map();
@@ -25,7 +26,7 @@
   let refreshTimer;
   const refresh = () => {
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey), 150);
+    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind), 150);
   };
   refresh();
   window.addEventListener('resize', refresh, { passive: true });
@@ -37,7 +38,7 @@
     if (!records.length) return;
     const nextCoverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
     const coversLostAnnotations = [...document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')]
-      .some((cover) => likelyBookTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
+      .some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
     if (nextCoverCount !== coverCount || coversLostAnnotations) {
       coverCount = nextCoverCount;
       refresh();
@@ -45,7 +46,7 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
 }()).catch((error) => console.warn('Humble Comic Library failed to initialise:', error));
 
-function renderBundleComparison(libraryByKey) {
+function renderBundleComparison(libraryByKey, itemKind) {
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -78,7 +79,7 @@ function renderBundleComparison(libraryByKey) {
   for (const item of items) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
     const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
-    const possible = exact || volumeRange ? null : findPossibleMatch(item.title, libraryByKey);
+    const possible = exact || volumeRange ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
@@ -100,7 +101,7 @@ function renderBundleComparison(libraryByKey) {
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
   annotateAllCoverCopies(matchesByTitleKey);
-  renderComparisonSummary(counts, tiers, titlesByState);
+  renderComparisonSummary(counts, tiers, titlesByState, itemKind);
 }
 
 function annotateAllCoverCopies(matchesByTitleKey) {
@@ -138,7 +139,7 @@ function collectBundleItems() {
 
   const byKey = new Map();
   for (const element of candidates) {
-    const title = likelyBookTitle(element);
+    const title = likelyItemTitle(element);
     if (!title) continue;
     const key = HumbleComicLibrary.titleKey(title);
     if (!key || byKey.has(key)) continue;
@@ -157,7 +158,7 @@ function collectCoverImageItems() {
   const images = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
   for (const image of images) {
     const title = String(image.alt ?? '').replace(/\s+/gu, ' ').trim();
-    if (!likelyBookTitle({ textContent: title })) continue;
+    if (!likelyItemTitle({ textContent: title })) continue;
     const key = HumbleComicLibrary.titleKey(title);
     if (!key) continue;
     const container = productContainer(image);
@@ -179,10 +180,10 @@ function collectCoverImageItems() {
   return tieredItems.length ? tieredItems : items;
 }
 
-function likelyBookTitle(element) {
+function likelyItemTitle(element) {
   const text = element.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
   if (text.length < 2 || text.length > 180) return null;
-  const ignored = /^(buy|pay|details|learn more|view all|share|books|bundle|choose what you pay|about this bundle)$/iu;
+  const ignored = /^(buy|pay|details|learn more|view all|share|books|games|bundle|choose what you pay|about this bundle)$/iu;
   return ignored.test(text) || /^\$?\d+(?:\.\d{2})?$/u.test(text) ? null : text;
 }
 
@@ -225,7 +226,7 @@ function extractPagePrice(text) {
   return match ? Number(match[1]) : null;
 }
 
-function findPossibleMatch(title, libraryByKey) {
+function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
   const numberedBase = numberedTitleBase(title);
   if (numberedBase) {
     const candidate = libraryByKey.get(numberedBase);
@@ -233,6 +234,15 @@ function findPossibleMatch(title, libraryByKey) {
     // an imported title such as "Happy!". Keep this conservative: it is a
     // Possible match, never an automatic ownership claim.
     if (candidate) return candidate;
+  }
+  if (itemKind === 'game') {
+    const editionBase = gameEditionBase(title);
+    const candidate = editionBase ? findGameEditionMatch(editionBase, libraryByKey) : null;
+    // Store editions and collections often differ only by DLC. Treat this as
+    // a Possible match so the user can review it, never as ownership.
+    if (candidate) return candidate;
+    const component = findGameCollectionOrComponentMatch(title, libraryByKey);
+    if (component) return component;
   }
   const titleTokens = significantTokens(title);
   if (titleTokens.size < 2) return null;
@@ -252,6 +262,45 @@ function numberedTitleBase(title) {
   const key = HumbleComicLibrary.titleKey(title);
   const match = /^(.*?)\s+#?(\d+)$/u.exec(key);
   return match?.[1]?.trim() || null;
+}
+
+function gameEditionBase(title) {
+  const key = HumbleComicLibrary.titleKey(title);
+  const base = key
+    .replace(/\b(?:standard|super|deluxe|ultimate|complete|definitive|collectors?|anniversary|remastered|enhanced|gold|premium|edition)\b/giu, ' ')
+    .replace(/\bgame of the year\b|\bgoty\b/giu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return base && base !== key ? base : null;
+}
+
+function findGameEditionMatch(editionBase, libraryByKey) {
+  for (const [key, item] of libraryByKey) {
+    const candidateBase = gameEditionBase(item.title) ?? key;
+    if (candidateBase === editionBase) return item;
+  }
+  return null;
+}
+
+function findGameCollectionOrComponentMatch(title, libraryByKey) {
+  const target = HumbleComicLibrary.titleKey(title);
+  const targetTokens = target.split(' ').filter(Boolean);
+  if (targetTokens.length < 2) return null;
+  for (const [key, item] of libraryByKey) {
+    // A purchased entry can explicitly name this game plus other games, as
+    // with "XCOM: Enemy Unknown Plus, Civilization Revolution 2 Plus…".
+    if (key.startsWith(`${target} `)) return item;
+    if (!/\b(?:collection|complete pack|ultimate collection)\b/iu.test(key)) continue;
+    const collectionBase = (gameEditionBase(key) ?? key)
+      .replace(/\b(?:collection|pack)\b/giu, ' ')
+      .replace(/\s+/gu, ' ')
+      .trim();
+    const collectionTokens = collectionBase.split(' ').filter(Boolean);
+    // A named collection may include entries that start with its franchise
+    // name (for example, BioShock: The Collection → BioShock Infinite).
+    if (collectionTokens.length && collectionTokens.every((token) => targetTokens.includes(token))) return item;
+  }
+  return null;
 }
 
 function findOwnedVolumeRange(title, libraryByKey) {
@@ -358,12 +407,13 @@ function statusColor(state) {
   return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
-function renderComparisonSummary(counts, tiers, titlesByState) {
+function renderComparisonSummary(counts, tiers, titlesByState, itemKind) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
-  headline.textContent = `Your library: ${counts.owned} owned · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
+  const itemLabel = itemKind === 'game' ? 'games' : 'books';
+  headline.textContent = `Your ${itemLabel}: ${counts.owned} owned · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
@@ -506,8 +556,8 @@ function addPurchaseImporter() {
   panel.className = 'hcl-importer';
   panel.innerHTML = `
     <strong>Humble Comic Library</strong>
-    <span>Import DRM-free book and comic titles from this purchase history into this browser.</span>
-    <button type="button">Import book &amp; comic titles</button>
+    <span>Import eligible books, comics, and games from this purchase history into this browser.</span>
+    <button type="button">Import books, comics &amp; games</button>
     <output aria-live="polite"></output>`;
   const [button] = panel.querySelectorAll('button');
   const status = panel.querySelector('output');
@@ -515,7 +565,7 @@ function addPurchaseImporter() {
     button.disabled = true;
     try {
       const result = await importPurchases((message) => { status.textContent = message; });
-      status.textContent = `Imported ${result.added} new title${result.added === 1 ? '' : 's'}${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; found prices for ${result.pricedPurchases} purchase${result.pricedPurchases === 1 ? '' : 's'}; ${result.total} total titles.`;
+      status.textContent = `Imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; found prices for ${result.pricedPurchases} purchase${result.pricedPurchases === 1 ? '' : 's'}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
       console.warn('Humble Comic Library import failed:', error);
@@ -543,8 +593,8 @@ async function importPurchases(report) {
     if (!key) continue;
     report(`Checking purchase ${index + 1} of ${orderList.length}…`);
     try {
-      const detail = await fetchJson(`/api/v1/order/${encodeURIComponent(key)}`);
-      const items = extractBookItems(detail, order, key);
+      const detail = await fetchOrderDetail(key);
+      const items = extractLibraryItems(detail, order, key);
       imported.push(...items);
       purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
     } catch (error) {
@@ -556,11 +606,16 @@ async function importPurchases(report) {
   }
 
   const { libraryItems = [], purchaseSummaries: existingPurchases = [] } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
-  const merged = new Map(libraryItems.map((item) => [HumbleComicLibrary.titleKey(item.title), item]));
+  // A previous game experiment could only infer non-book products and added
+  // unrelated extras. Rebuild Humble-sourced game entitlements from Humble's
+  // explicit third-party-key collection on every import instead.
+  const retainedItems = libraryItems.filter((item) => item.kind !== 'game' || item.source !== 'humble');
+  const merged = new Map(retainedItems.map((item) => [libraryItemKey(item), item]));
   let added = 0;
+  let addedGames = 0;
   let datesBackfilled = 0;
   for (const item of imported) {
-    const key = HumbleComicLibrary.titleKey(item.title);
+    const key = libraryItemKey(item);
     if (!key) continue;
     const existing = merged.get(key);
     if (existing) {
@@ -574,11 +629,13 @@ async function importPurchases(report) {
     }
     merged.set(key, item);
     added += 1;
+    if (item.kind === 'game') addedGames += 1;
   }
   const importSummary = {
     importedAt: new Date().toISOString(),
     scannedPurchases: orderList.length,
     addedTitles: added,
+    addedGames,
     datesBackfilled,
     pricedPurchases: purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length,
     skippedPurchases: failures.length
@@ -586,7 +643,7 @@ async function importPurchases(report) {
   const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
   await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary });
-  return { added, datesBackfilled, pricedPurchases: importSummary.pricedPurchases, total: merged.size, failures: failures.length };
+  return { added, addedGames, datesBackfilled, pricedPurchases: importSummary.pricedPurchases, total: merged.size, failures: failures.length };
 }
 
 async function fetchJson(path) {
@@ -599,23 +656,59 @@ async function fetchJson(path) {
   return response.json();
 }
 
-function extractBookItems(detail, order, purchaseKey) {
+async function fetchOrderDetail(purchaseKey) {
+  const response = await fetch(`/api/v1/order/${encodeURIComponent(purchaseKey)}?all_tpkds=true`, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' }
+  });
+  if (response.status === 401 || response.status === 403) throw new Error('Your Humble login has expired. Sign in and try again.');
+  if (!response.ok) throw new Error(`Humble responded with ${response.status}.`);
+  // Humble returns the entitlement name together with redemption-key fields.
+  // Redact those values before parsing so they can never enter extension
+  // storage, reports, console output, or the normal import data structure.
+  const redacted = (await response.text())
+    .replace(/("(?:redeemed_)?key(?:_val|_value)?"\s*:\s*)"(?:[^"\\]|\\.)*"/giu, '$1null');
+  return JSON.parse(redacted);
+}
+
+function extractLibraryItems(detail, order, purchaseKey) {
   const products = Array.isArray(detail?.subproducts) ? detail.subproducts
     : Array.isArray(detail?.products) ? detail.products : [];
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
   const candidates = products.length ? products : [detail];
-  return candidates
-    .filter(hasBookDownload)
-    .map((product) => String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim())
-    .filter(Boolean)
-    .map((title) => ({
-      title,
+  const directItems = candidates
+    .map((product) => ({ product, kind: productKind(product) }))
+    .filter(({ kind }) => kind)
+    .map(({ product, kind }) => ({
+      title: String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim(),
+      kind,
       source: 'humble',
       sourceBundle,
       purchaseKey,
       purchasedAt
-    }));
+    }))
+    .filter(({ title }) => Boolean(title));
+  return [...directItems, ...extractThirdPartyKeyItems(detail, order, purchaseKey)];
+}
+
+function extractThirdPartyKeyItems(detail, order, purchaseKey) {
+  const keyRecords = [
+    detail?.tpkd_dict?.all_tpks,
+    detail?.tpkd_dict?.all_tpkds,
+    detail?.all_tpks,
+    detail?.all_tpkds
+  ].flatMap((records) => Array.isArray(records) ? records : []);
+  const sourceBundle = extractBundleName(order, detail);
+  const purchasedAt = extractPurchasedAt(order, detail);
+  return keyRecords
+    .map((record) => String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim())
+    .filter(Boolean)
+    .map((title) => ({ title, kind: 'game', source: 'humble', sourceBundle, purchaseKey, purchasedAt }));
+}
+
+function libraryItemKey(item) {
+  return `${item.kind ?? 'book'}:${HumbleComicLibrary.titleKey(item.title)}`;
 }
 
 function createPurchaseSummary(detail, order, purchaseKey, items) {
@@ -733,6 +826,24 @@ function normalizeDate(value) {
   // Preserve an API-provided date string if the browser can validate it. This
   // keeps the original timezone where Humble supplied one.
   return Number.isNaN(Date.parse(trimmed)) ? null : trimmed;
+}
+
+function productKind(product) {
+  // Check game delivery first: game bundles can include PDF manuals or art
+  // books, which must not cause the game itself to be filed as a book.
+  if (hasGameEntitlement(product)) return 'game';
+  return hasBookDownload(product) ? 'book' : null;
+}
+
+function hasGameEntitlement(product) {
+  const serialized = JSON.stringify(product);
+  // Humble has used several response shapes, but game products consistently
+  // identify a storefront/platform or a game-like content category. Keep the
+  // signals narrow to avoid importing arbitrary non-book extras.
+  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:game|software|dlc)"/iu.test(serialized)
+    || /"(?:platform|platform_name|key_type|storefront)"\s*:\s*"[^"\\]*(?:steam|gog|epic|origin|uplay|ubisoft|ea(?:\s+app)?|itch(?:\.io)?|windows|mac|linux|android|ios)[^"\\]*"/iu.test(serialized)
+    || /"(?:platforms|platforms_and_oses)"\s*:\s*(?:\[[^\]]*"(?:steam|gog|epic|windows|mac|linux|android|ios)|\{)/iu.test(serialized)
+    || /\.(?:exe|dmg|apk|appimage|x86_64)(?:["?\\]|$)/iu.test(serialized);
 }
 
 function hasBookDownload(product) {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Humble Comic Library",
   "version": "0.1.0",
-  "description": "Locally mark Humble Bundle books and comics you already own.",
+  "description": "Locally mark Humble Bundle books, comics, and games you already own.",
   "permissions": ["storage"],
   "host_permissions": ["https://www.humblebundle.com/*"],
   "action": {

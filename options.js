@@ -14,9 +14,10 @@
     const { lastImport: summary, purchaseSummaries = [] } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [] });
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
-    count.textContent = `${items.length} unique title${items.length === 1 ? '' : 's'} stored locally. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
+    const games = items.filter((item) => item.kind === 'game').length;
+    count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${games ? ` (${games} game${games === 1 ? '' : 's'})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
     lastImport.textContent = summary
-      ? `Last import: ${summary.addedTitles} title${summary.addedTitles === 1 ? '' : 's'} added${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.pricedPurchases ?? 0} purchase price${summary.pricedPurchases === 1 ? '' : 's'} captured from ${summary.scannedPurchases} purchases on ${new Date(summary.importedAt).toLocaleString()}.`
+      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames ? ` (${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.pricedPurchases ?? 0} purchase price${summary.pricedPurchases === 1 ? '' : 's'} captured from ${summary.scannedPurchases} purchases on ${new Date(summary.importedAt).toLocaleString()}.`
       : 'No Humble import has run yet.';
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');
