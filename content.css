@@ -66,6 +66,7 @@
 .hcl-legend span { padding: 0.15rem 0.35rem; border-radius: 999px; color: #fff; font-weight: 700; }
 .hcl-legend-owned { background: #0a7a42; }
 .hcl-legend-new { background: #1769aa; }
+.hcl-legend-partial { background: #7c3fb0; }
 .hcl-legend-possible { background: #b06d00; }
 .hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
 .hcl-summary ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.8rem; }
@@ -88,6 +89,7 @@
 .hcl-badge-host[data-hcl-badge="Owned"]::after { background: #0a7a42; }
 .hcl-badge-host[data-hcl-badge="New"]::after { background: #1769aa; }
 .hcl-badge-host[data-hcl-badge="Possible"]::after { background: #b06d00; }
+.hcl-badge-host[data-hcl-badge*="/"]::after { background: #7c3fb0; }
 .hcl-title-list { margin-top: 0.6rem; font-size: 0.8rem; }
 .hcl-title-list summary { cursor: pointer; font-weight: 700; }
 .hcl-title-list ol { max-height: 12rem; margin: 0.35rem 0 0; padding-left: 1.25rem; overflow: auto; }
@@ -98,6 +100,7 @@
 .hcl-card-owned [class*="title" i], .hcl-card-owned h1, .hcl-card-owned h2, .hcl-card-owned h3, .hcl-card-owned h4 { color: #0a7a42 !important; }
 .hcl-card-new [class*="title" i], .hcl-card-new h1, .hcl-card-new h2, .hcl-card-new h3, .hcl-card-new h4 { color: #1769aa !important; }
 .hcl-card-possible [class*="title" i], .hcl-card-possible h1, .hcl-card-possible h2, .hcl-card-possible h3, .hcl-card-possible h4 { color: #b06d00 !important; }
+.hcl-card-partial [class*="title" i], .hcl-card-partial h1, .hcl-card-partial h2, .hcl-card-partial h3, .hcl-card-partial h4 { color: #7c3fb0 !important; }
 
 /* This is the reliable visual fallback when Humble changes its card markup. */
 /* Current Humble book tiers render each visible item as this component. The

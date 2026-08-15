@@ -37,7 +37,7 @@
     if (!records.length) return;
     const nextCoverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
     const coversLostAnnotations = [...document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')]
-      .some((cover) => likelyBookTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible'));
+      .some((cover) => likelyBookTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
     if (nextCoverCount !== coverCount || coversLostAnnotations) {
       coverCount = nextCoverCount;
       refresh();
@@ -46,20 +46,20 @@
 }()).catch((error) => console.warn('Humble Comic Library failed to initialise:', error));
 
 function renderBundleComparison(libraryByKey) {
-  document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge').forEach((badge) => badge.remove());
-  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item').forEach((item) => {
+  document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
+  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
     item.style.removeProperty('box-shadow');
     item.style.removeProperty('background-color');
     item.querySelectorAll('h1, h2, h3, h4, h5, p, a, span').forEach((text) => text.style.removeProperty('color'));
   });
-  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible').forEach((cover) => {
+  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((cover) => {
     cover.style.removeProperty('outline');
     cover.style.removeProperty('outline-offset');
     cover.style.removeProperty('box-shadow');
   });
-  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-new, .hcl-card-possible, .hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible').forEach((item) => {
-    item.classList.remove('hcl-owned-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-new', 'hcl-card-possible', 'hcl-cover-owned', 'hcl-cover-new', 'hcl-cover-possible');
+  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
+    item.classList.remove('hcl-owned-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-partial-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-new', 'hcl-card-possible', 'hcl-card-partial', 'hcl-cover-owned', 'hcl-cover-new', 'hcl-cover-possible', 'hcl-cover-partial');
     delete item.dataset.hclBadge;
   });
   document.querySelectorAll('.hcl-title-colored').forEach((item) => {
@@ -71,20 +71,28 @@ function renderBundleComparison(libraryByKey) {
 
   const items = collectBundleItems();
   if (!items.length) return;
-  const counts = { owned: 0, possible: 0, new: 0 };
-  const titlesByState = { owned: [], possible: [], new: [] };
+  const counts = { owned: 0, partial: 0, possible: 0, new: 0 };
+  const titlesByState = { owned: [], partial: [], possible: [], new: [] };
   const matchesByTitleKey = new Map();
   const tiers = new Map();
   for (const item of items) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
-    const possible = exact ? null : findPossibleMatch(item.title, libraryByKey);
-    const match = exact ? { state: 'owned', item: exact } : possible ? { state: 'possible', item: possible } : { state: 'new' };
+    const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
+    const possible = exact || volumeRange ? null : findPossibleMatch(item.title, libraryByKey);
+    const match = exact
+      ? { state: 'owned', item: exact }
+      : volumeRange?.complete
+        ? { state: 'owned', item: volumeRange.items[0], range: volumeRange }
+        : volumeRange
+          ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
+          : possible ? { state: 'possible', item: possible } : { state: 'new' };
     matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
     counts[match.state] += 1;
-    titlesByState[match.state].push({ title: item.title, sourceBundle: match.item?.sourceBundle ?? null });
-    const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, possible: 0 };
+    titlesByState[match.state].push({ title: item.title, sourceBundle: match.item?.sourceBundle ?? null, range: match.range ?? null });
+    const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, partial: 0, possible: 0 };
     tier.total += 1;
     if (match.state === 'owned') tier.owned += 1;
+    if (match.state === 'partial') tier.partial += 1;
     if (match.state === 'possible') tier.possible += 1;
     tiers.set(item.tier.label, tier);
   }
@@ -232,6 +240,29 @@ function findPossibleMatch(title, libraryByKey) {
   return best?.item ?? null;
 }
 
+function findOwnedVolumeRange(title, libraryByKey) {
+  // Humble sometimes sells one card such as "Aftermath Vol. 1-3" while
+  // purchases were imported as three separately downloadable volumes. Only
+  // treat a range as owned when every numbered volume is present exactly.
+  const pageLabel = String(title)
+    .replace(/\b(?:preview|sample|read\s+now)\b/giu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const match = /^(.*?)\s+vol(?:ume)?\.?\s*(\d+)\s*(?:-|–|—|to)\s*(\d+)\s*$/iu.exec(pageLabel);
+  if (!match) return null;
+  const [, series, firstText, lastText] = match;
+  const first = Number(firstText);
+  const last = Number(lastText);
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first || last - first > 49) return null;
+  const items = [];
+  for (let volume = first; volume <= last; volume += 1) {
+    const item = libraryByKey.get(HumbleComicLibrary.titleKey(`${series} Vol. ${volume}`));
+    if (item) items.push(item);
+  }
+  if (!items.length) return null;
+  return { complete: items.length === last - first + 1, owned: items.length, total: last - first + 1, items };
+}
+
 function significantTokens(title) {
   const ignore = new Set(['the', 'and', 'of', 'a', 'an', 'vol', 'volume', 'book', 'edition']);
   return new Set(HumbleComicLibrary.titleKey(title).split(' ').filter((token) => token.length > 1 && !ignore.has(token)));
@@ -241,12 +272,13 @@ function annotateBundleItem(bundleItem, match) {
   if (!bundleItem.element.isConnected) return;
   const isOwned = match.state === 'owned';
   const isPossible = match.state === 'possible';
+  const isPartial = match.state === 'partial';
   // The image wrapper scales on Humble hover, which turns a label attached to
   // it into a giant pill. Anchor the status to the stable item card instead.
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
-    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isPossible ? 'Possible' : 'New';
+    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
     badgeHost.removeAttribute('title');
   }
   const stateClass = isOwned ? 'owned' : isPossible ? 'possible' : 'new';
@@ -260,7 +292,7 @@ function annotateBundleItem(bundleItem, match) {
 }
 
 function applyCoverStatus(cover, state) {
-  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  const color = statusColor(state);
   cover.style.setProperty('outline', `2px solid ${color}`, 'important');
   cover.style.setProperty('outline-offset', '2px', 'important');
   cover.style.removeProperty('box-shadow');
@@ -268,7 +300,7 @@ function applyCoverStatus(cover, state) {
 
 function applyVisibleCardStatus(card, state) {
   if (!card) return;
-  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  const color = statusColor(state);
   // Humble attaches component CSS after the content script on some pages.
   // Inline !important styles are intentional here: this is the visible,
   // report-verified tier-item-details-view node, not an inferred wrapper.
@@ -294,7 +326,7 @@ function findSingleCoverCard(cover) {
 function colorExactCardTitle(card, title, state) {
   if (!card) return;
   const expected = displayTitle(title).toLocaleLowerCase();
-  const color = state === 'owned' ? '#0a7a42' : state === 'possible' ? '#b06d00' : '#1769aa';
+  const color = statusColor(state);
   const candidates = [...card.querySelectorAll('*')].filter((element) => {
     const text = displayTitle(element.textContent ?? '').toLocaleLowerCase();
     return text === expected;
@@ -308,17 +340,26 @@ function colorExactCardTitle(card, title, state) {
   titleElement.style.setProperty('font-weight', '700', 'important');
 }
 
+function statusColor(state) {
+  return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
+}
+
 function renderComparisonSummary(counts, tiers, titlesByState) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
-  headline.textContent = `Your library: ${counts.owned} owned · ${counts.new} new`;
+  headline.textContent = `Your library: ${counts.owned} owned · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
-  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-possible">Possible</span>';
+  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
   summary.append(legend);
+  if (counts.partial) {
+    const partial = document.createElement('p');
+    partial.textContent = `${counts.partial} grouped range${counts.partial === 1 ? ' is' : 's are'} only partly owned — not counted as owned or new.`;
+    summary.append(partial);
+  }
   if (counts.possible) {
     const possible = document.createElement('p');
     possible.textContent = `${counts.possible} possible match${counts.possible === 1 ? '' : 'es'} — not counted as owned.`;
@@ -329,6 +370,7 @@ function renderComparisonSummary(counts, tiers, titlesByState) {
     const orderedTiers = [...tiers.values()].sort((left, right) => (left.price ?? Number.POSITIVE_INFINITY) - (right.price ?? Number.POSITIVE_INFINITY));
     let cumulativeTotal = 0;
     let cumulativeOwned = 0;
+    let cumulativePartial = 0;
     let cumulativePossible = 0;
     for (const tier of orderedTiers) {
       // Humble's price levels are cumulative: the $15 level includes $5 items,
@@ -336,8 +378,9 @@ function renderComparisonSummary(counts, tiers, titlesByState) {
       // price, so display the total actually received at each tier.
       cumulativeTotal += tier.total;
       cumulativeOwned += tier.owned;
+      cumulativePartial += tier.partial;
       cumulativePossible += tier.possible;
-      const newItems = cumulativeTotal - cumulativeOwned - cumulativePossible;
+      const newItems = cumulativeTotal - cumulativeOwned - cumulativePartial - cumulativePossible;
       const row = document.createElement('li');
       const priceText = tier.price === null ? tier.label : `${tier.label}: `;
       const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
@@ -346,17 +389,17 @@ function renderComparisonSummary(counts, tiers, titlesByState) {
     }
     summary.append(tierList);
   }
-  for (const state of ['owned', 'new', 'possible']) {
+  for (const state of ['owned', 'new', 'partial', 'possible']) {
     if (!titlesByState[state].length) continue;
     const detail = document.createElement('details');
     detail.className = 'hcl-title-list';
     const heading = document.createElement('summary');
-    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'new' ? 'New' : 'Possible matches'} (${titlesByState[state].length})`;
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => left.title.localeCompare(right.title))) {
       const row = document.createElement('li');
-      row.textContent = displayTitle(item.title);
+      row.textContent = `${displayTitle(item.title)}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.sourceBundle ? `Owned from ${item.sourceBundle}` : '';
       list.append(row);
     }
