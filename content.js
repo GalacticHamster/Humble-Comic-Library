@@ -79,13 +79,15 @@ function renderBundleComparison(libraryByKey, itemKind) {
   for (const item of items) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
     const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
-    const possible = exact || volumeRange ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
+    const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(item.title, libraryByKey);
+    const possible = exact || volumeRange || bookVariant ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
         ? { state: 'owned', item: volumeRange.items[0], range: volumeRange }
         : volumeRange
           ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
+          : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
           : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
     matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
     counts[match.state] += 1;
@@ -258,6 +260,50 @@ function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
   return best ? { items: best.item, reason: 'The titles have a very close normalized word match.' } : null;
 }
 
+function findOwnedBookVariant(title, libraryByKey) {
+  const target = bookVariantParts(title);
+  for (const [, item] of libraryByKey) {
+    const candidate = bookVariantParts(item.title);
+    // TP, HC, and Deluxe wording describe a presentation rather than a
+    // different book. These remain safe exact matches after stripping only
+    // those delivery-format labels.
+    if (candidate.key === target.key) return { item, reason: 'Matched after removing a book-format suffix.' };
+    if (!isFromCurrentBundle(item) || !bookVolumeVariantsAlign(target, candidate)) continue;
+    // Humble sometimes names an entitlement with a volume subtitle while its
+    // bundle card uses only the series and volume number. Trust that bridge
+    // only when the matching entitlement came from this exact bundle.
+    if (target.base === candidate.base || target.base.startsWith(`${candidate.base} `) || candidate.base.startsWith(`${target.base} `)) {
+      return { item, reason: 'Matched to this bundle’s title-and-volume variant.' };
+    }
+  }
+  return null;
+}
+
+function bookVariantParts(title) {
+  const key = HumbleComicLibrary.titleKey(title)
+    .replace(/\b(?:tp|hc|hardcover|paperback|trade paperback|dlx(?: ed)?|deluxe(?: edition)?|digital edition)\b/giu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const match = /^(.*?)\s+vol\s*(\d+)$/u.exec(key);
+  return { key, base: match?.[1]?.trim() ?? key, volume: match ? Number(match[2]) : null };
+}
+
+function bookVolumeVariantsAlign(target, candidate) {
+  if (target.volume !== null && candidate.volume !== null) return target.volume === candidate.volume;
+  // A bare card title can describe volume one while Humble's entitlement
+  // explicitly labels it Vol. 1. Require the same current bundle below.
+  return (target.volume === null && candidate.volume === 1) || (target.volume === 1 && candidate.volume === null);
+}
+
+function isFromCurrentBundle(item) {
+  const currentBundle = HumbleComicLibrary.titleKey(document.title);
+  if (currentBundle.length < 12) return false;
+  return itemProvenance(item).some((record) => {
+    const sourceBundle = HumbleComicLibrary.titleKey(record.sourceBundle);
+    return sourceBundle.length >= 12 && (currentBundle.includes(sourceBundle) || sourceBundle.includes(currentBundle));
+  });
+}
+
 function numberedTitleBase(title) {
   const key = HumbleComicLibrary.titleKey(title);
   const match = /^(.*?)\s+#?(\d+)$/u.exec(key);
@@ -363,7 +409,7 @@ function matchProvenance(match) {
     ? `Possible match: ${match.possibleReason ?? 'similar library title.'}`
     : match.state === 'partial'
       ? `Partially owned: ${match.range.owned} of ${match.range.total} volumes found.`
-      : 'Owned in your library:';
+      : match.ownedReason ? `Owned in your library: ${match.ownedReason}` : 'Owned in your library:';
   const seen = new Set();
   const lines = [heading];
   for (const record of records) {
