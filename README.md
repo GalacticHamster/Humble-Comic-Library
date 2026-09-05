@@ -8,6 +8,7 @@ An unofficial browser extension that marks books, comics, or games you already o
 - Import DRM-free book and comic titles plus detected game entitlements from your signed-in Humble Purchases page—without copying, reading, or saving a Humble cookie.
 - Import a local JSON library of title strings or `{ "title", "sourceBundle" }` records as a fallback.
 - See an `Owned`, `New`, `Partially owned`, or `Possible match` status for every detected item on Humble Books and Games bundle pages. Books and games are kept separate. Listings such as `Vol. 1-3` are matched against individually owned volumes, and partial coverage is never treated as owned. Numbered presentations, game edition variants, and games named within an owned collection can be labelled Possible, but are never automatically treated as owned. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
+- Match verified single-comic issues through a collected edition you already own. The first built-in rule covers *Valiant Masters Rai: From Honor To Strength* and *Rai* (1992) #1–8. You can also import your own explicit, local issue-to-collection mappings.
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
 - Hover an `Owned`, `Partially owned`, or `Possible` item badge to see the matching library title(s), Humble bundle, purchase date when available, and—for possible matches—why it was suggested.
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
@@ -36,6 +37,26 @@ The extension runs only on Humble Books, Games, and Purchases pages. Its only na
 ```
 
 6. Visit a Humble URL beginning `https://www.humblebundle.com/books/` or `https://www.humblebundle.com/games/` and refresh.
+
+## Custom collection mappings
+
+In **Extension options**, use **Collection mappings** to import a JSON file like this:
+
+```json
+{
+  "mappings": [
+    {
+      "id": "example-series-2020",
+      "collectionTitle": "Example Series: Complete Collection",
+      "contains": [
+        { "series": "Example Series", "year": 2020, "from": 1, "to": 12 }
+      ]
+    }
+  ]
+}
+```
+
+The mapping is applied only if the exact `collectionTitle` is already in your imported library. A year and an inclusive issue range are required, which keeps similarly named runs from being silently conflated. Importing a mapping file replaces only previous custom mappings; the built-in verified mappings remain. Collection mappings are included in an exported backup and restored when that backup is imported.
 
 ## Create a release ZIP
 

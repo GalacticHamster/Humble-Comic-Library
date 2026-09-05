@@ -11,6 +11,7 @@ $manifest = Get-Content -LiteralPath (Join-Path $projectRoot 'manifest.json') -R
 $releaseFiles = @(
   'manifest.json',
   'shared.js',
+  'collection-mappings.js',
   'content.js',
   'content.css',
   'options.html',

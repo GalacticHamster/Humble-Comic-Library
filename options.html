@@ -18,12 +18,19 @@
         <p id="import-status" role="status"></p>
       </section>
       <section>
+        <h2>Collection mappings</h2>
+        <p>Import optional issue-to-collection rules. Rules stay in this browser and only mark an issue Owned when the named collection is already in your library.</p>
+        <input id="collection-mapping-file" type="file" accept="application/json,.json">
+        <p id="collection-mapping-status" role="status"></p>
+        <p id="collection-mapping-count"></p>
+      </section>
+      <section>
         <h2>Library</h2>
         <p id="library-count">Loading…</p>
         <div class="actions"><button id="export-library">Export backup</button><button id="clear-library" class="danger">Clear library</button></div>
         <ol id="library-preview"></ol>
       </section>
     </main>
-    <script src="shared.js"></script><script src="options.js"></script>
+    <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="options.js"></script>
   </body>
 </html>

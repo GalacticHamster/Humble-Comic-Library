@@ -24,7 +24,7 @@
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [] });
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
   const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
   if (!libraryItems.length) {
@@ -45,7 +45,7 @@
   let refreshTimer;
   const refresh = () => {
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases), 150);
+    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases, [...HumbleCollectionMappings.builtIn, ...storage.customCollectionMappings]), 150);
   };
   refresh();
   window.addEventListener('resize', refresh, { passive: true });
@@ -124,7 +124,7 @@ function catalogueTitleKey(title) {
     .trim();
 }
 
-function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases = []) {
+function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases = [], collectionMappings = []) {
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -158,7 +158,8 @@ function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases =
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
     const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
     const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(item.title, libraryByKey);
-    const possible = exact || volumeRange || bookVariant ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
+    const collectionIssue = exact || volumeRange || bookVariant || itemKind !== 'book' ? null : findOwnedCollectionIssue(item.title, libraryByKey, collectionMappings);
+    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
@@ -166,6 +167,7 @@ function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases =
         : volumeRange
           ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
           : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
+          : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
           : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
     matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
     counts[match.state] += 1;
@@ -355,6 +357,39 @@ function findOwnedBookVariant(title, libraryByKey) {
     }
   }
   return null;
+}
+
+function findOwnedCollectionIssue(title, libraryByKey, collectionMappings) {
+  const issue = parseIssueTitle(title);
+  if (!issue) return null;
+  for (const mapping of collectionMappings) {
+    const ownedCollection = libraryByKey.get(HumbleComicLibrary.titleKey(mapping.collectionTitle));
+    if (!ownedCollection) continue;
+    const containsIssue = mapping.contains?.some((entry) => (
+      HumbleComicLibrary.titleKey(entry.series) === issue.series
+      && Number(entry.year) === issue.year
+      && issue.number >= Number(entry.from)
+      && issue.number <= Number(entry.to)
+    ));
+    if (containsIssue) {
+      return {
+        item: ownedCollection,
+        reason: `Included in ${displayTitle(mapping.collectionTitle)} (${mapping.sourceLabel ?? 'collection mapping'}).`
+      };
+    }
+  }
+  return null;
+}
+
+function parseIssueTitle(title) {
+  const pageLabel = String(title)
+    .replace(/\b(?:preview|sample|read\s+now)\b/giu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const match = /^(.*?)\s*\((\d{4})\)\s*#\s*(\d+)\s*$/u.exec(pageLabel);
+  if (!match) return null;
+  const number = Number(match[3]);
+  return Number.isInteger(number) ? { series: HumbleComicLibrary.titleKey(match[1]), year: Number(match[2]), number } : null;
 }
 
 function bookVariantParts(title) {
