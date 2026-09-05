@@ -11,7 +11,7 @@ A local-only browser extension that marks books, comics, or games you already ow
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
 - Hover an `Owned`, `Partially owned`, or `Possible` item badge to see the matching library title(s), Humble bundle, purchase date when available, and—for possible matches—why it was suggested.
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
-- Export or clear the browser-local library.
+- Export or clear all browser-local library titles, purchase summaries, and import history.
 
 Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie.
 

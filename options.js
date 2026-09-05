@@ -38,6 +38,10 @@
         .map((row) => ({ title: row.title.trim(), sourceBundle: String(row.sourceBundle ?? '').trim() }));
       const unique = new Map(items.map((item) => [HumbleComicLibrary.titleKey(item.title), item]));
       await chrome.storage.local.set({ libraryItems: [...unique.values()] });
+      // A manual library replaces Humble-derived entries, so retaining their
+      // purchase summaries would be misleading and would break later
+      // incremental Humble imports.
+      await chrome.storage.local.remove(['purchaseSummaries', 'lastImport']);
       status.textContent = `Imported ${unique.size} unique titles.`;
       await render();
     } catch (error) {
@@ -61,9 +65,9 @@
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
-    if (!confirm('Clear every locally stored library title?')) return;
-    await chrome.storage.local.set({ libraryItems: [] });
-    status.textContent = 'Library cleared.';
+    if (!confirm('Clear every locally stored title, purchase record, and import history?')) return;
+    await chrome.storage.local.remove(['libraryItems', 'purchaseSummaries', 'lastImport']);
+    status.textContent = 'Library and purchase history cleared.';
     await render();
   });
   render();
