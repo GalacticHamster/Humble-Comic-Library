@@ -15,6 +15,8 @@ A local-only browser extension that marks books, comics, or games you already ow
 
 Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie.
 
+The extension runs only on Humble Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
+
 ## Load it
 
 1. In Chrome, open `chrome://extensions`.

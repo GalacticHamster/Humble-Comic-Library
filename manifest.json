@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "description": "Locally mark Humble Bundle books, comics, and games you already own.",
   "permissions": ["storage"],
-  "host_permissions": ["https://www.humblebundle.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
   "action": {
     "default_title": "Humble Comic Library",
     "default_popup": "popup.html"
@@ -12,7 +14,11 @@
   "options_page": "options.html",
   "content_scripts": [
     {
-      "matches": ["https://www.humblebundle.com/*"],
+      "matches": [
+        "https://www.humblebundle.com/books/*",
+        "https://www.humblebundle.com/games/*",
+        "https://www.humblebundle.com/home/purchases*"
+      ],
       "js": ["shared.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
