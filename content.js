@@ -9,9 +9,13 @@
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const storage = await chrome.storage.local.get({ libraryItems: [] });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
-  if (!libraryItems.length) return;
+  const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
+  if (!libraryItems.length) {
+    renderPurchasedBundleSummary(currentBundlePurchases);
+    return;
+  }
 
   const byKey = new Map();
   for (const item of libraryItems) {
@@ -26,7 +30,7 @@
   let refreshTimer;
   const refresh = () => {
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind), 150);
+    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases), 150);
   };
   refresh();
   window.addEventListener('resize', refresh, { passive: true });
@@ -46,7 +50,7 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
 }()).catch(() => {});
 
-function renderBundleComparison(libraryByKey, itemKind) {
+function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases = []) {
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -103,7 +107,7 @@ function renderBundleComparison(libraryByKey, itemKind) {
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
   annotateAllCoverCopies(matchesByTitleKey);
-  renderComparisonSummary(counts, tiers, titlesByState, itemKind);
+  renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases);
 }
 
 function annotateAllCoverCopies(matchesByTitleKey) {
@@ -296,12 +300,19 @@ function bookVolumeVariantsAlign(target, candidate) {
 }
 
 function isFromCurrentBundle(item) {
+  return itemProvenance(item).some((record) => isCurrentBundleName(record.sourceBundle));
+}
+
+function findCurrentBundlePurchases(purchaseSummaries) {
+  return purchaseSummaries
+    .filter((purchase) => isCurrentBundleName(purchase.sourceBundle))
+    .sort((left, right) => String(right.purchasedAt ?? '').localeCompare(String(left.purchasedAt ?? '')));
+}
+
+function isCurrentBundleName(sourceBundle) {
   const currentBundle = HumbleComicLibrary.titleKey(document.title);
-  if (currentBundle.length < 12) return false;
-  return itemProvenance(item).some((record) => {
-    const sourceBundle = HumbleComicLibrary.titleKey(record.sourceBundle);
-    return sourceBundle.length >= 12 && (currentBundle.includes(sourceBundle) || sourceBundle.includes(currentBundle));
-  });
+  const source = HumbleComicLibrary.titleKey(sourceBundle);
+  return currentBundle.length >= 12 && source.length >= 12 && (currentBundle.includes(source) || source.includes(currentBundle));
 }
 
 function numberedTitleBase(title) {
@@ -494,7 +505,7 @@ function statusColor(state) {
   return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
-function renderComparisonSummary(counts, tiers, titlesByState, itemKind) {
+function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = []) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
@@ -502,6 +513,8 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind) {
   const itemLabel = itemKind === 'game' ? 'games' : 'books';
   headline.textContent = `Your ${itemLabel}: ${counts.owned} owned · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
+  const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
+  appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
   legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
@@ -579,6 +592,36 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind) {
   });
   summary.append(diagnostic);
   document.body.append(summary);
+}
+
+function renderPurchasedBundleSummary(currentBundlePurchases) {
+  if (!currentBundlePurchases.length) return;
+  document.querySelector('#hcl-summary')?.remove();
+  const summary = document.createElement('aside');
+  summary.id = 'hcl-summary';
+  summary.className = 'hcl-summary';
+  appendPurchasedBundleStatus(summary, currentBundlePurchases);
+  document.body.append(summary);
+}
+
+function appendPurchasedBundleStatus(summary, purchases, highestTierPrice = null) {
+  if (!purchases.length) return;
+  const paidAmounts = purchases.map((purchase) => Number(purchase.pricePaid)).filter(Number.isFinite);
+  const hasTopTier = highestTierPrice === null || !paidAmounts.length || paidAmounts.some((amount) => amount >= highestTierPrice);
+  const status = document.createElement('p');
+  status.className = `hcl-purchased-bundle ${hasTopTier ? 'hcl-purchased-full' : 'hcl-purchased-partial'}`;
+  const label = hasTopTier ? 'Already purchased' : 'Partially purchased';
+  status.textContent = `${label}${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${purchases.map(formatBundlePurchase).join(' · ')}`;
+  summary.append(status);
+}
+
+function formatBundlePurchase(purchase) {
+  const date = formatPurchaseDate(purchase.purchasedAt)?.replace(/^purchased\s+/u, '');
+  const amount = Number(purchase.pricePaid);
+  const price = Number.isFinite(amount) && purchase.currency
+    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: purchase.currency }).format(amount)
+    : '';
+  return [date, price].filter(Boolean).join(' · ') || 'purchase recorded';
 }
 
 function displayTitle(title) {

@@ -69,6 +69,9 @@
 .hcl-legend-partial { background: #7c3fb0; }
 .hcl-legend-possible { background: #b06d00; }
 .hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
+.hcl-summary .hcl-purchased-bundle { padding: 0.4rem 0.5rem; border-radius: 0.3rem; color: #fff; font-weight: 700; }
+.hcl-summary .hcl-purchased-full { background: #0a7a42; }
+.hcl-summary .hcl-purchased-partial { background: #7c3fb0; }
 .hcl-summary ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.8rem; }
 .hcl-diagnostic-button { margin-top: 0.75rem; padding: 0.35rem 0.45rem; border: 1px solid #777; border-radius: 0.25rem; background: transparent; color: inherit; font: inherit; font-size: 0.75rem; cursor: pointer; }
 
