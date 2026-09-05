@@ -73,6 +73,7 @@
 .hcl-diagnostic-button { margin-top: 0.75rem; padding: 0.35rem 0.45rem; border: 1px solid #777; border-radius: 0.25rem; background: transparent; color: inherit; font: inherit; font-size: 0.75rem; cursor: pointer; }
 
 .hcl-badge-host { position: relative !important; }
+.hcl-badge-host[title] { cursor: help; }
 .hcl-badge-host::after {
   position: absolute;
   z-index: 2147483647;

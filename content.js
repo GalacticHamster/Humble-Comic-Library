@@ -86,10 +86,10 @@ function renderBundleComparison(libraryByKey, itemKind) {
         ? { state: 'owned', item: volumeRange.items[0], range: volumeRange }
         : volumeRange
           ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
-          : possible ? { state: 'possible', item: possible } : { state: 'new' };
+          : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
     matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
     counts[match.state] += 1;
-    titlesByState[match.state].push({ title: item.title, sourceBundle: match.item?.sourceBundle ?? null, range: match.range ?? null });
+    titlesByState[match.state].push({ title: item.title, provenance: matchProvenance(match), range: match.range ?? null });
     const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, partial: 0, possible: 0 };
     tier.total += 1;
     if (match.state === 'owned') tier.owned += 1;
@@ -233,16 +233,16 @@ function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
     // A listing such as "HAPPY 1" may be an issue-numbered presentation of
     // an imported title such as "Happy!". Keep this conservative: it is a
     // Possible match, never an automatic ownership claim.
-    if (candidate) return candidate;
+    if (candidate) return { items: candidate, reason: 'The listing looks like an issue-numbered version of this library title.' };
   }
   if (itemKind === 'game') {
     const editionBase = gameEditionBase(title);
     const candidate = editionBase ? findGameEditionMatch(editionBase, libraryByKey) : null;
     // Store editions and collections often differ only by DLC. Treat this as
     // a Possible match so the user can review it, never as ownership.
-    if (candidate) return candidate;
+    if (candidate) return { items: candidate, reason: 'The game titles differ only by edition wording.' };
     const component = findGameCollectionOrComponentMatch(title, libraryByKey);
-    if (component) return component;
+    if (component) return { items: component, reason: 'This game may be included in the named library collection or multi-game entry.' };
   }
   const titleTokens = significantTokens(title);
   if (titleTokens.size < 2) return null;
@@ -255,7 +255,7 @@ function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
     // threshold catches trivial title variation while avoiding guesswork.
     if (score >= 0.82 && (!best || score > best.score)) best = { item, score };
   }
-  return best?.item ?? null;
+  return best ? { items: best.item, reason: 'The titles have a very close normalized word match.' } : null;
 }
 
 function numberedTitleBase(title) {
@@ -339,12 +339,14 @@ function annotateBundleItem(bundleItem, match) {
   // The image wrapper scales on Humble hover, which turns a label attached to
   // it into a giant pill. Anchor the status to the stable item card instead.
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
+  const provenance = matchProvenance(match);
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
-    badgeHost.removeAttribute('title');
+    if (provenance) badgeHost.title = provenance;
+    else badgeHost.removeAttribute('title');
   }
-  const stateClass = isOwned ? 'owned' : isPossible ? 'possible' : 'new';
+  const stateClass = isOwned ? 'owned' : isPartial ? 'partial' : isPossible ? 'possible' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
   bundleItem.element.classList.add(`hcl-cover-${stateClass}`);
   const card = findSingleCoverCard(bundleItem.element);
@@ -352,6 +354,45 @@ function annotateBundleItem(bundleItem, match) {
   colorExactCardTitle(card, bundleItem.title, stateClass);
   applyVisibleCardStatus(bundleItem.container, stateClass);
   applyCoverStatus(bundleItem.element, stateClass);
+}
+
+function matchProvenance(match) {
+  const records = matchLibraryItems(match).flatMap((item) => itemProvenance(item));
+  if (!records.length) return '';
+  const heading = match.state === 'possible'
+    ? `Possible match: ${match.possibleReason ?? 'similar library title.'}`
+    : match.state === 'partial'
+      ? `Partially owned: ${match.range.owned} of ${match.range.total} volumes found.`
+      : 'Owned in your library:';
+  const seen = new Set();
+  const lines = [heading];
+  for (const record of records) {
+    const identity = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}\u0000${record.sourceBundle ?? ''}\u0000${record.purchasedAt ?? ''}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    const source = record.sourceBundle ? `Humble bundle: ${record.sourceBundle}` : 'Imported library title';
+    const purchased = formatPurchaseDate(record.purchasedAt);
+    lines.push(`• ${displayTitle(record.title)} — ${source}${purchased ? ` (${purchased})` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+function matchLibraryItems(match) {
+  const entries = match.range ? match.range.items : match.item ? [match.item] : [];
+  return entries.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).filter(Boolean);
+}
+
+function itemProvenance(item) {
+  const records = Array.isArray(item.provenance) && item.provenance.length
+    ? item.provenance
+    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt }];
+  return records.map((record) => ({ ...record, title: record.title ?? item.title }));
+}
+
+function formatPurchaseDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? '' : `purchased ${date.toLocaleDateString()}`;
 }
 
 function applyCoverStatus(cover, state) {
@@ -464,7 +505,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind) {
     for (const item of titlesByState[state].sort((left, right) => left.title.localeCompare(right.title))) {
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
-      row.title = item.sourceBundle ? `Owned from ${item.sourceBundle}` : '';
+      row.title = item.provenance;
       list.append(row);
     }
     detail.append(list);
@@ -635,12 +676,12 @@ async function importPurchases(report, { fullRescan = false } = {}) {
       // Re-imports are safe and let us enrich older entries when Humble reveals
       // more purchase metadata than an earlier response exposed.
       if (!existing.purchasedAt && item.purchasedAt) {
-        merged.set(key, { ...existing, purchasedAt: item.purchasedAt, purchaseKey: existing.purchaseKey || item.purchaseKey });
         datesBackfilled += 1;
       }
+      merged.set(key, mergeLibraryItem(existing, item));
       continue;
     }
-    merged.set(key, item);
+    merged.set(key, withProvenance(item));
     added += 1;
     if (item.kind === 'game') addedGames += 1;
   }
@@ -667,6 +708,29 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     scannedPurchases: purchasesToScan.length,
     skippedKnown: importSummary.skippedKnown
   };
+}
+
+function withProvenance(item) {
+  return { ...item, provenance: dedupeProvenance(itemProvenance(item)) };
+}
+
+function mergeLibraryItem(existing, incoming) {
+  return {
+    ...existing,
+    purchasedAt: existing.purchasedAt || incoming.purchasedAt,
+    purchaseKey: existing.purchaseKey || incoming.purchaseKey,
+    provenance: dedupeProvenance([...itemProvenance(existing), ...itemProvenance(incoming)])
+  };
+}
+
+function dedupeProvenance(records) {
+  const seen = new Set();
+  return records.filter((record) => {
+    const key = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}\u0000${record.sourceBundle ?? ''}\u0000${record.purchasedAt ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function fetchJson(path) {
