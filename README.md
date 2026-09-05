@@ -37,6 +37,16 @@ The extension runs only on Humble Books, Games, and Purchases pages. Its only na
 
 6. Visit a Humble URL beginning `https://www.humblebundle.com/books/` or `https://www.humblebundle.com/games/` and refresh.
 
-## Next milestone
+## Create a release ZIP
+
+Run the following from PowerShell at the repository root:
+
+```powershell
+.\scripts\package-release.ps1
+```
+
+It creates `dist/Humble-Comic-Library-<version>.zip` with a fixed file order and timestamps, so identical source produces an identical ZIP and SHA-256 hash. The ZIP contains only the extension runtime files and icons; it excludes Git history, backups, exports, reports, notes, and documentation. Upload that ZIP—not the project folder—to the Chrome Web Store.
+
+## Roadmap
 
 Add a review queue for conservative possible matches. Humble does not provide a stable public API, so the importer and tier-data reader are deliberately defensive and report unexpected responses instead of guessing.
