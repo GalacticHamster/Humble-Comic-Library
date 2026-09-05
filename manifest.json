@@ -21,8 +21,9 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.humblebundle.com/books/*",
-        "https://www.humblebundle.com/games/*",
+        "https://www.humblebundle.com/books*",
+        "https://www.humblebundle.com/games*",
+        "https://www.humblebundle.com/bundles*",
         "https://www.humblebundle.com/home/purchases*"
       ],
       "js": ["shared.js", "content.js"],

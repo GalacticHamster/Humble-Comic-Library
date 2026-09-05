@@ -6,6 +6,21 @@
     return;
   }
 
+  if (isBundleCataloguePage()) {
+    const { purchaseSummaries = [] } = await chrome.storage.local.get({ purchaseSummaries: [] });
+    if (!purchaseSummaries.length) return;
+    let refreshTimer;
+    const refresh = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries), 150);
+    };
+    refresh();
+    new MutationObserver((records) => {
+      if (records.some((record) => record.addedNodes.length)) refresh();
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    return;
+  }
+
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
@@ -49,6 +64,65 @@
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
 }()).catch(() => {});
+
+function isBundleCataloguePage() {
+  return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games';
+}
+
+function renderCataloguePurchaseMarkers(purchaseSummaries) {
+  document.querySelectorAll('.hcl-catalog-purchased').forEach((card) => {
+    card.classList.remove('hcl-catalog-purchased');
+    delete card.dataset.hclCatalogueBadge;
+    card.removeAttribute('title');
+  });
+  const purchasesByTitle = new Map();
+  for (const purchase of purchaseSummaries) {
+    const key = catalogueTitleKey(purchase.sourceBundle);
+    if (!key) continue;
+    const existing = purchasesByTitle.get(key) ?? [];
+    existing.push(purchase);
+    purchasesByTitle.set(key, existing);
+  }
+  for (const link of document.querySelectorAll('a[href]')) {
+    if (!isBundleOfferLink(link)) continue;
+    const title = catalogueCardTitle(link);
+    const purchases = purchasesByTitle.get(catalogueTitleKey(title));
+    if (!purchases?.length) continue;
+    const card = catalogueCardContainer(link);
+    if (!card) continue;
+    const latest = [...purchases].sort((left, right) => String(right.purchasedAt ?? '').localeCompare(String(left.purchasedAt ?? '')))[0];
+    card.classList.add('hcl-catalog-purchased');
+    card.dataset.hclCatalogueBadge = purchases.length > 1 ? `Purchased ${purchases.length}x` : 'Purchased';
+    card.title = `Already purchased${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${formatBundlePurchase(latest)}`;
+  }
+}
+
+function isBundleOfferLink(link) {
+  try {
+    const url = new URL(link.href, location.href);
+    return url.origin === location.origin && /^\/(?:books|games)\/[^/]+/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function catalogueCardTitle(link) {
+  const imageTitle = link.querySelector('img[alt]')?.alt?.trim();
+  if (imageTitle) return imageTitle;
+  const heading = link.querySelector('h1, h2, h3, h4, [class*="title" i]');
+  return heading?.textContent?.replace(/\s+/gu, ' ').trim() ?? link.getAttribute('aria-label') ?? '';
+}
+
+function catalogueCardContainer(link) {
+  return link.closest('article, li, [class*="tile" i], [class*="card" i], [class*="product" i], [class*="entity" i]') ?? link;
+}
+
+function catalogueTitleKey(title) {
+  return HumbleComicLibrary.titleKey(title)
+    .replace(/^humble\s+(?:(?:books|comics|games|software)\s+)?bundle\s+/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
 
 function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases = []) {
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());

@@ -94,6 +94,8 @@
 .hcl-badge-host[data-hcl-badge="New"]::after { background: #1769aa; }
 .hcl-badge-host[data-hcl-badge="Possible"]::after { background: #b06d00; }
 .hcl-badge-host[data-hcl-badge*="/"]::after { background: #7c3fb0; }
+.hcl-catalog-purchased { position: relative !important; outline: 2px solid #0a7a42 !important; outline-offset: 2px; }
+.hcl-catalog-purchased::after { position: absolute; z-index: 2147483647; top: 0.35rem; left: 0.35rem; padding: 0.2rem 0.45rem; border-radius: 999px; background: #0a7a42; color: #fff; content: attr(data-hcl-catalogue-badge); font: 700 0.72rem/1 Arial, sans-serif; letter-spacing: 0.03em; text-transform: uppercase; }
 .hcl-title-list { margin-top: 0.6rem; font-size: 0.8rem; }
 .hcl-title-list summary { cursor: pointer; font-weight: 700; }
 .hcl-title-list ol { max-height: 12rem; margin: 0.35rem 0 0; padding-left: 1.25rem; overflow: auto; }
