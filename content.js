@@ -44,7 +44,7 @@
       refresh();
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
-}()).catch((error) => console.warn('Humble Comic Library failed to initialise:', error));
+}()).catch(() => {});
 
 function renderBundleComparison(libraryByKey, itemKind) {
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
@@ -563,8 +563,9 @@ async function tierTitlesFromPageData() {
       const response = await fetch(location.href, { credentials: 'same-origin' });
       const html = await response.text();
       source = html.match(/<script\s+id=["']webpack-bundle-page-data["'][^>]*>\s*([\s\S]*?)\s*<\/script>/iu)?.[1];
-    } catch (error) {
-      console.warn('Humble Comic Library could not retrieve this bundle page:', error);
+    } catch {
+      // The page DOM may still provide tier data; the download button gives the
+      // user a visible error if neither source is available.
     }
   }
   if (!source) return new Map();
@@ -584,8 +585,7 @@ async function tierTitlesFromPageData() {
       tierTitles.set(identifier, { label: `$${price.toFixed(2)} tier`, price, titles });
     }
     return tierTitles;
-  } catch (error) {
-    console.warn('Humble Comic Library could not read the page tier data:', error);
+  } catch {
     return new Map();
   }
 }
@@ -614,10 +614,9 @@ function addPurchaseImporter() {
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
         : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
-      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; ${result.total} total items.`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
-      console.warn('Humble Comic Library import failed:', error);
     } finally {
       buttons.forEach((control) => { control.disabled = false; });
     }
@@ -651,9 +650,8 @@ async function importPurchases(report, { fullRescan = false } = {}) {
       const items = extractLibraryItems(detail, order, key);
       imported.push(...items);
       purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
-    } catch (error) {
+    } catch {
       failures.push(key);
-      console.warn(`Could not import Humble purchase ${key}:`, error);
     }
     // Avoid piling up requests against Humble for accounts with long histories.
     await new Promise((resolve) => setTimeout(resolve, 175));
