@@ -3,6 +3,10 @@
 node_modules/
 dist/
 
+# Local development notes and personal Humble data. Never package or commit.
+chatgpt.txt
+bak/
+
 # Never commit a personal library export or browser profile data.
 *library-export*.json
 *detection-report*.json
