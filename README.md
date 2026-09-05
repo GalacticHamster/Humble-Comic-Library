@@ -1,6 +1,6 @@
 # Humble Comic Library
 
-A local-only browser extension that marks books, comics, or games you already own while viewing a Humble bundle.
+An unofficial browser extension that marks books, comics, or games you already own while viewing a Humble Bundle listing. It is not affiliated with or endorsed by Humble Bundle.
 
 ## What works now
 
@@ -13,7 +13,7 @@ A local-only browser extension that marks books, comics, or games you already ow
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
 - Export or clear all browser-local library titles, purchase summaries, and import history.
 
-Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie.
+Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance locally in Chrome until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a Chrome Web Store release, publish that policy at a public HTTPS URL and enter the URL in the Store's Privacy field.
 
 The extension runs only on Humble Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
 
