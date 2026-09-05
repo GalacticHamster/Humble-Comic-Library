@@ -17,7 +17,7 @@
     const games = items.filter((item) => item.kind === 'game').length;
     count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${games ? ` (${games} game${games === 1 ? '' : 's'})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
     lastImport.textContent = summary
-      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames ? ` (${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.pricedPurchases ?? 0} purchase price${summary.pricedPurchases === 1 ? '' : 's'} captured from ${summary.scannedPurchases} purchases on ${new Date(summary.importedAt).toLocaleString()}.`
+      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames ? ` (${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
       : 'No Humble import has run yet.';
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');

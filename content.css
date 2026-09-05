@@ -127,3 +127,6 @@
 .hcl-importer button { margin-left: auto; padding: 0.45rem 0.7rem; border: 0; border-radius: 0.25rem; background: #0a7a42; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 .hcl-importer button:disabled { cursor: progress; opacity: 0.7; }
 .hcl-importer output { flex-basis: 100%; font-size: 0.82rem; }
+.hcl-import-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-left: auto; }
+.hcl-import-actions button { margin-left: 0; }
+.hcl-import-actions button[data-import-mode="all"] { background: #275f88; }

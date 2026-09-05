@@ -557,41 +557,54 @@ function addPurchaseImporter() {
   panel.innerHTML = `
     <strong>Humble Comic Library</strong>
     <span>Import eligible books, comics, and games from this purchase history into this browser.</span>
-    <button type="button">Import books, comics &amp; games</button>
+    <div class="hcl-import-actions">
+      <button type="button" data-import-mode="new">Import new purchases</button>
+      <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game entries.">Rescan every purchase</button>
+    </div>
     <output aria-live="polite"></output>`;
-  const [button] = panel.querySelectorAll('button');
+  const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const status = panel.querySelector('output');
-  button.addEventListener('click', async () => {
-    button.disabled = true;
+  for (const button of buttons) button.addEventListener('click', async () => {
+    const fullRescan = button.dataset.importMode === 'all';
+    if (fullRescan && !confirm('Rescan every Humble purchase? This can take a while.')) return;
+    buttons.forEach((control) => { control.disabled = true; });
     try {
-      const result = await importPurchases((message) => { status.textContent = message; });
-      status.textContent = `Imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; found prices for ${result.pricedPurchases} purchase${result.pricedPurchases === 1 ? '' : 's'}; ${result.total} total items.`;
+      const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
+      const scope = fullRescan
+        ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
+        : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
       console.warn('Humble Comic Library import failed:', error);
     } finally {
-      button.disabled = false;
+      buttons.forEach((control) => { control.disabled = false; });
     }
   });
   document.body.prepend(panel);
 }
 
-async function importPurchases(report) {
+async function importPurchases(report, { fullRescan = false } = {}) {
   // This endpoint is used by Humble's purchase pages. Fetching occurs in the
   // authenticated Humble tab, so no cookie is read, copied, or stored by us.
   report('Loading your purchase list…');
   const orders = await fetchJson('/api/v1/user/order?all=true');
   const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
+  const { libraryItems = [], purchaseSummaries: existingPurchases = [] } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
+  const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
+  const purchasesToScan = orderList.filter((order) => {
+    const key = order.gamekey ?? order.key ?? order.order_key;
+    return key && (fullRescan || !previouslyScanned.has(key));
+  });
 
   const imported = [];
   const purchaseSummaries = [];
   const failures = [];
-  for (let index = 0; index < orderList.length; index += 1) {
-    const order = orderList[index];
+  for (let index = 0; index < purchasesToScan.length; index += 1) {
+    const order = purchasesToScan[index];
     const key = order.gamekey ?? order.key ?? order.order_key;
-    if (!key) continue;
-    report(`Checking purchase ${index + 1} of ${orderList.length}…`);
+    report(`Checking ${fullRescan ? 'purchase' : 'new purchase'} ${index + 1} of ${purchasesToScan.length}…`);
     try {
       const detail = await fetchOrderDetail(key);
       const items = extractLibraryItems(detail, order, key);
@@ -605,11 +618,11 @@ async function importPurchases(report) {
     await new Promise((resolve) => setTimeout(resolve, 175));
   }
 
-  const { libraryItems = [], purchaseSummaries: existingPurchases = [] } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
-  // A previous game experiment could only infer non-book products and added
-  // unrelated extras. Rebuild Humble-sourced game entitlements from Humble's
-  // explicit third-party-key collection on every import instead.
-  const retainedItems = libraryItems.filter((item) => item.kind !== 'game' || item.source !== 'humble');
+  // Full rescans rebuild Humble game entries from the explicit entitlement
+  // collection. Incremental scans retain known games and add only new ones.
+  const retainedItems = fullRescan
+    ? libraryItems.filter((item) => item.kind !== 'game' || item.source !== 'humble')
+    : libraryItems;
   const merged = new Map(retainedItems.map((item) => [libraryItemKey(item), item]));
   let added = 0;
   let addedGames = 0;
@@ -633,7 +646,8 @@ async function importPurchases(report) {
   }
   const importSummary = {
     importedAt: new Date().toISOString(),
-    scannedPurchases: orderList.length,
+    scannedPurchases: purchasesToScan.length,
+    skippedKnown: orderList.length - purchasesToScan.length,
     addedTitles: added,
     addedGames,
     datesBackfilled,
@@ -643,7 +657,16 @@ async function importPurchases(report) {
   const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
   await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary });
-  return { added, addedGames, datesBackfilled, pricedPurchases: importSummary.pricedPurchases, total: merged.size, failures: failures.length };
+  return {
+    added,
+    addedGames,
+    datesBackfilled,
+    pricedPurchases: importSummary.pricedPurchases,
+    total: merged.size,
+    failures: failures.length,
+    scannedPurchases: purchasesToScan.length,
+    skippedKnown: importSummary.skippedKnown
+  };
 }
 
 async function fetchJson(path) {
