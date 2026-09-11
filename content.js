@@ -24,10 +24,15 @@
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
+  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0 };
+  showComparisonProgress('Loading your local library…');
   const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [] });
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
+  comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
+  comparison.libraryCount = libraryItems.length;
   const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
   if (!libraryItems.length) {
+    removeComparisonProgress();
     renderPurchasedBundleSummary(currentBundlePurchases);
     return;
   }
@@ -42,28 +47,75 @@
   }
 
   const libraryByKey = new Map([...byKey].map(([key, items]) => [key, items[0]]));
+  const libraryMatcher = createLibraryMatcher(libraryByKey, itemKind);
+  const collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
-  const refresh = () => {
+  const refresh = (reason = 'update') => {
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases, [...HumbleCollectionMappings.builtIn, ...storage.customCollectionMappings]), 150);
+    const job = ++comparison.job;
+    comparison.refreshes += 1;
+    comparison.completedItems = 0;
+    showComparisonProgress(reason === 'initial' ? 'Checking your library…' : 'Updating library labels…');
+    // Let Humble finish its paint and image work before this potentially
+    // expensive comparison. The timeout guarantees it still runs promptly on
+    // a continuously busy page.
+    refreshTimer = setTimeout(() => runWhenIdle(() => renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job), 500), reason === 'initial' ? 0 : 120);
   };
-  refresh();
-  window.addEventListener('resize', refresh, { passive: true });
-  let coverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
+  refresh('initial');
+  window.addEventListener('resize', () => refresh('resize'), { passive: true });
   new MutationObserver((records) => {
-    // Humble renders covers lazily. Only re-run when its actual cover set
-    // changes; observing every DOM mutation reset expandable result lists as
-    // the page updated incidental interface elements.
-    if (!records.length) return;
-    const nextCoverCount = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]').length;
-    const coversLostAnnotations = [...document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')]
-      .some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
-    if (nextCoverCount !== coverCount || coversLostAnnotations) {
-      coverCount = nextCoverCount;
-      refresh();
-    }
+    // Humble renders covers lazily. Look only at the added/changed local
+    // subtree, rather than re-querying every cover after every React update.
+    if (records.some(recordHasUnannotatedCover)) refresh('new bundle items');
   }).observe(document.documentElement, { childList: true, subtree: true });
-}()).catch(() => {});
+}()).catch((error) => showComparisonFailure(error));
+
+const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
+
+function runWhenIdle(callback, timeout) {
+  const run = () => Promise.resolve(callback()).catch(showComparisonFailure);
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(run, { timeout });
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
+function recordHasUnannotatedCover(record) {
+  const roots = [...record.addedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE);
+  const hasNonExtensionAddition = roots.some((node) => !node.id?.startsWith('hcl-') && !node.classList?.contains('hcl-summary'));
+  // Text/hydration changes can complete a card around an existing cover, so
+  // inspect the local target in that case. Do not inspect document.body just
+  // because the extension added its own progress or summary panel.
+  if (record.target instanceof Element && (hasNonExtensionAddition || !roots.length)) roots.push(record.target);
+  return roots.some((root) => {
+    const covers = [];
+    if (root.matches?.(HCL_COVER_SELECTOR)) covers.push(root);
+    covers.push(...(root.querySelectorAll?.(HCL_COVER_SELECTOR) ?? []));
+    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
+  });
+}
+
+function showComparisonProgress(message) {
+  let progress = document.querySelector('#hcl-progress');
+  if (!progress) {
+    progress = document.createElement('aside');
+    progress.id = 'hcl-progress';
+    progress.className = 'hcl-progress';
+    (document.body ?? document.documentElement).append(progress);
+  }
+  progress.textContent = message;
+}
+
+function removeComparisonProgress() {
+  document.querySelector('#hcl-progress')?.remove();
+}
+
+function showComparisonFailure(error) {
+  showComparisonProgress('Could not check your library. Reload the page to try again.');
+  const progress = document.querySelector('#hcl-progress');
+  progress.title = String(error?.message ?? error ?? 'Unknown extension error');
+}
 
 function isBundleCataloguePage() {
   return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games';
@@ -124,7 +176,8 @@ function catalogueTitleKey(title) {
     .trim();
 }
 
-function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases = [], collectionMappings = []) {
+async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
+  const { libraryByKey } = libraryMatcher;
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -149,17 +202,23 @@ function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases =
   document.querySelector('#hcl-summary')?.remove();
 
   const items = collectBundleItems();
-  if (!items.length) return;
+  if (!items.length) {
+    showComparisonProgress('Waiting for Humble’s bundle items…');
+    return;
+  }
+  if (comparison) comparison.itemCount = items.length;
+  const matchStartedAt = performance.now();
   const counts = { owned: 0, partial: 0, possible: 0, new: 0 };
   const titlesByState = { owned: [], partial: [], possible: [], new: [] };
   const matchesByTitleKey = new Map();
   const tiers = new Map();
-  for (const item of items) {
+  let sliceStartedAt = performance.now();
+  for (const [index, item] of items.entries()) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
     const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
-    const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(item.title, libraryByKey);
+    const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(item.title, libraryMatcher);
     const collectionIssue = exact || volumeRange || bookVariant || itemKind !== 'book' ? null : findOwnedCollectionIssue(item.title, libraryByKey, collectionMappings);
-    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(item.title, libraryByKey, itemKind);
+    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(item.title, libraryMatcher, itemKind);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
@@ -178,12 +237,32 @@ function renderBundleComparison(libraryByKey, itemKind, currentBundlePurchases =
     if (match.state === 'partial') tier.partial += 1;
     if (match.state === 'possible') tier.possible += 1;
     tiers.set(item.tier.label, tier);
+    // Large libraries can make an individual card comparison expensive. Yield
+    // after a very small CPU slice so Humble can continue painting and loading
+    // covers instead of waiting for every title to be checked.
+    if (comparison) {
+      comparison.completedItems = index + 1;
+      if (comparison.job !== job) return;
+      if (performance.now() - sliceStartedAt >= 12) {
+        showComparisonProgress(`Checking your libraryâ€¦ ${comparison.completedItems}/${items.length} items`);
+        await yieldToBrowser();
+        if (comparison.job !== job) return;
+        sliceStartedAt = performance.now();
+      }
+    }
   }
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
   annotateAllCoverCopies(matchesByTitleKey);
-  renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases);
+  if (comparison) {
+    comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
+  }
+  renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases, comparison);
+}
+
+function yieldToBrowser() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
 function annotateAllCoverCopies(matchesByTitleKey) {
@@ -308,7 +387,27 @@ function extractPagePrice(text) {
   return match ? Number(match[1]) : null;
 }
 
-function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
+function createLibraryMatcher(libraryByKey, itemKind) {
+  const byToken = new Map();
+  const bookVariants = new Map();
+  const currentBundleBookVariants = [];
+  for (const [, item] of libraryByKey) {
+    for (const token of significantTokens(item.title)) {
+      const entries = byToken.get(token) ?? new Set();
+      entries.add(item);
+      byToken.set(token, entries);
+    }
+    if (itemKind === 'book') {
+      const parts = bookVariantParts(item.title);
+      if (parts.key && !bookVariants.has(parts.key)) bookVariants.set(parts.key, item);
+      if (isFromCurrentBundle(item)) currentBundleBookVariants.push({ item, parts });
+    }
+  }
+  return { libraryByKey, byToken, bookVariants, currentBundleBookVariants };
+}
+
+function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
+  const { libraryByKey, byToken } = libraryMatcher;
   const numberedBase = numberedTitleBase(title);
   if (numberedBase) {
     const candidate = libraryByKey.get(numberedBase);
@@ -329,7 +428,12 @@ function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
   const titleTokens = significantTokens(title);
   if (titleTokens.size < 2) return null;
   let best = null;
-  for (const [key, item] of libraryByKey) {
+  const candidates = new Set();
+  for (const token of titleTokens) {
+    for (const item of byToken.get(token) ?? []) candidates.add(item);
+  }
+  for (const item of candidates) {
+    const key = HumbleComicLibrary.titleKey(item.title);
     const candidateTokens = new Set(key.split(' ').filter(Boolean));
     const overlap = [...titleTokens].filter((token) => candidateTokens.has(token)).length;
     const score = overlap / new Set([...titleTokens, ...candidateTokens]).size;
@@ -340,15 +444,15 @@ function findPossibleMatch(title, libraryByKey, itemKind = 'book') {
   return best ? { items: best.item, reason: 'The titles have a very close normalized word match.' } : null;
 }
 
-function findOwnedBookVariant(title, libraryByKey) {
+function findOwnedBookVariant(title, libraryMatcher) {
   const target = bookVariantParts(title);
-  for (const [, item] of libraryByKey) {
-    const candidate = bookVariantParts(item.title);
-    // TP, HC, and Deluxe wording describe a presentation rather than a
-    // different book. These remain safe exact matches after stripping only
-    // those delivery-format labels.
-    if (candidate.key === target.key) return { item, reason: 'Matched after removing a book-format suffix.' };
-    if (!isFromCurrentBundle(item) || !bookVolumeVariantsAlign(target, candidate)) continue;
+  const formatVariant = libraryMatcher.bookVariants.get(target.key);
+  // TP, HC, and Deluxe wording describe a presentation rather than a
+  // different book. These remain safe exact matches after stripping only
+  // those delivery-format labels.
+  if (formatVariant) return { item: formatVariant, reason: 'Matched after removing a book-format suffix.' };
+  for (const { item, parts: candidate } of libraryMatcher.currentBundleBookVariants) {
+    if (!bookVolumeVariantsAlign(target, candidate)) continue;
     // Humble sometimes names an entitlement with a volume subtitle while its
     // bundle card uses only the series and volume number. Trust that bridge
     // only when the matching entitlement came from this exact bundle.
@@ -614,7 +718,7 @@ function statusColor(state) {
   return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
-function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = []) {
+function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
@@ -700,7 +804,34 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     diagnostic.disabled = false;
   });
   summary.append(diagnostic);
+  if (comparison) appendComparisonDiagnostics(summary, comparison);
+  removeComparisonProgress();
   document.body.append(summary);
+}
+
+function appendComparisonDiagnostics(summary, comparison) {
+  const details = document.createElement('details');
+  details.className = 'hcl-diagnostics';
+  const heading = document.createElement('summary');
+  heading.textContent = 'Diagnostics';
+  details.append(heading);
+  const list = document.createElement('ul');
+  const elapsed = Math.round(performance.now() - comparison.startedAt);
+  const rows = [
+    `Local library read: ${comparison.storageMs ?? 'unknown'} ms`,
+    `Bundle items detected: ${comparison.itemCount}`,
+    `Library records compared: ${comparison.libraryCount}`,
+    `Last comparison: ${comparison.lastMatchMs ?? 'unknown'} ms`,
+    `Comparison refreshes: ${comparison.refreshes}`,
+    `Extension elapsed time: ${elapsed} ms`
+  ];
+  for (const text of rows) {
+    const row = document.createElement('li');
+    row.textContent = text;
+    list.append(row);
+  }
+  details.append(list);
+  summary.append(details);
 }
 
 function renderPurchasedBundleSummary(currentBundlePurchases) {

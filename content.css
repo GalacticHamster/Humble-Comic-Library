@@ -61,6 +61,33 @@
   font: 600 0.875rem/1.35 Arial, sans-serif;
 }
 
+.hcl-progress {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 22rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  background: #171717;
+  box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 35%);
+  color: #fff;
+  font: 600 0.8rem/1.35 Arial, sans-serif;
+}
+.hcl-progress::before {
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid rgb(255 255 255 / 35%);
+  border-top-color: #fff;
+  border-radius: 50%;
+  content: '';
+  animation: hcl-spin 0.75s linear infinite;
+}
+@keyframes hcl-spin { to { transform: rotate(360deg); } }
+
 .hcl-summary strong { display: block; }
 .hcl-legend { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.55rem; font-size: 0.72rem; }
 .hcl-legend span { padding: 0.15rem 0.35rem; border-radius: 999px; color: #fff; font-weight: 700; }
@@ -99,6 +126,9 @@
 .hcl-title-list { margin-top: 0.6rem; font-size: 0.8rem; }
 .hcl-title-list summary { cursor: pointer; font-weight: 700; }
 .hcl-title-list ol { max-height: 12rem; margin: 0.35rem 0 0; padding-left: 1.25rem; overflow: auto; }
+.hcl-diagnostics { margin-top: 0.65rem; font-size: 0.75rem; }
+.hcl-diagnostics summary { cursor: pointer; color: #d7d7d7; }
+.hcl-diagnostics ul { margin-top: 0.35rem; }
 
 /* The cover and text live in the same one-cover card on current Humble pages.
    Target only title-like children so pricing and publisher information keep
