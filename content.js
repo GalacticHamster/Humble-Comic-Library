@@ -147,6 +147,7 @@ function renderCataloguePurchaseMarkers(purchaseSummaries) {
     card.dataset.hclCatalogueBadge = purchases.length > 1 ? `Purchased ${purchases.length}x` : 'Purchased';
     card.title = `Already purchased${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${formatBundlePurchase(latest)}`;
   }
+  sortCatalogueCards();
 }
 
 function isBundleOfferLink(link) {
@@ -169,11 +170,206 @@ function catalogueCardContainer(link) {
   return link.closest('article, li, [class*="tile" i], [class*="card" i], [class*="product" i], [class*="entity" i]') ?? link;
 }
 
+function sortCatalogueCards() {
+  const cards = new Map();
+  for (const link of document.querySelectorAll('a[href]')) {
+    if (!isBundleOfferLink(link)) continue;
+    const card = catalogueCardContainer(link);
+    if (!card || cards.has(card)) continue;
+    cards.set(card, { title: catalogueCardTitle(link), endsInMinutes: catalogueEndsInMinutes(card) });
+  }
+  sortVisibleCardGroups([...cards.entries()].map(([element, data]) => ({ element, ...data })), (left, right) => {
+    const leftEnds = left.endsInMinutes;
+    const rightEnds = right.endsInMinutes;
+    if (leftEnds !== null && rightEnds !== null && leftEnds !== rightEnds) return leftEnds - rightEnds;
+    if (leftEnds !== null && rightEnds === null) return -1;
+    if (leftEnds === null && rightEnds !== null) return 1;
+    return naturalTitleCompare(left.title, right.title);
+  });
+}
+
+function catalogueEndsInMinutes(card) {
+  const text = String(card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
+  const marker = text.search(/\b(?:offer\s+)?ends?(?:\s+in)?\b/u);
+  const timing = marker === -1 ? text : text.slice(marker, marker + 100);
+  let total = 0;
+  let found = false;
+  for (const match of timing.matchAll(/(\d+)\s*(weeks?|days?|hours?|hrs?|minutes?|mins?)/gu)) {
+    const amount = Number(match[1]);
+    const unit = match[2];
+    total += amount * (unit.startsWith('week') ? 10080 : unit.startsWith('day') ? 1440 : unit.startsWith('hour') || unit.startsWith('hr') ? 60 : 1);
+    found = true;
+  }
+  if (found && (marker !== -1 || /\bleft\b/u.test(text))) return total;
+  const clock = text.match(/\b(\d+):(\d{2}):(\d{2})(?::(\d{2}))?\b/u);
+  if (!clock) return null;
+  const [, first, second, third, fourth] = clock;
+  // Humble uses either H:MM:SS or D:HH:MM:SS countdowns.
+  return fourth === undefined
+    ? Number(first) * 60 + Number(second) + Number(third) / 60
+    : Number(first) * 1440 + Number(second) * 60 + Number(third) + Number(fourth) / 60;
+}
+
 function catalogueTitleKey(title) {
   return HumbleComicLibrary.titleKey(title)
     .replace(/^humble\s+(?:(?:books|comics|games|software)\s+)?bundle\s+/u, '')
     .replace(/\s+/gu, ' ')
     .trim();
+}
+
+function sortBundleItems(items) {
+  const cardsByTier = new Map();
+  for (const item of items) {
+    // productContainer is intentionally broad for status annotation; on
+    // some Humble layouts it is the whole tier. For sorting, use the nearest
+    // ancestor containing exactly one cover so each book has its own card.
+    const card = findSingleCoverCard(item.element) ?? item.container;
+    if (!card) continue;
+    const cards = cardsByTier.get(item.tier.label) ?? new Map();
+    if (!cards.has(card)) cards.set(card, { title: item.title });
+    cardsByTier.set(item.tier.label, cards);
+  }
+  const sorting = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, tierGroups: cardsByTier.size };
+  const allCards = new Set();
+  const parents = new Set();
+  for (const cards of cardsByTier.values()) {
+    for (const card of cards.keys()) {
+      allCards.add(card);
+      if (card.parentElement) parents.add(card.parentElement);
+    }
+    const result = sortVisibleCardGroups([...cards.entries()].map(([element, data]) => ({ element, ...data })), (left, right) => naturalTitleCompare(left.title, right.title), true);
+    sorting.directGroups += result.directGroups;
+    sorting.directCardsMoved += result.directCardsMoved;
+    sorting.rowSections += result.rowSections;
+    sorting.rowCardsMoved += result.rowCardsMoved;
+  }
+  sorting.sourceItems = items.length;
+  sorting.distinctCards = allCards.size;
+  sorting.directParents = parents.size;
+  return sorting;
+}
+
+function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
+  const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0 };
+  const candidatesByParent = new Map();
+  for (const entry of entries) {
+    let child = entry.element;
+    for (let parent = child.parentElement; parent; child = parent, parent = parent.parentElement) {
+      if (parent === document.body && !allowDocumentBody) break;
+      const candidates = candidatesByParent.get(parent) ?? [];
+      candidates.push({ entry, child });
+      candidatesByParent.set(parent, candidates);
+      if (parent === document.body) break;
+    }
+  }
+  const usableParents = new Set([...candidatesByParent].filter(([, candidates]) => (
+    candidates.length >= 2 && new Set(candidates.map((candidate) => candidate.child)).size === candidates.length
+  )).map(([parent]) => parent));
+  const chosenGroups = new Map();
+  for (const entry of entries) {
+    let child = entry.element;
+    for (let parent = child.parentElement; parent; child = parent, parent = parent.parentElement) {
+      if (parent === document.body && !allowDocumentBody) break;
+      if (!usableParents.has(parent)) continue;
+      const group = chosenGroups.get(parent) ?? [];
+      group.push({ entry, child });
+      chosenGroups.set(parent, group);
+      break;
+    }
+  }
+  for (const group of chosenGroups.values()) {
+    if (group.length < 2) continue;
+    result.directGroups += 1;
+    const sorted = group.sort((left, right) => compare(left.entry, right.entry)).map(({ child }) => child);
+    if (reorderCardsInContainer(group[0].child.parentElement, sorted)) result.directCardsMoved += sorted.length;
+  }
+  const acrossRows = sortAcrossCardRows(entries, compare, allowDocumentBody);
+  result.rowSections = acrossRows.sections;
+  result.rowCardsMoved = acrossRows.cardsMoved;
+  return result;
+}
+
+function sortAcrossCardRows(entries, compare, allowDocumentBody = false) {
+  const result = { sections: 0, cardsMoved: 0 };
+  const candidatesByParent = new Map();
+  for (const entry of entries) {
+    let child = entry.element;
+    let depth = 0;
+    for (let parent = child.parentElement; parent; child = parent, parent = parent.parentElement, depth += 1) {
+      if (parent === document.body && !allowDocumentBody) break;
+      if (child === entry.element) continue;
+      const card = directChildWithin(entry.element, child);
+      if (!card || card === child) continue;
+      const candidates = candidatesByParent.get(parent) ?? [];
+      candidates.push({ entry, row: child, card, depth });
+      candidatesByParent.set(parent, candidates);
+      if (parent === document.body) break;
+    }
+  }
+  const candidates = [...candidatesByParent].map(([parent, records]) => ({ parent, records }))
+    .filter(({ records }) => {
+      const rows = new Set(records.map((record) => record.row));
+      const cards = new Set(records.map((record) => record.card));
+      return rows.size >= 2 && cards.size === records.length && [...rows].every((row) => records.filter((record) => record.row === row).length >= 2);
+    })
+    .sort((left, right) => Math.min(...left.records.map((record) => record.depth)) - Math.min(...right.records.map((record) => record.depth)));
+  const movedCards = new Set();
+  for (const { parent, records } of candidates) {
+    if (records.some((record) => movedCards.has(record.card))) continue;
+    const rows = [...parent.children].filter((child) => records.some((record) => record.row === child));
+    const sorted = [...records].sort((left, right) => compare(left.entry, right.entry));
+    let offset = 0;
+    let moved = false;
+    for (const row of rows) {
+      const capacity = records.filter((record) => record.row === row).length;
+      const cards = sorted.slice(offset, offset + capacity).map((record) => record.card);
+      moved = reorderCardsInContainer(row, cards) || moved;
+      cards.forEach((card) => movedCards.add(card));
+      offset += capacity;
+    }
+    result.sections += 1;
+    if (moved) result.cardsMoved += records.length;
+  }
+  return result;
+}
+
+function directChildWithin(element, ancestor) {
+  let child = element;
+  while (child.parentElement && child.parentElement !== ancestor) child = child.parentElement;
+  return child.parentElement === ancestor ? child : null;
+}
+
+function reorderCardsInContainer(parent, expectedCards) {
+  if (!parent || expectedCards.length < 2) return false;
+  const expected = [...new Set(expectedCards)];
+  // Humble sets inline flex order on these wrappers. The extension is
+  // intentionally taking over ordering for this page view, so force the
+  // browser to honor the reordered document slots instead. Reloading the page
+  // restores Humble's original markup and order values.
+  expected.forEach(forceDocumentCardOrder);
+  const expectedSet = new Set(expected);
+  const actual = [...parent.children].filter((child) => expectedSet.has(child));
+  if (actual.length !== expected.length || actual.every((card, index) => card === expected[index])) return false;
+  // Replace only the card positions, rather than appending nodes. This keeps
+  // Humble's tier headings, sidebar, and other non-card siblings fixed even
+  // when the card parent is the page's main content container.
+  const slots = actual.map((card) => document.createComment('hcl-sort-slot'));
+  actual.forEach((card, index) => parent.replaceChild(slots[index], card));
+  expected.forEach((card, index) => {
+    parent.replaceChild(card, slots[index]);
+  });
+  return true;
+}
+
+function forceDocumentCardOrder(card) {
+  card.style.setProperty('order', 'initial', 'important');
+  card.dataset.hclSortOrder = 'document';
+}
+
+const HCL_NATURAL_TITLE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function naturalTitleCompare(left, right) {
+  return HCL_NATURAL_TITLE_COLLATOR.compare(displayTitle(left), displayTitle(right));
 }
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
@@ -206,7 +402,11 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     showComparisonProgress('Waiting for Humble’s bundle items…');
     return;
   }
-  if (comparison) comparison.itemCount = items.length;
+  const sorting = sortBundleItems(items);
+  if (comparison) {
+    comparison.itemCount = items.length;
+    comparison.sorting = sorting;
+  }
   const matchStartedAt = performance.now();
   const counts = { owned: 0, partial: 0, possible: 0, new: 0 };
   const titlesByState = { owned: [], partial: [], possible: [], new: [] };
@@ -774,7 +974,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     heading.textContent = `${state === 'owned' ? 'Owned' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
-    for (const item of titlesByState[state].sort((left, right) => left.title.localeCompare(right.title))) {
+    for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.provenance;
@@ -823,6 +1023,7 @@ function appendComparisonDiagnostics(summary, comparison) {
     `Library records compared: ${comparison.libraryCount}`,
     `Last comparison: ${comparison.lastMatchMs ?? 'unknown'} ms`,
     `Comparison refreshes: ${comparison.refreshes}`,
+    comparison.sorting ? `Bundle sorting: ${comparison.sorting.distinctCards}/${comparison.sorting.sourceItems} distinct card candidates in ${comparison.sorting.directParents} parent container${comparison.sorting.directParents === 1 ? '' : 's'}; ${comparison.sorting.directGroups} card group${comparison.sorting.directGroups === 1 ? '' : 's'} (${comparison.sorting.directCardsMoved} cards moved); ${comparison.sorting.rowSections} multi-row section${comparison.sorting.rowSections === 1 ? '' : 's'} (${comparison.sorting.rowCardsMoved} cards moved)` : 'Bundle sorting: not run yet',
     `Extension elapsed time: ${elapsed} ms`
   ];
   for (const text of rows) {
