@@ -16,7 +16,7 @@
     };
     refresh();
     new MutationObserver((records) => {
-      if (records.some((record) => record.addedNodes.length)) refresh();
+      if (records.some(recordHasExternalAddition)) refresh();
     }).observe(document.documentElement, { childList: true, subtree: true });
     return;
   }
@@ -71,6 +71,13 @@
 }()).catch((error) => showComparisonFailure(error));
 
 const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
+
+function recordHasExternalAddition(record) {
+  return [...record.addedNodes].some((node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    return !node.id?.startsWith('hcl-') && !node.classList?.contains('hcl-summary') && !node.classList?.contains('hcl-progress');
+  });
+}
 
 function runWhenIdle(callback, timeout) {
   const run = () => Promise.resolve(callback()).catch(showComparisonFailure);
@@ -147,13 +154,13 @@ function renderCataloguePurchaseMarkers(purchaseSummaries) {
     card.dataset.hclCatalogueBadge = purchases.length > 1 ? `Purchased ${purchases.length}x` : 'Purchased';
     card.title = `Already purchased${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${formatBundlePurchase(latest)}`;
   }
-  sortCatalogueCards();
+  renderCatalogueSortDiagnostics(sortCatalogueCards());
 }
 
 function isBundleOfferLink(link) {
   try {
     const url = new URL(link.href, location.href);
-    return url.origin === location.origin && /^\/(?:books|games)\/[^/]+/u.test(url.pathname);
+    return url.origin === location.origin && /^\/(?:books|games|software)\/[^/]+/u.test(url.pathname);
   } catch {
     return false;
   }
@@ -178,14 +185,56 @@ function sortCatalogueCards() {
     if (!card || cards.has(card)) continue;
     cards.set(card, { title: catalogueCardTitle(link), endsInMinutes: catalogueEndsInMinutes(card) });
   }
-  sortVisibleCardGroups([...cards.entries()].map(([element, data]) => ({ element, ...data })), (left, right) => {
+  const sections = new Map();
+  for (const [element, data] of cards) {
+    const heading = precedingCatalogueSectionHeading(element) ?? document.body;
+    const section = sections.get(heading) ?? [];
+    section.push({ element, ...data });
+    sections.set(heading, section);
+  }
+  const result = { sections: sections.size, directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, timedCards: [...cards.values()].filter((card) => card.endsInMinutes !== null).length, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
+  for (const section of sections.values()) {
+    const sectionResult = sortVisibleCardGroups(section, (left, right) => {
     const leftEnds = left.endsInMinutes;
     const rightEnds = right.endsInMinutes;
     if (leftEnds !== null && rightEnds !== null && leftEnds !== rightEnds) return leftEnds - rightEnds;
     if (leftEnds !== null && rightEnds === null) return -1;
     if (leftEnds === null && rightEnds !== null) return 1;
     return naturalTitleCompare(left.title, right.title);
-  });
+    }, true);
+    result.directGroups += sectionResult.directGroups;
+    result.directCardsMoved += sectionResult.directCardsMoved;
+    result.rowSections += sectionResult.rowSections;
+    result.rowCardsMoved += sectionResult.rowCardsMoved;
+    result.plannedCrossRowCards += sectionResult.plannedCrossRowCards;
+    result.inaccessibleCrossRowCards += sectionResult.inaccessibleCrossRowCards;
+  }
+  return result;
+}
+
+function renderCatalogueSortDiagnostics(sorting) {
+  document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();
+  const panel = document.createElement('aside');
+  panel.id = 'hcl-catalog-sort-diagnostics';
+  panel.className = 'hcl-catalog-sort-diagnostics';
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Catalogue sorting';
+  const message = document.createElement('p');
+  message.textContent = `${sorting.sections} section${sorting.sections === 1 ? '' : 's'}; ${sorting.timedCards} card${sorting.timedCards === 1 ? '' : 's'} with an expiry; ${sorting.directGroups} row group${sorting.directGroups === 1 ? '' : 's'} (${sorting.directCardsMoved} cards moved); ${sorting.rowSections} complete section${sorting.rowSections === 1 ? '' : 's'} (${sorting.rowCardsMoved}/${sorting.plannedCrossRowCards} planned cards moved, ${sorting.inaccessibleCrossRowCards} unavailable slots).`;
+  details.append(summary, message);
+  panel.append(details);
+  document.body.append(panel);
+}
+
+function precedingCatalogueSectionHeading(card) {
+  let sectionHeading = null;
+  for (const heading of document.querySelectorAll('h1, h2, h3, h4, [class*="title" i], [class*="header" i]')) {
+    const label = HumbleComicLibrary.titleKey(heading.textContent);
+    if (label !== 'games' && label !== 'books' && !label.includes('software')) continue;
+    if (heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING) sectionHeading = heading;
+  }
+  return sectionHeading;
 }
 
 function catalogueEndsInMinutes(card) {
@@ -250,7 +299,7 @@ function sortBundleItems(items) {
 }
 
 function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
-  const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0 };
+  const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
   const candidatesByParent = new Map();
   for (const entry of entries) {
     let child = entry.element;
@@ -277,16 +326,60 @@ function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
       break;
     }
   }
+  const recognizedRows = [];
   for (const group of chosenGroups.values()) {
     if (group.length < 2) continue;
     result.directGroups += 1;
     const sorted = group.sort((left, right) => compare(left.entry, right.entry)).map(({ child }) => child);
     if (reorderCardsInContainer(group[0].child.parentElement, sorted)) result.directCardsMoved += sorted.length;
+    recognizedRows.push({ parent: group[0].child.parentElement, records: group });
   }
-  const acrossRows = sortAcrossCardRows(entries, compare, allowDocumentBody);
+  const acrossRows = sortAcrossRecognizedRows(recognizedRows, compare);
   result.rowSections = acrossRows.sections;
   result.rowCardsMoved = acrossRows.cardsMoved;
+  result.plannedCrossRowCards = acrossRows.plannedCards;
+  result.inaccessibleCrossRowCards = acrossRows.inaccessibleCards;
   return result;
+}
+
+function sortAcrossRecognizedRows(rows, compare) {
+  const result = { sections: 0, cardsMoved: 0, plannedCards: 0, inaccessibleCards: 0 };
+  const sections = new Map();
+  for (const row of rows) {
+    const section = row.parent.parentElement;
+    if (!section) continue;
+    const sectionRows = sections.get(section) ?? [];
+    sectionRows.push(row);
+    sections.set(section, sectionRows);
+  }
+  for (const sectionRows of sections.values()) {
+    if (sectionRows.length < 2) continue;
+    const sorted = sectionRows.flatMap((row) => row.records).sort((left, right) => compare(left.entry, right.entry));
+    const actual = sectionRows.flatMap((row) => row.records.map(({ child }) => child));
+    const moved = actual.some((card, index) => card !== sorted[index].child);
+    if (moved) {
+      result.plannedCards += sorted.length;
+      reorderCardsAcrossRows(sectionRows, sorted.map(({ child }) => child));
+    }
+    result.sections += 1;
+    if (moved) result.cardsMoved += sorted.length;
+  }
+  return result;
+}
+
+function reorderCardsAcrossRows(rows, expectedCards) {
+  const slotsByRow = rows.map((row) => {
+    const cards = row.records.map(({ child }) => child);
+    const slots = cards.map(() => document.createComment('hcl-sort-slot'));
+    cards.forEach(forceDocumentCardOrder);
+    cards.forEach((card, index) => row.parent.replaceChild(slots[index], card));
+    return slots;
+  });
+  let offset = 0;
+  for (const slots of slotsByRow) {
+    slots.forEach((slot, index) => slot.parentElement.replaceChild(expectedCards[offset + index], slot));
+    offset += slots.length;
+  }
 }
 
 function sortAcrossCardRows(entries, compare, allowDocumentBody = false) {

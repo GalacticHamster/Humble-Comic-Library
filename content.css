@@ -77,6 +77,21 @@
   color: #fff;
   font: 600 0.8rem/1.35 Arial, sans-serif;
 }
+
+.hcl-catalog-sort-diagnostics {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 2147483647;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.4rem;
+  background: #171717;
+  color: #fff;
+  box-shadow: 0 0.2rem 0.75rem rgb(0 0 0 / 30%);
+  font: 600 0.75rem/1.35 Arial, sans-serif;
+}
+.hcl-catalog-sort-diagnostics summary { cursor: pointer; }
+.hcl-catalog-sort-diagnostics p { max-width: 18rem; margin: 0.45rem 0 0; color: #d7d7d7; }
 .hcl-progress::before {
   width: 0.8rem;
   height: 0.8rem;
