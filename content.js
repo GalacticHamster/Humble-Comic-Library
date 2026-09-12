@@ -7,12 +7,12 @@
   }
 
   if (isBundleCataloguePage()) {
-    const { purchaseSummaries = [] } = await chrome.storage.local.get({ purchaseSummaries: [] });
+    const { purchaseSummaries = [], showDiagnostics = false } = await chrome.storage.local.get({ purchaseSummaries: [], showDiagnostics: false });
     if (!purchaseSummaries.length) return;
     let refreshTimer;
     const refresh = () => {
       clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries), 150);
+      refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics), 150);
     };
     refresh();
     new MutationObserver((records) => {
@@ -24,9 +24,10 @@
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0 };
+  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0, showDiagnostics: false };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [] });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false });
+  comparison.showDiagnostics = storage.showDiagnostics;
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
@@ -128,7 +129,7 @@ function isBundleCataloguePage() {
   return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games';
 }
 
-function renderCataloguePurchaseMarkers(purchaseSummaries) {
+function renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics = false) {
   document.querySelectorAll('.hcl-catalog-purchased').forEach((card) => {
     card.classList.remove('hcl-catalog-purchased');
     delete card.dataset.hclCatalogueBadge;
@@ -154,7 +155,9 @@ function renderCataloguePurchaseMarkers(purchaseSummaries) {
     card.dataset.hclCatalogueBadge = purchases.length > 1 ? `Purchased ${purchases.length}x` : 'Purchased';
     card.title = `Already purchased${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${formatBundlePurchase(latest)}`;
   }
-  renderCatalogueSortDiagnostics(sortCatalogueCards());
+  const sorting = sortCatalogueCards();
+  if (showDiagnostics) renderCatalogueSortDiagnostics(sorting);
+  else document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();
 }
 
 function isBundleOfferLink(link) {
@@ -1097,7 +1100,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     diagnostic.disabled = false;
   });
   summary.append(diagnostic);
-  if (comparison) appendComparisonDiagnostics(summary, comparison);
+  if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
   removeComparisonProgress();
   document.body.append(summary);
 }

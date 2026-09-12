@@ -8,13 +8,14 @@
   const mappingFileInput = document.querySelector('#collection-mapping-file');
   const mappingStatus = document.querySelector('#collection-mapping-status');
   const mappingCount = document.querySelector('#collection-mapping-count');
+  const showDiagnostics = document.querySelector('#show-diagnostics');
 
   async function library() {
     return (await chrome.storage.local.get({ libraryItems: [] })).libraryItems;
   }
 
   async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [] } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [] });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false });
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
@@ -28,6 +29,7 @@
       return row;
     }));
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
+    showDiagnostics.checked = diagnosticsEnabled;
   }
 
   fileInput.addEventListener('change', async () => {
@@ -74,6 +76,10 @@
     } finally {
       mappingFileInput.value = '';
     }
+  });
+
+  showDiagnostics.addEventListener('change', async () => {
+    await chrome.storage.local.set({ showDiagnostics: showDiagnostics.checked });
   });
 
   document.querySelector('#open-purchases').addEventListener('click', () => {
