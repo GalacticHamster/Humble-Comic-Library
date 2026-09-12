@@ -1,3 +1,5 @@
+const catalogueExpiryByOffer = new Map();
+
 (async function initialiseHumbleComicLibrary() {
   'use strict';
 
@@ -7,12 +9,17 @@
   }
 
   if (isBundleCataloguePage()) {
-    const { purchaseSummaries = [], showDiagnostics = false } = await chrome.storage.local.get({ purchaseSummaries: [], showDiagnostics: false });
-    if (!purchaseSummaries.length) return;
+    const storage = await chrome.storage.local.get({ purchaseSummaries: [], showDiagnostics: false, catalogueFilters: {} });
+    const { purchaseSummaries = [], showDiagnostics = false } = storage;
+    let filters = normaliseCatalogueFilters(storage.catalogueFilters);
     let refreshTimer;
     const refresh = () => {
       clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics), 150);
+      refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics, filters, (nextFilters) => {
+        filters = normaliseCatalogueFilters(nextFilters);
+        chrome.storage.local.set({ catalogueFilters: filters }).catch(() => {});
+        refresh();
+      }), 150);
     };
     refresh();
     new MutationObserver((records) => {
@@ -129,12 +136,23 @@ function isBundleCataloguePage() {
   return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games';
 }
 
-function renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics = false) {
+function normaliseCatalogueFilters(filters) {
+  return {
+    hidePurchased: Boolean(filters?.hidePurchased),
+    endingSoon: Boolean(filters?.endingSoon),
+  };
+}
+
+function renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics = false, filters = {}, onFiltersChanged = () => {}) {
+  const activeFilters = normaliseCatalogueFilters(filters);
   document.querySelectorAll('.hcl-catalog-purchased').forEach((card) => {
     card.classList.remove('hcl-catalog-purchased');
     delete card.dataset.hclCatalogueBadge;
     card.removeAttribute('title');
   });
+  document.querySelectorAll('.hcl-catalog-filtered').forEach((card) => card.classList.remove('hcl-catalog-filtered'));
+  document.querySelectorAll('.hcl-catalog-empty-row').forEach((row) => row.classList.remove('hcl-catalog-empty-row'));
+  document.querySelectorAll('[data-hcl-catalog-filter]').forEach((card) => delete card.dataset.hclCatalogFilter);
   const purchasesByTitle = new Map();
   for (const purchase of purchaseSummaries) {
     const key = catalogueTitleKey(purchase.sourceBundle);
@@ -143,21 +161,109 @@ function renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics = fal
     existing.push(purchase);
     purchasesByTitle.set(key, existing);
   }
+  const cards = new Map();
   for (const link of document.querySelectorAll('a[href]')) {
     if (!isBundleOfferLink(link)) continue;
     const title = catalogueCardTitle(link);
-    const purchases = purchasesByTitle.get(catalogueTitleKey(title));
-    if (!purchases?.length) continue;
     const card = catalogueCardContainer(link);
     if (!card) continue;
+    const purchases = purchasesByTitle.get(catalogueTitleKey(title)) ?? [];
+    const timing = catalogueTimingForOffer(link, card);
+    const entry = { purchases, endsInMinutes: timing.minutes, displayedDays: timing.displayedDays };
+    if (!cards.has(card) || purchases.length) cards.set(card, entry);
+    if (!purchases.length) continue;
     const latest = [...purchases].sort((left, right) => String(right.purchasedAt ?? '').localeCompare(String(left.purchasedAt ?? '')))[0];
     card.classList.add('hcl-catalog-purchased');
     card.dataset.hclCatalogueBadge = purchases.length > 1 ? `Purchased ${purchases.length}x` : 'Purchased';
     card.title = `Already purchased${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${formatBundlePurchase(latest)}`;
   }
+  const filteredCards = catalogueFilterStates(cards, activeFilters);
+  for (const [card, filtered] of filteredCards) card.dataset.hclCatalogFilter = filtered ? 'true' : 'false';
   const sorting = sortCatalogueCards();
+  applyCatalogueFilters(filteredCards);
+  for (const card of filteredCards.keys()) delete card.dataset.hclCatalogFilter;
+  renderCatalogueFilterControls(activeFilters, onFiltersChanged);
   if (showDiagnostics) renderCatalogueSortDiagnostics(sorting);
   else document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();
+}
+
+function catalogueFilterStates(cards, filters) {
+  const filteredCards = new Map();
+  for (const [card, { purchases, endsInMinutes, displayedDays }] of cards) {
+    const hideForPurchase = filters.hidePurchased && purchases.length > 0;
+    const withinSevenDays = displayedDays !== null ? displayedDays <= 7 : endsInMinutes !== null && endsInMinutes <= 7 * 24 * 60;
+    const hideForExpiry = filters.endingSoon && !withinSevenDays;
+    filteredCards.set(card, hideForPurchase || hideForExpiry);
+  }
+  return filteredCards;
+}
+
+function applyCatalogueFilters(filteredCards) {
+  const rows = new Map();
+  for (const [card, filtered] of filteredCards) {
+    const slot = catalogueLayoutSlot(card);
+    slot.classList.toggle('hcl-catalog-filtered', filtered);
+    if (slot.parentElement) {
+      const slots = rows.get(slot.parentElement) ?? new Set();
+      slots.add(slot);
+      rows.set(slot.parentElement, slots);
+    }
+  }
+  for (const [row, slots] of rows) {
+    if (slots.size && !catalogueRowHasVisibleOffer(row)) {
+      row.classList.add('hcl-catalog-empty-row');
+    }
+  }
+}
+
+function catalogueRowHasVisibleOffer(row) {
+  for (const link of row.querySelectorAll('a[href]')) {
+    if (!isBundleOfferLink(link)) continue;
+    const card = catalogueCardContainer(link);
+    if (card && !catalogueLayoutSlot(card).classList.contains('hcl-catalog-filtered')) return true;
+  }
+  return false;
+}
+
+function catalogueLayoutSlot(card) {
+  let child = card;
+  for (let parent = child.parentElement; parent && parent !== document.body; child = parent, parent = parent.parentElement) {
+    const siblingSlots = [...parent.children].filter((sibling) => catalogueOfferLinkCount(sibling) === 1);
+    if (siblingSlots.length >= 2 && siblingSlots.includes(child)) return child;
+  }
+  return card;
+}
+
+function catalogueOfferLinkCount(element) {
+  const links = [];
+  if (element.matches?.('a[href]')) links.push(element);
+  links.push(...(element.querySelectorAll?.('a[href]') ?? []));
+  return new Set(links.filter(isBundleOfferLink).map((link) => link.href)).size;
+}
+
+function renderCatalogueFilterControls(filters, onFiltersChanged) {
+  document.querySelector('#hcl-catalog-filters')?.remove();
+  const panel = document.createElement('aside');
+  panel.id = 'hcl-catalog-filters';
+  panel.className = 'hcl-catalog-filters';
+  const title = document.createElement('strong');
+  title.textContent = 'Catalogue filters';
+  panel.append(title);
+  const inputs = {};
+  for (const [key, label] of [['hidePurchased', 'Hide purchased'], ['endingSoon', 'Ending within 7 days']]) {
+    const field = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = filters[key];
+    inputs[key] = input;
+    field.append(input, ` ${label}`);
+    panel.append(field);
+  }
+  panel.addEventListener('change', () => onFiltersChanged({
+    hidePurchased: inputs.hidePurchased.checked,
+    endingSoon: inputs.endingSoon.checked,
+  }));
+  document.body.append(panel);
 }
 
 function isBundleOfferLink(link) {
@@ -167,6 +273,38 @@ function isBundleOfferLink(link) {
   } catch {
     return false;
   }
+}
+
+function catalogueOfferKey(link) {
+  try {
+    const url = new URL(link.href, location.href);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return '';
+  }
+}
+
+function catalogueTimingForOffer(link, card) {
+  const key = catalogueOfferKey(link);
+  const cached = key ? catalogueExpiryByOffer.get(key) : null;
+  if (cached) {
+    return {
+      minutes: Math.max(0, cached.minutes - (Date.now() - cached.readAt) / 60000),
+      displayedDays: cached.displayedDays,
+    };
+  }
+  const minutes = catalogueEndsInMinutes(card);
+  const displayedDays = catalogueDisplayedDays(card);
+  if (key && minutes !== null) catalogueExpiryByOffer.set(key, { minutes, displayedDays, readAt: Date.now() });
+  return { minutes, displayedDays };
+}
+
+function catalogueDisplayedDays(card) {
+  const text = String(card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
+  const marker = text.search(/\b(?:offer\s+)?ends?(?:\s+in)?\b/u);
+  const timing = marker === -1 ? text : text.slice(marker, marker + 100);
+  const match = timing.match(/\b(\d+)\s+days?\b/u);
+  return match ? Number(match[1]) : null;
 }
 
 function catalogueCardTitle(link) {
@@ -186,7 +324,13 @@ function sortCatalogueCards() {
     if (!isBundleOfferLink(link)) continue;
     const card = catalogueCardContainer(link);
     if (!card || cards.has(card)) continue;
-    cards.set(card, { title: catalogueCardTitle(link), endsInMinutes: catalogueEndsInMinutes(card) });
+    const timing = catalogueTimingForOffer(link, card);
+    cards.set(card, {
+      title: catalogueCardTitle(link),
+      endsInMinutes: timing.minutes,
+      displayedDays: timing.displayedDays,
+      filtered: card.dataset.hclCatalogFilter === 'true',
+    });
   }
   const sections = new Map();
   for (const [element, data] of cards) {
@@ -198,8 +342,9 @@ function sortCatalogueCards() {
   const result = { sections: sections.size, directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, timedCards: [...cards.values()].filter((card) => card.endsInMinutes !== null).length, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
   for (const section of sections.values()) {
     const sectionResult = sortVisibleCardGroups(section, (left, right) => {
-    const leftEnds = left.endsInMinutes;
-    const rightEnds = right.endsInMinutes;
+    if (left.filtered !== right.filtered) return left.filtered ? 1 : -1;
+    const leftEnds = left.displayedDays !== null ? left.displayedDays * 1440 : left.endsInMinutes;
+    const rightEnds = right.displayedDays !== null ? right.displayedDays * 1440 : right.endsInMinutes;
     if (leftEnds !== null && rightEnds !== null && leftEnds !== rightEnds) return leftEnds - rightEnds;
     if (leftEnds !== null && rightEnds === null) return -1;
     if (leftEnds === null && rightEnds !== null) return 1;
