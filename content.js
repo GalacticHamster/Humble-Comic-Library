@@ -1216,6 +1216,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     }
     summary.append(tierList);
   }
+  appendBuyRecommendation(summary, tiers);
   for (const state of ['owned', 'new', 'partial', 'possible']) {
     if (!titlesByState[state].length) continue;
     const detail = document.createElement('details');
@@ -1257,6 +1258,23 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
   removeComparisonProgress();
   document.body.append(summary);
+}
+
+function appendBuyRecommendation(summary, tiers) {
+  const orderedTiers = [...tiers.values()]
+    .filter((tier) => tier.price !== null)
+    .sort((left, right) => left.price - right.price);
+  let recommendation = null;
+  for (const tier of orderedTiers) {
+    const confirmedNew = tier.total - tier.owned - tier.partial - tier.possible;
+    if (confirmedNew > 0) recommendation = tier;
+  }
+  if (!recommendation) return;
+  const message = document.createElement('p');
+  message.className = 'hcl-buy-recommendation';
+  message.textContent = `Lowest tier containing all confirmed-new items: $${recommendation.price.toFixed(2)}`;
+  message.title = 'Possible and partially owned items are excluded from this recommendation.';
+  summary.append(message);
 }
 
 function appendBundleNewItemsOnlyFilter(summary, comparison) {

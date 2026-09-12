@@ -10,6 +10,7 @@ An unofficial browser extension that marks books, comics, or games you already o
 - See an `Owned`, `New`, `Partially owned`, or `Possible match` status for every detected item on Humble Books and Games bundle pages. Books and games are kept separate. Listings such as `Vol. 1-3` are matched against individually owned volumes, and partial coverage is never treated as owned. Numbered presentations, game edition variants, and games named within an owned collection can be labelled Possible, but are never automatically treated as owned. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
 - Match verified single-comic issues through a collected edition you already own. The first built-in rule covers *Valiant Masters Rai: From Honor To Strength* and *Rai* (1992) #1–8. You can also import your own explicit, local issue-to-collection mappings.
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
+- The bundle summary recommends the lowest priced tier that contains every confirmed-new item. Possible and partially owned matches are deliberately excluded from that recommendation.
 - On a bundle page, use **Show new items only** to hide confirmed-owned cards. Partially owned and possible matches stay visible for review, and the setting stays local to this browser.
 - See a small non-blocking `Checking your library…` indicator while Humble finishes rendering a bundle. Enable **Show bundle and catalogue diagnostics** in Extension Options when troubleshooting: the summary panel then reports local-library read time, detected item count, comparison time, and refresh count, while catalogue pages show sorting details.
 - On Humble catalogue pages, sort each category by soonest-ending offer and optionally hide previously purchased bundles, limit the view to bundles ending within seven days, or combine those filters. Filter choices stay local to this browser.
@@ -19,7 +20,7 @@ An unofficial browser extension that marks books, comics, or games you already o
 
 Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance locally in Chrome until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a Chrome Web Store release, publish that policy at a public HTTPS URL and enter the URL in the Store's Privacy field.
 
-The extension runs only on Humble Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
+The extension runs only on Humble bundle catalogue, Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
 
 ## Load it
 
@@ -40,6 +41,12 @@ The extension runs only on Humble Books, Games, and Purchases pages. Its only na
 ```
 
 6. Visit a Humble URL beginning `https://www.humblebundle.com/books/` or `https://www.humblebundle.com/games/` and refresh.
+
+## Browse bundles
+
+- On an individual Books or Games bundle page, the lower-right summary reports ownership by tier and shows the lowest tier containing every confirmed-new item. **Show new items only** hides confirmed-owned cards while retaining partial and possible matches. Uncheck it at any time to restore the full view.
+- On `https://www.humblebundle.com/bundles`, `/books`, or `/games`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
+- In **Extension options**, enable **Show bundle and catalogue diagnostics** only when troubleshooting. It adds timing and sorting information without changing ownership results.
 
 ## Custom collection mappings
 

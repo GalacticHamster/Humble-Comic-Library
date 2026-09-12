@@ -131,6 +131,7 @@
 .hcl-bundle-filter input { vertical-align: middle; }
 .hcl-bundle-filtered { display: none !important; }
 .hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
+.hcl-summary .hcl-buy-recommendation { padding: 0.4rem 0.5rem; border-radius: 0.3rem; background: #0a7a42; color: #fff; font-weight: 700; }
 .hcl-summary .hcl-purchased-bundle { padding: 0.4rem 0.5rem; border-radius: 0.3rem; color: #fff; font-weight: 700; }
 .hcl-summary .hcl-purchased-full { background: #0a7a42; }
 .hcl-summary .hcl-purchased-partial { background: #7c3fb0; }
