@@ -31,10 +31,11 @@ const catalogueExpiryByOffer = new Map();
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0, showDiagnostics: false };
+  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false });
   comparison.showDiagnostics = storage.showDiagnostics;
+  comparison.showNewItemsOnly = storage.showNewItemsOnly;
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
@@ -699,6 +700,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   if (comparison) {
     comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
   }
+  applyBundleNewItemsOnlyFilter(Boolean(comparison?.showNewItemsOnly));
   renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases, comparison);
 }
 
@@ -1159,6 +1161,12 @@ function statusColor(state) {
   return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
+function applyBundleNewItemsOnlyFilter(enabled) {
+  document.querySelectorAll('.hcl-bundle-filtered').forEach((card) => card.classList.remove('hcl-bundle-filtered'));
+  if (!enabled) return;
+  document.querySelectorAll('.hcl-card-owned').forEach((card) => card.classList.add('hcl-bundle-filtered'));
+}
+
 function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
@@ -1173,6 +1181,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   legend.className = 'hcl-legend';
   legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
   summary.append(legend);
+  appendBundleNewItemsOnlyFilter(summary, comparison);
   if (counts.partial) {
     const partial = document.createElement('p');
     partial.textContent = `${counts.partial} grouped range${counts.partial === 1 ? ' is' : 's are'} only partly owned — not counted as owned or new.`;
@@ -1248,6 +1257,23 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
   removeComparisonProgress();
   document.body.append(summary);
+}
+
+function appendBundleNewItemsOnlyFilter(summary, comparison) {
+  if (!comparison) return;
+  const label = document.createElement('label');
+  label.className = 'hcl-bundle-filter';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = comparison.showNewItemsOnly;
+  input.addEventListener('change', () => {
+    comparison.showNewItemsOnly = input.checked;
+    chrome.storage.local.set({ showNewItemsOnly: input.checked }).catch(() => {});
+    applyBundleNewItemsOnlyFilter(input.checked);
+  });
+  label.append(input, ' Show new items only');
+  label.title = 'Hides confirmed-owned items. Possible and partially owned items stay visible for review.';
+  summary.append(label);
 }
 
 function appendComparisonDiagnostics(summary, comparison) {

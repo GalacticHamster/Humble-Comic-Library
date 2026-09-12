@@ -127,6 +127,9 @@
 .hcl-legend-new { background: #1769aa; }
 .hcl-legend-partial { background: #7c3fb0; }
 .hcl-legend-possible { background: #b06d00; }
+.hcl-bundle-filter { display: block; margin-top: 0.55rem; cursor: pointer; font-size: 0.8rem; }
+.hcl-bundle-filter input { vertical-align: middle; }
+.hcl-bundle-filtered { display: none !important; }
 .hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
 .hcl-summary .hcl-purchased-bundle { padding: 0.4rem 0.5rem; border-radius: 0.3rem; color: #fff; font-weight: 700; }
 .hcl-summary .hcl-purchased-full { background: #0a7a42; }
