@@ -12,6 +12,9 @@ Chrome Web Store listing:
 - `04-options.jpg` — local-library settings, collection mappings, and
   diagnostics.
 
+`promo/small-promo-tile-440x280.jpg` is the required 440x280 small promo tile.
+It is a faithful crop-and-scale of `01-bundle-summary.jpg`.
+
 These are listing assets, not extension runtime files. Upload them separately
 in the Chrome Web Store dashboard; `scripts/package-release.ps1` deliberately
 excludes this directory from the extension ZIP.

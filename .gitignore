@@ -5,6 +5,7 @@ dist/
 
 # Local development notes and personal Humble data. Never package or commit.
 chatgpt.txt
+CHROMEWEBSTORE.md
 bak/
 
 # Never commit a personal library export or browser profile data.
