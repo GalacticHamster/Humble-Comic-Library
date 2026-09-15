@@ -12,9 +12,12 @@ When the user chooses to import from Humble, the extension accesses the user's s
 - Humble bundle names, purchase dates, and purchase identifiers;
 - purchase prices, currency, item counts, and calculated per-item prices when Humble supplies them; and
 - title-match provenance used to explain Owned, Partial, and Possible matches; and
+- for Humble third-party entitlements that are not yet revealed, the title, source purchase, entitlement type, and Humble-reported expiry status used for local reminders; and
 - optional custom issue-to-collection mapping rules that the user imports.
 
 The extension can also read a JSON file that the user explicitly selects for manual import. When the user selects Export, it creates a JSON download containing the locally stored library and purchase summaries.
+
+If the user selects **Inspect key reminder data** on the Humble Purchases page, the extension can create a separate, user-initiated discovery download. That report contains aggregate third-party-key field names, value types, and counts only; it contains no redemption-key values, titles, bundle names, purchase identifiers, purchase dates, or other field values. The report is not stored by the extension or sent anywhere.
 
 The extension does not read, copy, save, or ask the user to provide a Humble session cookie or a redemption-key value. Redemption-key values returned in Humble purchase responses are redacted before the response is parsed.
 

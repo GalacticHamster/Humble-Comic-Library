@@ -9,13 +9,15 @@
   const mappingStatus = document.querySelector('#collection-mapping-status');
   const mappingCount = document.querySelector('#collection-mapping-count');
   const showDiagnostics = document.querySelector('#show-diagnostics');
+  const keyReminderSummary = document.querySelector('#key-reminder-summary');
+  const keyReminderList = document.querySelector('#key-reminder-list');
 
   async function library() {
     return (await chrome.storage.local.get({ libraryItems: [] })).libraryItems;
   }
 
   async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null });
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
@@ -30,6 +32,55 @@
     }));
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;
+    renderKeyReminders(keyReminders, keyReminderScan);
+  }
+
+  function renderKeyReminders(reminders, scan) {
+    if (!scan?.complete) {
+      keyReminderSummary.textContent = 'No complete key-reminder scan yet. Open Humble Purchases and select Scan / refresh key reminders.';
+      keyReminderList.replaceChildren();
+      return;
+    }
+    const now = Date.now();
+    const sorted = [...reminders].sort((left, right) => keyReminderSortValue(left, now) - keyReminderSortValue(right, now) || left.title.localeCompare(right.title));
+    const expiringSoon = sorted.filter((record) => {
+      const days = keyReminderDaysRemaining(record, now);
+      return days !== null && days >= 0 && days <= 30;
+    }).length;
+    const needsReview = sorted.filter((record) => record.status === 'needs-review').length;
+    keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.`;
+    keyReminderList.replaceChildren(...sorted.map((record) => {
+      const row = document.createElement('li');
+      const source = [record.sourceBundle, record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
+      const detail = [record.keyType, keyReminderExpiryLabel(record, now), record.directRedeem ? 'direct redemption' : '', record.status === 'needs-review' ? 'needs review' : ''].filter(Boolean).join(' · ');
+      row.textContent = `${record.title} — ${detail}${source ? ` (${source})` : ''}`;
+      return row;
+    }));
+  }
+
+  function keyReminderDaysRemaining(record, now) {
+    if (record.isExpired) return -1;
+    const expiry = record.expiresAt ? Date.parse(record.expiresAt) : NaN;
+    if (!Number.isNaN(expiry)) return Math.ceil((expiry - now) / 86400000);
+    if (!Number.isFinite(record.daysUntilExpiry) || record.daysUntilExpiry < 0) return null;
+    const checkedAt = Date.parse(record.checkedAt);
+    return Number.isNaN(checkedAt) ? record.daysUntilExpiry : Math.max(-1, Math.ceil(record.daysUntilExpiry - ((now - checkedAt) / 86400000)));
+  }
+
+  function keyReminderSortValue(record, now) {
+    if (record.isExpired) return Number.MAX_SAFE_INTEGER;
+    const days = keyReminderDaysRemaining(record, now);
+    if (days === null) return Number.MAX_SAFE_INTEGER - 1;
+    return days < 0 ? Number.MAX_SAFE_INTEGER : days;
+  }
+
+  function keyReminderExpiryLabel(record, now) {
+    if (record.isExpired) return 'expired';
+    const days = keyReminderDaysRemaining(record, now);
+    if (days === null) return 'no expiry reported';
+    if (days < 0) return 'may be expired; refresh to confirm';
+    if (days <= 0) return 'expires today';
+    return `expires in ${days} day${days === 1 ? '' : 's'}`;
   }
 
   fileInput.addEventListener('change', async () => {
@@ -86,9 +137,13 @@
     chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
   });
 
+  document.querySelector('#open-key-reminders').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
+  });
+
   document.querySelector('#export-library').addEventListener('click', async () => {
-    const { purchaseSummaries = [], customCollectionMappings = [] } = await chrome.storage.local.get({ purchaseSummaries: [], customCollectionMappings: [] });
-    const contents = JSON.stringify({ version: 3, exportedAt: new Date().toISOString(), items: await library(), purchases: purchaseSummaries, collectionMappings: customCollectionMappings }, null, 2);
+    const { purchaseSummaries = [], customCollectionMappings = [], keyReminders = [], keyReminderScan = null } = await chrome.storage.local.get({ purchaseSummaries: [], customCollectionMappings: [], keyReminders: [], keyReminderScan: null });
+    const contents = JSON.stringify({ version: 4, exportedAt: new Date().toISOString(), items: await library(), purchases: purchaseSummaries, collectionMappings: customCollectionMappings, keyReminders, keyReminderScan }, null, 2);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-comic-library-export.json' });
     link.click();
@@ -96,9 +151,9 @@
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
-    if (!confirm('Clear every locally stored title, purchase record, import history, and custom collection mapping?')) return;
-    await chrome.storage.local.remove(['libraryItems', 'purchaseSummaries', 'lastImport', 'customCollectionMappings']);
-    status.textContent = 'Library, purchase history, and custom mappings cleared.';
+    if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, and custom collection mapping?')) return;
+    await chrome.storage.local.remove(['libraryItems', 'purchaseSummaries', 'keyReminders', 'keyReminderScan', 'lastImport', 'customCollectionMappings']);
+    status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();
   });
   render();

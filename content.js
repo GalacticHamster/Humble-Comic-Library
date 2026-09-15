@@ -1,4 +1,5 @@
 const catalogueExpiryByOffer = new Map();
+const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
@@ -1416,15 +1417,33 @@ function addPurchaseImporter() {
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
       <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game entries.">Rescan every purchase</button>
+      <button type="button" data-import-mode="key-reminders" title="The first scan checks every purchase. Later scans check new purchases and purchases with still-unrevealed entitlements.">Scan / refresh key reminders</button>
+      <button type="button" data-import-mode="key-discovery" title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
     </div>
     <output aria-live="polite"></output>`;
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const status = panel.querySelector('output');
   for (const button of buttons) button.addEventListener('click', async () => {
-    const fullRescan = button.dataset.importMode === 'all';
+    const mode = button.dataset.importMode;
+    const fullRescan = mode === 'all';
+    const keyDiscovery = mode === 'key-discovery';
+    const keyReminderScan = mode === 'key-reminders';
     if (fullRescan && !confirm('Rescan every Humble purchase? This can take a while.')) return;
+    if (keyDiscovery && !confirm('Inspect third-party key reminder metadata in every Humble purchase? This can take a while. The downloaded report contains only aggregate field names and counts; it saves no key values, titles, bundle names, or purchase identifiers.')) return;
     buttons.forEach((control) => { control.disabled = true; });
     try {
+      if (keyDiscovery) {
+        const result = await discoverKeyReminderMetadata((message) => { status.textContent = message; });
+        downloadJsonFile('humble-key-reminder-discovery.json', result.report);
+        status.textContent = `Inspected ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} and found ${result.keyRecords} third-party key record${result.keyRecords === 1 ? '' : 's'}; downloaded a safe aggregate report${result.failures ? ` (${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be inspected)` : ''}.`;
+        return;
+      }
+      if (keyReminderScan) {
+        const result = await scanKeyReminders((message) => { status.textContent = message; });
+        const scope = result.fullScan ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}` : `Checked ${result.scannedPurchases} new or still-pending purchase${result.scannedPurchases === 1 ? '' : 's'}`;
+        status.textContent = `${scope}; ${result.unrevealed} pending entitlement${result.unrevealed === 1 ? '' : 's'} saved locally${result.expiringSoon ? `, ${result.expiringSoon} expiring within 30 days` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be checked and will be retried` : ''}.`;
+        return;
+      }
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
@@ -1523,6 +1542,198 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   };
 }
 
+async function discoverKeyReminderMetadata(report) {
+  report('Loading your purchase list for key reminder discoveryâ€¦');
+  const orders = await fetchJson('/api/v1/user/order?all=true');
+  const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
+  if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
+
+  const fields = new Map();
+  const secretValueFields = new Map();
+  const recordContainers = new Map();
+  let keyRecords = 0;
+  let failures = 0;
+  for (let index = 0; index < orderList.length; index += 1) {
+    const order = orderList[index];
+    const key = order.gamekey ?? order.key ?? order.order_key;
+    if (!key) continue;
+    report(`Inspecting purchase ${index + 1} of ${orderList.length}â€¦`);
+    try {
+      const detail = await fetchOrderDetail(key);
+      const records = thirdPartyKeyRecords(detail);
+      for (const { container, record } of records) {
+        keyRecords += 1;
+        incrementCount(recordContainers, container);
+        collectKeyReminderFieldShape(record, '', fields, secretValueFields);
+      }
+    } catch {
+      failures += 1;
+      successfullyScanned.delete(purchaseKey);
+    }
+    // Match the normal importer's conservative request rate.
+    await new Promise((resolve) => setTimeout(resolve, 175));
+  }
+
+  return {
+    scannedPurchases: orderList.length,
+    keyRecords,
+    failures,
+    report: {
+      version: 2,
+      generatedAt: new Date().toISOString(),
+      purpose: 'Safe discovery of Humble third-party key reminder metadata.',
+      privacy: 'This report contains aggregate field names, value types, and counts only. It contains no key values, titles, bundle names, purchase identifiers, purchase dates, or other field values.',
+      purchasesScanned: orderList.length,
+      purchasesFailed: failures,
+      thirdPartyKeyRecords: keyRecords,
+      recordContainers: Object.fromEntries(recordContainers),
+      fields: Object.fromEntries([...fields].sort(([left], [right]) => left.localeCompare(right))),
+      redactedKeyValueFields: Object.fromEntries([...secretValueFields].sort(([left], [right]) => left.localeCompare(right)))
+    }
+  };
+}
+
+async function scanKeyReminders(report) {
+  report('Loading your purchase list for key remindersâ€¦');
+  const orders = await fetchJson('/api/v1/user/order?all=true');
+  const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
+  if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
+
+  const { keyReminders: existingReminders = [], keyReminderScan: priorScan = null } = await chrome.storage.local.get({ keyReminders: [], keyReminderScan: null });
+  const successfullyScanned = new Set(priorScan?.purchaseKeys ?? []);
+  const pendingPurchaseKeys = new Set(existingReminders.map((record) => record.purchaseKey).filter(Boolean));
+  const fullScan = !priorScan?.complete;
+  const purchasesToScan = orderList.filter((order) => {
+    const key = order.gamekey ?? order.key ?? order.order_key;
+    return key && (fullScan || !successfullyScanned.has(key) || pendingPurchaseKeys.has(key));
+  });
+  const reminders = new Map(fullScan ? [] : existingReminders.map((record) => [record.id, record]));
+  let failures = 0;
+  for (let index = 0; index < purchasesToScan.length; index += 1) {
+    const order = purchasesToScan[index];
+    const purchaseKey = order.gamekey ?? order.key ?? order.order_key;
+    report(`Checking key reminders ${index + 1} of ${purchasesToScan.length}â€¦`);
+    try {
+      const detail = await fetchOrderDetail(purchaseKey);
+      for (const [id, record] of reminders) if (record.purchaseKey === purchaseKey) reminders.delete(id);
+      extractKeyReminderRecords(detail, order, purchaseKey).forEach((record) => reminders.set(record.id, record));
+      successfullyScanned.add(purchaseKey);
+    } catch {
+      failures += 1;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 175));
+  }
+
+  const checkedAt = new Date().toISOString();
+  const records = [...reminders.values()];
+  const expiringSoon = records.filter((record) => keyReminderDaysRemaining(record, checkedAt) !== null && keyReminderDaysRemaining(record, checkedAt) >= 0 && keyReminderDaysRemaining(record, checkedAt) <= 30).length;
+  await chrome.storage.local.set({
+    keyReminders: records,
+    keyReminderScan: { complete: failures === 0 || Boolean(priorScan?.complete), checkedAt, purchaseKeys: [...successfullyScanned] }
+  });
+  return { fullScan, scannedPurchases: purchasesToScan.length, failures, unrevealed: records.length, expiringSoon };
+}
+
+function extractKeyReminderRecords(detail, order, purchaseKey) {
+  const sourceBundle = extractBundleName(order, detail);
+  const purchasedAt = extractPurchasedAt(order, detail);
+  const checkedAt = new Date().toISOString();
+  return thirdPartyKeyRecords(detail).flatMap(({ record }) => {
+    const hasRevealedValue = Object.prototype.hasOwnProperty.call(record, 'redeemed_key_val');
+    const value = record.redeemed_key_val;
+    if (value === REDACTED_REDEMPTION_KEY_VALUE) return [];
+    const status = hasRevealedValue ? 'needs-review' : 'unrevealed';
+    const machineName = String(record.machine_name ?? 'unknown');
+    const keyIndex = Number.isInteger(record.keyindex) ? record.keyindex : 0;
+    const daysUntilExpiry = typeof record.num_days_until_expired === 'number' && Number.isFinite(record.num_days_until_expired)
+      ? record.num_days_until_expired : null;
+    return [{
+      id: `${purchaseKey}\u0000${machineName}\u0000${keyIndex}`,
+      purchaseKey,
+      title: String(record.human_name ?? record.product_name ?? record.name ?? 'Unnamed entitlement').trim() || 'Unnamed entitlement',
+      sourceBundle,
+      purchasedAt,
+      keyType: String(record.key_type_human_name ?? record.key_type ?? 'Third-party entitlement').trim(),
+      status,
+      directRedeem: record.direct_redeem === true,
+      isExpired: record.is_expired === true,
+      expiresAt: normalizeDate(record.expiration_date ?? record.expiry_date),
+      daysUntilExpiry,
+      checkedAt
+    }];
+  });
+}
+
+function keyReminderDaysRemaining(record, now = new Date().toISOString()) {
+  if (record.isExpired) return -1;
+  const expiry = record.expiresAt ? Date.parse(record.expiresAt) : NaN;
+  if (!Number.isNaN(expiry)) return Math.ceil((expiry - Date.parse(now)) / 86400000);
+  if (!Number.isFinite(record.daysUntilExpiry) || record.daysUntilExpiry < 0) return null;
+  const checked = Date.parse(record.checkedAt);
+  return Number.isNaN(checked) ? record.daysUntilExpiry : Math.max(-1, Math.ceil(record.daysUntilExpiry - ((Date.parse(now) - checked) / 86400000)));
+}
+
+function thirdPartyKeyRecords(detail) {
+  const containers = [
+    ['tpkd_dict.all_tpks', detail?.tpkd_dict?.all_tpks],
+    ['tpkd_dict.all_tpkds', detail?.tpkd_dict?.all_tpkds],
+    ['all_tpks', detail?.all_tpks],
+    ['all_tpkds', detail?.all_tpkds]
+  ];
+  return containers.flatMap(([container, records]) => Array.isArray(records)
+    ? records.filter((record) => record && typeof record === 'object').map((record) => ({ container, record }))
+    : []);
+}
+
+function collectKeyReminderFieldShape(value, path, fields, secretValueFields, depth = 0) {
+  if (depth > 4 || value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectKeyReminderFieldShape(entry, `${path}[]`, fields, secretValueFields, depth + 1));
+    return;
+  }
+  if (typeof value !== 'object') return;
+  for (const [name, fieldValue] of Object.entries(value)) {
+    const fieldPath = path ? `${path}.${name}` : name;
+    if (isRedemptionKeyValueField(name)) {
+      recordRedactedKeyValueShape(secretValueFields, fieldPath, fieldValue);
+      continue;
+    }
+    const summary = fields.get(fieldPath) ?? { present: 0, types: {}, dateLikeStrings: 0 };
+    summary.present += 1;
+    const type = fieldValue === null ? 'null' : Array.isArray(fieldValue) ? 'array' : typeof fieldValue;
+    summary.types[type] = (summary.types[type] ?? 0) + 1;
+    if (typeof fieldValue === 'string' && !Number.isNaN(Date.parse(fieldValue))) summary.dateLikeStrings += 1;
+    fields.set(fieldPath, summary);
+    if (fieldValue && typeof fieldValue === 'object') collectKeyReminderFieldShape(fieldValue, fieldPath, fields, secretValueFields, depth + 1);
+  }
+}
+
+function recordRedactedKeyValueShape(fields, fieldPath, value) {
+  const summary = fields.get(fieldPath) ?? { present: 0, values: { redactedNonEmpty: 0, emptyString: 0, null: 0, other: 0 } };
+  summary.present += 1;
+  if (value === REDACTED_REDEMPTION_KEY_VALUE) summary.values.redactedNonEmpty += 1;
+  else if (value === '') summary.values.emptyString += 1;
+  else if (value === null) summary.values.null += 1;
+  else summary.values.other += 1;
+  fields.set(fieldPath, summary);
+}
+
+function isRedemptionKeyValueField(name) {
+  return /^(?:redeemed_)?key(?:_val|_value)?$/iu.test(name);
+}
+
+function incrementCount(counts, key) {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function downloadJsonFile(filename, contents) {
+  const blob = new Blob([JSON.stringify(contents, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function withProvenance(item) {
   return { ...item, provenance: dedupeProvenance(itemProvenance(item)) };
 }
@@ -1567,7 +1778,7 @@ async function fetchOrderDetail(purchaseKey) {
   // Redact those values before parsing so they can never enter extension
   // storage, reports, console output, or the normal import data structure.
   const redacted = (await response.text())
-    .replace(/("(?:redeemed_)?key(?:_val|_value)?"\s*:\s*)"(?:[^"\\]|\\.)*"/giu, '$1null');
+    .replace(/("(?:redeemed_)?key(?:_val|_value)?"\s*:\s*)"((?:[^"\\]|\\.)*)"/giu, (match, prefix, encodedValue) => `${prefix}${encodedValue.length ? `"${REDACTED_REDEMPTION_KEY_VALUE}"` : '""'}`);
   return JSON.parse(redacted);
 }
 
@@ -1593,12 +1804,7 @@ function extractLibraryItems(detail, order, purchaseKey) {
 }
 
 function extractThirdPartyKeyItems(detail, order, purchaseKey) {
-  const keyRecords = [
-    detail?.tpkd_dict?.all_tpks,
-    detail?.tpkd_dict?.all_tpkds,
-    detail?.all_tpks,
-    detail?.all_tpkds
-  ].flatMap((records) => Array.isArray(records) ? records : []);
+  const keyRecords = thirdPartyKeyRecords(detail).map(({ record }) => record);
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
   return keyRecords
