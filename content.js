@@ -323,6 +323,21 @@ function catalogueCardTitle(link) {
   return heading?.textContent?.replace(/\s+/gu, ' ').trim() ?? link.getAttribute('aria-label') ?? '';
 }
 
+function catalogueSortTitle(link, card) {
+  const heading = card.querySelector('h1, h2, h3, h4, h5, h6, [data-testid*="title" i]');
+  const headingTitle = heading?.textContent?.replace(/\s+/gu, ' ').trim();
+  if (headingTitle) return headingTitle;
+  const cardText = String(card.textContent ?? '')
+    .replace(/\b(?:offer\s+)?ends?(?:\s+in)?\s*\d+\s+(?:weeks?|days?|hours?|hrs?|minutes?|mins?)(?:\s+\d+\s+(?:weeks?|days?|hours?|hrs?|minutes?|mins?))*\b/giu, '')
+    .replace(/\b\d+\s+days?\s+left\b/giu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (cardText) return cardText;
+  const linkedTitle = catalogueCardTitle(link);
+  if (linkedTitle) return linkedTitle;
+  return link.getAttribute('aria-label') ?? '';
+}
+
 function catalogueCardContainer(link) {
   return link.closest('article, li, [class*="tile" i], [class*="card" i], [class*="product" i], [class*="entity" i]') ?? link;
 }
@@ -335,7 +350,8 @@ function sortCatalogueCards() {
     if (!card || cards.has(card)) continue;
     const timing = catalogueTimingForOffer(link, card);
     cards.set(card, {
-      title: catalogueCardTitle(link),
+      title: catalogueSortTitle(link, card),
+      offerKey: catalogueOfferKey(link).split('?')[0] || link.pathname,
       endsInMinutes: timing.minutes,
       displayedDays: timing.displayedDays,
       filtered: card.dataset.hclCatalogFilter === 'true',
@@ -352,12 +368,14 @@ function sortCatalogueCards() {
   for (const section of sections.values()) {
     const sectionResult = sortVisibleCardGroups(section, (left, right) => {
     if (left.filtered !== right.filtered) return left.filtered ? 1 : -1;
-    const leftEnds = left.displayedDays !== null ? left.displayedDays * 1440 : left.endsInMinutes;
-    const rightEnds = right.displayedDays !== null ? right.displayedDays * 1440 : right.endsInMinutes;
+    const leftEnds = catalogueSortWindow(left);
+    const rightEnds = catalogueSortWindow(right);
     if (leftEnds !== null && rightEnds !== null && leftEnds !== rightEnds) return leftEnds - rightEnds;
     if (leftEnds !== null && rightEnds === null) return -1;
     if (leftEnds === null && rightEnds !== null) return 1;
-    return naturalTitleCompare(left.title, right.title);
+    const titleComparison = naturalTitleCompare(left.title, right.title);
+    if (titleComparison) return titleComparison;
+    return String(left.offerKey).localeCompare(String(right.offerKey));
     }, true);
     result.directGroups += sectionResult.directGroups;
     result.directCardsMoved += sectionResult.directCardsMoved;
@@ -367,6 +385,12 @@ function sortCatalogueCards() {
     result.inaccessibleCrossRowCards += sectionResult.inaccessibleCrossRowCards;
   }
   return result;
+}
+
+function catalogueSortWindow(card) {
+  if (Number.isFinite(card.displayedDays)) return card.displayedDays;
+  if (Number.isFinite(card.endsInMinutes)) return Math.floor(card.endsInMinutes / 1440);
+  return null;
 }
 
 function renderCatalogueSortDiagnostics(sorting) {
