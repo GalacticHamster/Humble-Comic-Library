@@ -1494,8 +1494,10 @@ function addPurchaseImporter() {
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
-        : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
-      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
+        : result.audioBackfill
+          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add audiobook deliveries`
+          : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
     } finally {
@@ -1512,11 +1514,16 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   const orders = await fetchJson('/api/v1/user/order?all=true');
   const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
-  const { libraryItems = [], purchaseSummaries: existingPurchases = [] } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [] });
+  const { libraryItems = [], purchaseSummaries: existingPurchases = [], mediaImportVersion = 1 } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], mediaImportVersion: 1 });
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
+  // Version 4 recognizes Humble's audio download platform, generic audio
+  // category, and audio download formats. One complete backfill lets established installations
+  // discover audio from purchases previously marked
+  // as scanned, after which normal incremental import resumes.
+  const audioBackfill = mediaImportVersion < 4;
   const purchasesToScan = orderList.filter((order) => {
     const key = order.gamekey ?? order.key ?? order.order_key;
-    return key && (fullRescan || !previouslyScanned.has(key));
+    return key && (fullRescan || audioBackfill || !previouslyScanned.has(key));
   });
 
   const imported = [];
@@ -1538,14 +1545,16 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 175));
   }
 
-  // Full rescans rebuild Humble game entries from the explicit entitlement
-  // collection. Incremental scans retain known games and add only new ones.
-  const retainedItems = fullRescan
-    ? libraryItems.filter((item) => item.kind !== 'game' || item.source !== 'humble')
+  // Rebuild Humble game and audiobook entries from the explicit entitlement
+  // collection. The audio backfill uses the same path once for older installs.
+  const rebuildEntitlements = fullRescan || audioBackfill;
+  const retainedItems = rebuildEntitlements
+    ? libraryItems.filter((item) => !['game', 'audiobook'].includes(item.kind) || item.source !== 'humble')
     : libraryItems;
   const merged = new Map(retainedItems.map((item) => [libraryItemKey(item), item]));
   let added = 0;
   let addedGames = 0;
+  let addedAudiobooks = 0;
   let datesBackfilled = 0;
   for (const item of imported) {
     const key = libraryItemKey(item);
@@ -1563,6 +1572,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     merged.set(key, withProvenance(item));
     added += 1;
     if (item.kind === 'game') addedGames += 1;
+    if (item.kind === 'audiobook') addedAudiobooks += 1;
   }
   const importSummary = {
     importedAt: new Date().toISOString(),
@@ -1570,16 +1580,19 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     skippedKnown: orderList.length - purchasesToScan.length,
     addedTitles: added,
     addedGames,
+    addedAudiobooks,
     datesBackfilled,
     pricedPurchases: purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length,
     skippedPurchases: failures.length
   };
   const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
-  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary });
+  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary, ...(failures.length ? {} : { mediaImportVersion: 4 }) });
   return {
     added,
     addedGames,
+    addedAudiobooks,
+    audioBackfill,
     datesBackfilled,
     pricedPurchases: importSummary.pricedPurchases,
     total: merged.size,
@@ -1985,6 +1998,9 @@ function productKind(product) {
   // Check game delivery first: game bundles can include PDF manuals or art
   // books, which must not cause the game itself to be filed as a book.
   if (hasGameEntitlement(product)) return 'game';
+  // Audiobook products can include a PDF booklet; identify their delivered
+  // audio before the broader book-format check below.
+  if (hasAudiobookDownload(product)) return 'audiobook';
   return hasBookDownload(product) ? 'book' : null;
 }
 
@@ -2006,4 +2022,10 @@ function hasBookDownload(product) {
   const serialized = JSON.stringify(product);
   return /\.(?:pdf|epub|cbz|cbr|mobi)(?:["?\\]|$)/iu.test(serialized)
     || /"(?:format|filetype|extension)"\s*:\s*"(?:pdf|epub|cbz|cbr|mobi)"/iu.test(serialized);
+}
+
+function hasAudiobookDownload(product) {
+  const serialized = JSON.stringify(product);
+  return /\.(?:mp3|m4a|m4b|aac|flac|ogg|opus|wav)(?:["?\\]|$)/iu.test(serialized)
+    || /"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:audio|audiobook|audio[ _-]?book|mp3|m4a|m4b|aac|flac|ogg|opus|wav)"/iu.test(serialized);
 }

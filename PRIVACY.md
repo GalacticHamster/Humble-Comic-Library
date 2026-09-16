@@ -8,7 +8,7 @@ Humble Comic Library is an unofficial browser extension for comparing a person's
 
 When the user chooses to import from Humble, the extension accesses the user's signed-in Humble Purchases page and retrieves the purchase list and required purchase-detail records from Humble. It stores the following data locally in the browser:
 
-- item titles and whether an item is a book or game;
+- item titles and whether an item is a book, audiobook, or game;
 - Humble bundle names, purchase dates, and purchase identifiers;
 - purchase prices, currency, item counts, and calculated per-item prices when Humble supplies them; and
 - title-match provenance used to explain Owned, Partial, and Possible matches; and
