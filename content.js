@@ -5,7 +5,13 @@ const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
   'use strict';
 
   if (location.pathname.startsWith('/home/purchases')) {
-    addPurchaseImporter();
+    ensurePurchaseImporter();
+    let importerTimer;
+    new MutationObserver(() => {
+      if (document.querySelector('#hcl-importer')) return;
+      clearTimeout(importerTimer);
+      importerTimer = setTimeout(ensurePurchaseImporter, 100);
+    }).observe(document.documentElement, { childList: true, subtree: true });
     return;
   }
 
@@ -32,7 +38,7 @@ const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false };
+  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false };
   showComparisonProgress('Loading your local library…');
   const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false });
   comparison.showDiagnostics = storage.showDiagnostics;
@@ -113,7 +119,7 @@ function recordHasUnannotatedCover(record) {
   });
 }
 
-function showComparisonProgress(message) {
+function showComparisonProgress(message, { spinning = true } = {}) {
   let progress = document.querySelector('#hcl-progress');
   if (!progress) {
     progress = document.createElement('aside');
@@ -121,6 +127,7 @@ function showComparisonProgress(message) {
     progress.className = 'hcl-progress';
     (document.body ?? document.documentElement).append(progress);
   }
+  progress.classList.toggle('hcl-progress-static', !spinning);
   progress.textContent = message;
 }
 
@@ -642,9 +649,17 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
 
   const items = collectBundleItems();
   if (!items.length) {
-    showComparisonProgress('Waiting for Humble’s bundle items…');
+    if (comparison) comparison.emptyChecks += 1;
+    const waitedLongEnough = comparison && (comparison.emptyChecks >= 3 || performance.now() - comparison.startedAt >= 6000);
+    showComparisonProgress(waitedLongEnough ? 'No active bundle items found. This offer may have ended.' : 'Waiting for Humble’s bundle items…', { spinning: !waitedLongEnough });
+    if (comparison && !waitedLongEnough) {
+      setTimeout(() => {
+        if (comparison.job === job) renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job);
+      }, 1200);
+    }
     return;
   }
+  if (comparison) comparison.emptyChecks = 0;
   const sorting = sortBundleItems(items);
   if (comparison) {
     comparison.itemCount = items.length;
@@ -1404,6 +1419,14 @@ async function tierTitlesFromPageData() {
   } catch {
     return new Map();
   }
+}
+
+function ensurePurchaseImporter() {
+  if (!document.body) {
+    setTimeout(ensurePurchaseImporter, 50);
+    return;
+  }
+  addPurchaseImporter();
 }
 
 function addPurchaseImporter() {

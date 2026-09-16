@@ -118,6 +118,7 @@
   content: '';
   animation: hcl-spin 0.75s linear infinite;
 }
+.hcl-progress.hcl-progress-static::before { display: none; }
 @keyframes hcl-spin { to { transform: rotate(360deg); } }
 
 .hcl-summary strong { display: block; }
