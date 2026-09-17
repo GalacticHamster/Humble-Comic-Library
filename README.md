@@ -10,6 +10,7 @@ An unofficial browser extension that marks books, comics, or games you already o
 - On the Purchases page, download a safe key-reminder discovery report to identify which non-secret Humble key-status and expiry fields are available. The report contains aggregate field names, types, and counts only—never key values, titles, bundle names, purchase identifiers, purchase dates, or other field values.
 - Import a local JSON library of title strings or `{ "title", "sourceBundle" }` records as a fallback.
 - See an `Owned`, `New`, `Partially owned`, or `Possible match` status for every detected item on Humble Books and Games bundle pages. Books and games are kept separate. Listings such as `Vol. 1-3` are matched against individually owned volumes, and partial coverage is never treated as owned. Numbered presentations, game edition variants, and games named within an owned collection can be labelled Possible, but are never automatically treated as owned. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
+- Optionally pair with a locally installed Galactic Library extension to mark an exact game or book match from Steam, GOG, Epic, Kindle, or another non-Humble provider as `Owned elsewhere`. It remains distinct from your Humble purchase evidence and is never inferred from a fuzzy match.
 - Match verified single-comic issues through a collected edition you already own. The first built-in rule covers *Valiant Masters Rai: From Honor To Strength* and *Rai* (1992) #1–8. You can also import your own explicit, local issue-to-collection mappings.
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
 - The bundle summary recommends the lowest priced tier that contains every confirmed-new item. Possible and partially owned matches are deliberately excluded from that recommendation.
@@ -21,6 +22,8 @@ An unofficial browser extension that marks books, comics, or games you already o
 - Export or clear all browser-local library titles, purchase summaries, and import history.
 
 Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance locally in Chrome until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a Chrome Web Store release, publish that policy at a public HTTPS URL and enter the URL in the Store's Privacy field.
+
+If you explicitly configure the optional Galactic Library link, the extension sends only the exact titles visible in the current bundle to that locally installed extension. Galactic replies only with exact ownership results from its non-Humble providers; neither extension sends a full library or any data to a remote server.
 
 The extension runs only on Humble bundle catalogue, Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
 
@@ -47,6 +50,13 @@ The extension runs only on Humble bundle catalogue, Books, Games, and Purchases 
 ```
 
 6. Visit a Humble URL beginning `https://www.humblebundle.com/books/` or `https://www.humblebundle.com/games/` and refresh.
+
+### Pair with Galactic Library (optional)
+
+1. Open Humble Comic Library settings and copy the displayed Humble Comic Library extension ID.
+2. In Galactic Library, open **Humble Comic Library link**, paste that ID, and select **Allow extension**.
+3. Copy Galactic Library's displayed extension ID from that same setting, paste it into Humble Comic Library's **Galactic Library link** setting, and select **Save link** then **Test link**.
+4. Reload a Humble Books or Games bundle page. Exact non-Humble matches appear as **Owned elsewhere** and are excluded from the confirmed-new price calculation.
 
 ## Browse bundles
 

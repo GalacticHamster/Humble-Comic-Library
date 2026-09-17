@@ -32,6 +32,15 @@
         <p id="collection-mapping-count"></p>
       </section>
       <section>
+        <h2>Galactic Library link</h2>
+        <p>Optionally check a current Humble bundle against exact game and book titles owned through your other connected libraries. This sends only the bundle titles being checked to your locally installed Galactic Library extension; it never transfers either full library.</p>
+        <p>Your Humble Comic Library extension ID: <code id="humble-extension-id">Loading…</code></p>
+        <label for="galactic-library-extension-id">Galactic Library extension ID</label>
+        <input id="galactic-library-extension-id" type="text" inputmode="text" autocomplete="off" maxlength="32" spellcheck="false" placeholder="32-character extension ID">
+        <div class="actions"><button id="save-galactic-library-link" type="button">Save link</button><button id="test-galactic-library-link" type="button">Test link</button><button id="clear-galactic-library-link" type="button">Remove link</button></div>
+        <p id="galactic-library-link-status" role="status"></p>
+      </section>
+      <section>
         <h2>Diagnostics</h2>
         <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
         <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>

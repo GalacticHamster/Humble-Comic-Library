@@ -1,5 +1,7 @@
 const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
+const GALACTIC_LIBRARY_API_VERSION = 1;
+const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
@@ -38,16 +40,17 @@ const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
   const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
   if (!itemKind) return;
 
-  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false };
+  const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '' });
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
+  comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
   const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
-  if (!libraryItems.length) {
+  if (!libraryItems.length && !comparison.galactic.enabled) {
     removeComparisonProgress();
     renderPurchasedBundleSummary(currentBundlePurchases);
     return;
@@ -115,7 +118,7 @@ function recordHasUnannotatedCover(record) {
     const covers = [];
     if (root.matches?.(HCL_COVER_SELECTOR)) covers.push(root);
     covers.push(...(root.querySelectorAll?.(HCL_COVER_SELECTOR) ?? []));
-    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
+    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
   });
 }
 
@@ -321,6 +324,105 @@ function catalogueCardTitle(link) {
   if (imageTitle) return imageTitle;
   const heading = link.querySelector('h1, h2, h3, h4, [class*="title" i]');
   return heading?.textContent?.replace(/\s+/gu, ' ').trim() ?? link.getAttribute('aria-label') ?? '';
+}
+
+function isExtensionId(value) {
+  return /^[a-p]{32}$/u.test(String(value ?? '').trim());
+}
+
+function createGalacticLookup(extensionId) {
+  const id = String(extensionId ?? '').trim();
+  return {
+    enabled: isExtensionId(id),
+    extensionId: id,
+    resultsByKey: new Map(),
+    inFlightKeys: new Set(),
+    inFlight: null,
+    error: null,
+    status: isExtensionId(id) ? 'Not checked yet.' : 'Not configured.'
+  };
+}
+
+function galacticRequestKey(itemKind, title) {
+  return `${itemKind}:${HumbleComicLibrary.titleKey(title)}`;
+}
+
+function waitForGalacticResponse(promise) {
+  let timeout;
+  const timed = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error('Galactic Library did not respond in time.')), GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timed]).finally(() => clearTimeout(timeout));
+}
+
+function ownedOutsideHumble(result) {
+  return (Array.isArray(result?.matches) ? result.matches : [])
+    .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
+}
+
+function possibleOutsideHumble(result) {
+  return (Array.isArray(result?.possibleMatches) ? result.possibleMatches : [])
+    .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
+}
+
+async function queryGalacticLibrary(items, itemKind, comparison, job) {
+  const lookup = comparison?.galactic;
+  if (!lookup?.enabled) return;
+  const requested = new Map();
+  for (const { item, match } of items) {
+    if (match.state === 'owned') continue;
+    const requestId = galacticRequestKey(itemKind, item.title);
+    if (lookup.resultsByKey.has(requestId) || lookup.inFlightKeys.has(requestId)) continue;
+    lookup.inFlightKeys.add(requestId);
+    requested.set(requestId, { requestId, mediaType: itemKind, title: item.title });
+  }
+  if (!requested.size) {
+    // A DOM refresh can begin while the first request is still running. Wait
+    // for its cache update rather than briefly replacing its results with an
+    // empty external-match count.
+    if (lookup.inFlight) await lookup.inFlight.catch(() => {});
+    return;
+  }
+  lookup.status = `Checking ${requested.size} title${requested.size === 1 ? '' : 's'}…`;
+  showComparisonProgress(`Checking ${requested.size} title${requested.size === 1 ? '' : 's'} in Galactic Library…`);
+  const responsePromise = waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId, {
+    type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: [...requested.values()]
+  }));
+  lookup.inFlight = responsePromise;
+  try {
+    const response = await responsePromise;
+    if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
+      throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
+    }
+    const returnedByKey = new Map(response.results.map((result) => [result?.requestId, result]));
+    for (const requestId of requested.keys()) {
+      // A valid response represents every requested title. Cache no-match
+      // results too, so ordinary page refreshes do not repeat the request.
+      lookup.resultsByKey.set(requestId, returnedByKey.get(requestId) ?? { requestId, matches: [] });
+    }
+    const matchCount = [...lookup.resultsByKey.values()].filter((result) => ownedOutsideHumble(result).length).length;
+    lookup.status = `Available. ${matchCount} exact non-Humble title match${matchCount === 1 ? '' : 'es'}.`;
+    lookup.error = null;
+  } catch (error) {
+    lookup.status = 'Unavailable.';
+    lookup.error = String(error?.message ?? error);
+  } finally {
+    for (const requestId of requested.keys()) lookup.inFlightKeys.delete(requestId);
+    if (lookup.inFlight === responsePromise) lookup.inFlight = null;
+  }
+  if (comparison.job !== job) return;
+}
+
+function galacticOwnedMatches(itemKind, title, comparison) {
+  return ownedOutsideHumble(comparison?.galactic?.resultsByKey.get(galacticRequestKey(itemKind, title)));
+}
+
+function galacticPossibleMatches(itemKind, title, comparison) {
+  return possibleOutsideHumble(comparison?.galactic?.resultsByKey.get(galacticRequestKey(itemKind, title)));
+}
+
+function displayProviderName(provider) {
+  return provider === 'gog' ? 'GOG' : String(provider ?? '').replace(/^./u, (letter) => letter.toUpperCase());
 }
 
 function catalogueSortTitle(link, card) {
@@ -649,19 +751,19 @@ function naturalTitleCompare(left, right) {
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
   const { libraryByKey } = libraryMatcher;
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
-  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
+  document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
     item.style.removeProperty('box-shadow');
     item.style.removeProperty('background-color');
     item.querySelectorAll('h1, h2, h3, h4, h5, p, a, span').forEach((text) => text.style.removeProperty('color'));
   });
-  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((cover) => {
+  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((cover) => {
     cover.style.removeProperty('outline');
     cover.style.removeProperty('outline-offset');
     cover.style.removeProperty('box-shadow');
   });
-  document.querySelectorAll('.hcl-owned-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
-    item.classList.remove('hcl-owned-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-partial-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-new', 'hcl-card-possible', 'hcl-card-partial', 'hcl-cover-owned', 'hcl-cover-new', 'hcl-cover-possible', 'hcl-cover-partial');
+  document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-elsewhere, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
+    item.classList.remove('hcl-owned-item', 'hcl-elsewhere-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-partial-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-elsewhere', 'hcl-card-new', 'hcl-card-possible', 'hcl-card-partial', 'hcl-cover-owned', 'hcl-cover-elsewhere', 'hcl-cover-new', 'hcl-cover-possible', 'hcl-cover-partial');
     delete item.dataset.hclBadge;
   });
   document.querySelectorAll('.hcl-title-colored').forEach((item) => {
@@ -690,10 +792,11 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     comparison.sorting = sorting;
   }
   const matchStartedAt = performance.now();
-  const counts = { owned: 0, partial: 0, possible: 0, new: 0 };
-  const titlesByState = { owned: [], partial: [], possible: [], new: [] };
+  const counts = { owned: 0, elsewhere: 0, partial: 0, possible: 0, new: 0 };
+  const titlesByState = { owned: [], elsewhere: [], partial: [], possible: [], new: [] };
   const matchesByTitleKey = new Map();
   const tiers = new Map();
+  const resolvedItems = [];
   let sliceStartedAt = performance.now();
   for (const [index, item] of items.entries()) {
     const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
@@ -710,15 +813,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
           : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
           : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
           : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
-    matchesByTitleKey.set(HumbleComicLibrary.titleKey(item.title), match);
-    counts[match.state] += 1;
-    titlesByState[match.state].push({ title: item.title, provenance: matchProvenance(match), range: match.range ?? null });
-    const tier = tiers.get(item.tier.label) ?? { ...item.tier, total: 0, owned: 0, partial: 0, possible: 0 };
-    tier.total += 1;
-    if (match.state === 'owned') tier.owned += 1;
-    if (match.state === 'partial') tier.partial += 1;
-    if (match.state === 'possible') tier.possible += 1;
-    tiers.set(item.tier.label, tier);
+    resolvedItems.push({ item, match });
     // Large libraries can make an individual card comparison expensive. Yield
     // after a very small CPU slice so Humble can continue painting and loading
     // covers instead of waiting for every title to be checked.
@@ -726,12 +821,33 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       comparison.completedItems = index + 1;
       if (comparison.job !== job) return;
       if (performance.now() - sliceStartedAt >= 12) {
-        showComparisonProgress(`Checking your libraryâ€¦ ${comparison.completedItems}/${items.length} items`);
+        showComparisonProgress(`Checking your library\u2026 ${comparison.completedItems}/${items.length} items`);
         await yieldToBrowser();
         if (comparison.job !== job) return;
         sliceStartedAt = performance.now();
       }
     }
+  }
+  await queryGalacticLibrary(resolvedItems, itemKind, comparison, job);
+  if (comparison?.job !== job) return;
+  for (const resolved of resolvedItems) {
+    const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(itemKind, resolved.item.title, comparison);
+    const externalPossibleMatches = resolved.match.state === 'new' ? galacticPossibleMatches(itemKind, resolved.item.title, comparison) : [];
+    const match = externalMatches.length
+      ? { state: 'elsewhere', externalMatches }
+      : externalPossibleMatches.length
+        ? { state: 'possible', externalPossibleMatches, possibleReason: 'The game titles differ only by edition wording.' }
+        : resolved.match;
+    matchesByTitleKey.set(HumbleComicLibrary.titleKey(resolved.item.title), match);
+    counts[match.state] += 1;
+    titlesByState[match.state].push({ title: resolved.item.title, provenance: matchProvenance(match), range: match.range ?? null });
+    const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0 };
+    tier.total += 1;
+    if (match.state === 'owned') tier.owned += 1;
+    if (match.state === 'elsewhere') tier.elsewhere += 1;
+    if (match.state === 'partial') tier.partial += 1;
+    if (match.state === 'possible') tier.possible += 1;
+    tiers.set(resolved.item.tier.label, tier);
   }
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
@@ -1087,6 +1203,7 @@ function significantTokens(title) {
 function annotateBundleItem(bundleItem, match) {
   if (!bundleItem.element.isConnected) return;
   const isOwned = match.state === 'owned';
+  const isElsewhere = match.state === 'elsewhere';
   const isPossible = match.state === 'possible';
   const isPartial = match.state === 'partial';
   // The image wrapper scales on Humble hover, which turns a label attached to
@@ -1095,11 +1212,11 @@ function annotateBundleItem(bundleItem, match) {
   const provenance = matchProvenance(match);
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
-    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
+    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
   }
-  const stateClass = isOwned ? 'owned' : isPartial ? 'partial' : isPossible ? 'possible' : 'new';
+  const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
   bundleItem.element.classList.add(`hcl-cover-${stateClass}`);
   const card = findSingleCoverCard(bundleItem.element);
@@ -1110,6 +1227,30 @@ function annotateBundleItem(bundleItem, match) {
 }
 
 function matchProvenance(match) {
+  if (match.state === 'elsewhere') {
+    const lines = ['Owned through Galactic Library:'];
+    const seen = new Set();
+    for (const record of match.externalMatches ?? []) {
+      const label = `${displayProviderName(record.provider)}: ${displayTitle(record.title)}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        lines.push(`• ${label}`);
+      }
+    }
+    return lines.join('\n');
+  }
+  if (match.state === 'possible' && Array.isArray(match.externalPossibleMatches)) {
+    const lines = [`Possible external match: ${match.possibleReason ?? 'similar library title.'}`];
+    const seen = new Set();
+    for (const record of match.externalPossibleMatches) {
+      const label = `${displayProviderName(record.provider)}: ${displayTitle(record.title)}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        lines.push(`\u2022 ${label}`);
+      }
+    }
+    return lines.join('\n');
+  }
   const records = matchLibraryItems(match).flatMap((item) => itemProvenance(item));
   if (!records.length) return '';
   const heading = match.state === 'possible'
@@ -1198,13 +1339,13 @@ function colorExactCardTitle(card, title, state) {
 }
 
 function statusColor(state) {
-  return state === 'owned' ? '#0a7a42' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
+  return state === 'owned' ? '#0a7a42' : state === 'elsewhere' ? '#0f766e' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
 function applyBundleNewItemsOnlyFilter(enabled) {
   document.querySelectorAll('.hcl-bundle-filtered').forEach((card) => card.classList.remove('hcl-bundle-filtered'));
   if (!enabled) return;
-  document.querySelectorAll('.hcl-card-owned').forEach((card) => card.classList.add('hcl-bundle-filtered'));
+  document.querySelectorAll('.hcl-card-owned, .hcl-card-elsewhere').forEach((card) => card.classList.add('hcl-bundle-filtered'));
 }
 
 function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
@@ -1213,14 +1354,22 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
   const itemLabel = itemKind === 'game' ? 'games' : 'books';
-  headline.textContent = `Your ${itemLabel}: ${counts.owned} owned · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
+  headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
   appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
-  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
+  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
   summary.append(legend);
+  if (comparison?.galactic?.enabled) {
+    const galactic = document.createElement('p');
+    galactic.textContent = comparison.galactic.error
+      ? `Galactic Library is unavailable; showing local Humble results only. (${comparison.galactic.error})`
+      : `Galactic Library: ${comparison.galactic.status}`;
+    galactic.title = 'Galactic Library receives only the current bundle titles and returns exact owned matches from its connected providers.';
+    summary.append(galactic);
+  }
   appendBundleNewItemsOnlyFilter(summary, comparison);
   if (counts.partial) {
     const partial = document.createElement('p');
@@ -1237,6 +1386,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     const orderedTiers = [...tiers.values()].sort((left, right) => (left.price ?? Number.POSITIVE_INFINITY) - (right.price ?? Number.POSITIVE_INFINITY));
     let cumulativeTotal = 0;
     let cumulativeOwned = 0;
+    let cumulativeElsewhere = 0;
     let cumulativePartial = 0;
     let cumulativePossible = 0;
     for (const tier of orderedTiers) {
@@ -1245,9 +1395,10 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       // price, so display the total actually received at each tier.
       cumulativeTotal += tier.total;
       cumulativeOwned += tier.owned;
+      cumulativeElsewhere += tier.elsewhere;
       cumulativePartial += tier.partial;
       cumulativePossible += tier.possible;
-      const newItems = cumulativeTotal - cumulativeOwned - cumulativePartial - cumulativePossible;
+      const newItems = cumulativeTotal - cumulativeOwned - cumulativeElsewhere - cumulativePartial - cumulativePossible;
       const row = document.createElement('li');
       const priceText = tier.price === null ? tier.label : `${tier.label}: `;
       const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
@@ -1257,12 +1408,12 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     summary.append(tierList);
   }
   appendBuyRecommendation(summary, tiers);
-  for (const state of ['owned', 'new', 'partial', 'possible']) {
+  for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible']) {
     if (!titlesByState[state].length) continue;
     const detail = document.createElement('details');
     detail.className = 'hcl-title-list';
     const heading = document.createElement('summary');
-    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : 'Possible matches'} (${titlesByState[state].length})`;
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
@@ -1306,7 +1457,7 @@ function appendBuyRecommendation(summary, tiers) {
     .sort((left, right) => left.price - right.price);
   let recommendation = null;
   for (const tier of orderedTiers) {
-    const confirmedNew = tier.total - tier.owned - tier.partial - tier.possible;
+    const confirmedNew = tier.total - tier.owned - tier.elsewhere - tier.partial - tier.possible;
     if (confirmedNew > 0) recommendation = tier;
   }
   if (!recommendation) return;
@@ -1603,7 +1754,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
 }
 
 async function discoverKeyReminderMetadata(report) {
-  report('Loading your purchase list for key reminder discoveryâ€¦');
+  report('Loading your purchase list for key reminder discovery\u2026');
   const orders = await fetchJson('/api/v1/user/order?all=true');
   const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
@@ -1617,7 +1768,7 @@ async function discoverKeyReminderMetadata(report) {
     const order = orderList[index];
     const key = order.gamekey ?? order.key ?? order.order_key;
     if (!key) continue;
-    report(`Inspecting purchase ${index + 1} of ${orderList.length}â€¦`);
+    report(`Inspecting purchase ${index + 1} of ${orderList.length}\u2026`);
     try {
       const detail = await fetchOrderDetail(key);
       const records = thirdPartyKeyRecords(detail);
@@ -1654,7 +1805,7 @@ async function discoverKeyReminderMetadata(report) {
 }
 
 async function scanKeyReminders(report) {
-  report('Loading your purchase list for key remindersâ€¦');
+  report('Loading your purchase list for key reminders\u2026');
   const orders = await fetchJson('/api/v1/user/order?all=true');
   const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
@@ -1672,7 +1823,7 @@ async function scanKeyReminders(report) {
   for (let index = 0; index < purchasesToScan.length; index += 1) {
     const order = purchasesToScan[index];
     const purchaseKey = order.gamekey ?? order.key ?? order.order_key;
-    report(`Checking key reminders ${index + 1} of ${purchasesToScan.length}â€¦`);
+    report(`Checking key reminders ${index + 1} of ${purchasesToScan.length}\u2026`);
     try {
       const detail = await fetchOrderDetail(purchaseKey);
       for (const [id, record] of reminders) if (record.purchaseKey === purchaseKey) reminders.delete(id);

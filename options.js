@@ -11,13 +11,27 @@
   const showDiagnostics = document.querySelector('#show-diagnostics');
   const keyReminderSummary = document.querySelector('#key-reminder-summary');
   const keyReminderList = document.querySelector('#key-reminder-list');
+  const humbleExtensionId = document.querySelector('#humble-extension-id');
+  const galacticLibraryExtensionId = document.querySelector('#galactic-library-extension-id');
+  const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
+
+  function isExtensionId(value) {
+    return /^[a-p]{32}$/u.test(String(value ?? '').trim());
+  }
+
+  async function testGalacticLibraryLink(id = galacticLibraryExtensionId.value.trim()) {
+    if (!isExtensionId(id)) throw new Error('Enter a valid 32-character Galactic Library extension ID.');
+    const response = await chrome.runtime.sendMessage(id, { type: 'PING' });
+    if (!response?.ok || response.apiVersion !== 1) throw new Error(response?.error ?? 'Galactic Library did not return a compatible response.');
+    return response;
+  }
 
   async function library() {
     return (await chrome.storage.local.get({ libraryItems: [] })).libraryItems;
   }
 
   async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '' });
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
@@ -34,6 +48,11 @@
     }));
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;
+    humbleExtensionId.textContent = chrome.runtime.id;
+    galacticLibraryExtensionId.value = isExtensionId(savedGalacticLibraryExtensionId) ? savedGalacticLibraryExtensionId : '';
+    galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
+      ? 'Link saved. In Galactic Library, allow the Humble Comic Library extension ID shown above.'
+      : 'No Galactic Library link configured.';
     renderKeyReminders(keyReminders, keyReminderScan);
   }
 
@@ -133,6 +152,31 @@
 
   showDiagnostics.addEventListener('change', async () => {
     await chrome.storage.local.set({ showDiagnostics: showDiagnostics.checked });
+  });
+
+  document.querySelector('#save-galactic-library-link').addEventListener('click', async () => {
+    const id = galacticLibraryExtensionId.value.trim();
+    if (!isExtensionId(id)) {
+      galacticLibraryLinkStatus.textContent = 'Enter a valid 32-character Galactic Library extension ID.';
+      return;
+    }
+    await chrome.storage.local.set({ galacticLibraryExtensionId: id });
+    galacticLibraryLinkStatus.textContent = 'Link saved. In Galactic Library, allow the Humble Comic Library extension ID shown above.';
+  });
+
+  document.querySelector('#test-galactic-library-link').addEventListener('click', async () => {
+    try {
+      const response = await testGalacticLibraryLink();
+      galacticLibraryLinkStatus.textContent = `Connected to Galactic Library ${response.appVersion}.`;
+    } catch (error) {
+      galacticLibraryLinkStatus.textContent = `Could not connect: ${error.message}`;
+    }
+  });
+
+  document.querySelector('#clear-galactic-library-link').addEventListener('click', async () => {
+    await chrome.storage.local.remove('galacticLibraryExtensionId');
+    galacticLibraryExtensionId.value = '';
+    galacticLibraryLinkStatus.textContent = 'Galactic Library link removed.';
   });
 
   document.querySelector('#open-purchases').addEventListener('click', () => {

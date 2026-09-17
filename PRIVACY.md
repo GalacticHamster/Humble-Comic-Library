@@ -27,6 +27,8 @@ This data is used only to provide the extension's library import, matching, prov
 
 The extension has no developer-operated server, analytics, advertising, affiliate links, or third-party data recipient. It makes requests only to Humble Bundle, using the user's existing signed-in browser session, to provide the import and current-listing comparison features.
 
+If the user explicitly configures the optional Galactic Library companion link, Humble Comic Library sends only the titles visible in the current Humble Books or Games bundle to that other locally installed extension. Galactic Library returns only exact ownership matches from its non-Humble providers. Neither extension transfers a full library, session credential, redemption key, or data to a remote server. The link can be removed by clearing the configured extension ID or uninstalling either extension.
+
 ## Retention and deletion
 
 Data remains in the browser until the user selects **Clear library** in the extension options or uninstalls the extension. **Clear library** removes locally stored titles, purchase summaries, import history, and custom collection mappings. Uninstalling the extension removes its Chrome extension storage according to Chrome's normal uninstall behavior.
