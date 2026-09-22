@@ -1015,6 +1015,10 @@ function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
     // Possible match, never an automatic ownership claim.
     if (candidate) return { items: candidate, reason: 'The listing looks like an issue-numbered version of this library title.' };
   }
+  if (itemKind === 'book') {
+    const relatedBook = findPossibleBookTitleRelation(title, libraryByKey);
+    if (relatedBook) return relatedBook;
+  }
   if (itemKind === 'game') {
     const editionBase = gameEditionBase(title);
     const candidate = editionBase ? findGameEditionMatch(editionBase, libraryByKey) : null;
@@ -1041,6 +1045,72 @@ function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
     if (score >= 0.82 && (!best || score > best.score)) best = { item, score };
   }
   return best ? { items: best.item, reason: 'The titles have a very close normalized word match.' } : null;
+}
+
+const BOOK_EDITION_LABEL = /^(?:(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(?:\s+(?:revised|updated))?|revised(?:\s+and\s+updated)?|updated(?:\s+and\s+revised)?|new|expanded|annotated)\s+(?:edition|ed\.?)$/iu;
+const BOOK_EDITION_SUFFIX = /^(.*?)\s*(?:[\u002c;\u003a\u002d\u2013\u2014]\s*)?((?:(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(?:\s+(?:revised|updated))?|revised(?:\s+and\s+updated)?|updated(?:\s+and\s+revised)?|new|expanded|annotated)\s+(?:edition|ed\.?))\s*$/iu;
+
+function bookTitleParts(title) {
+  const original = String(title ?? '').replace(/\s+/gu, ' ').trim();
+  let remaining = original;
+  let hasEdition = false;
+  let hasQualifier = false;
+  const directEdition = BOOK_EDITION_SUFFIX.exec(remaining);
+  if (directEdition?.[1]?.trim()) {
+    remaining = directEdition[1].trim();
+    hasEdition = true;
+  }
+  const parenthetical = /^(.*?)\s*\(([^()]*)\)\s*$/u.exec(remaining);
+  if (parenthetical?.[1]?.trim()) {
+    remaining = parenthetical[1].trim();
+    hasQualifier = true;
+    hasEdition = hasEdition || BOOK_EDITION_LABEL.test(parenthetical[2].trim());
+  }
+  const subtitle = /^(.*?)\s*:\s+(.+)$/u.exec(remaining);
+  const primary = subtitle?.[1]?.trim() || remaining;
+  return {
+    key: HumbleComicLibrary.titleKey(original),
+    primaryKey: HumbleComicLibrary.titleKey(primary),
+    hasSubtitle: Boolean(subtitle),
+    hasEdition,
+    hasQualifier
+  };
+}
+
+function hasStrongBookPrimaryTitle(primaryKey) {
+  // Unlike generic word-overlap matching, this is a structured primary-title
+  // comparison. Keep “book” as a word here so a real three-word title such as
+  // “Long Book Title” is not weakened merely by its subject matter.
+  const tokens = new Set(HumbleComicLibrary.titleKey(primaryKey).split(' ')
+    .filter((token) => token.length > 1 && !['the', 'and', 'of', 'a', 'an', 'vol', 'volume'].includes(token)));
+  const letters = [...tokens].join('').length;
+  return tokens.size >= 3 || (tokens.size >= 2 && letters >= 14);
+}
+
+function findPossibleBookTitleRelation(title, libraryByKey) {
+  const target = bookTitleParts(title);
+  if (!target.primaryKey || !hasStrongBookPrimaryTitle(target.primaryKey)) return null;
+  let best = null;
+  for (const [, item] of libraryByKey) {
+    const candidate = bookTitleParts(item.title);
+    if (candidate.primaryKey !== target.primaryKey || candidate.key === target.key) continue;
+    // Two independently subtitled books often share a franchise or a generic
+    // main title. Do not infer a relationship unless an edition marker makes
+    // that relationship explicit.
+    if (target.hasSubtitle && candidate.hasSubtitle && !target.hasEdition && !candidate.hasEdition) continue;
+    const hasStructuredDifference = target.hasSubtitle || candidate.hasSubtitle
+      || target.hasEdition || candidate.hasEdition || target.hasQualifier || candidate.hasQualifier;
+    if (!hasStructuredDifference) continue;
+    if (!best || HumbleComicLibrary.titleKey(item.title).localeCompare(HumbleComicLibrary.titleKey(best.item.title)) < 0) best = { item, target, candidate };
+  }
+  if (!best) return null;
+  const editionRelationship = best.target.hasEdition || best.candidate.hasEdition;
+  return {
+    items: best.item,
+    reason: editionRelationship
+      ? 'The book titles share a main title but differ by subtitle or edition wording.'
+      : 'One book title is a shortened or qualified presentation of the other.'
+  };
 }
 
 function findOwnedBookVariant(title, libraryMatcher) {
