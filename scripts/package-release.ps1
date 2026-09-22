@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+  [ValidateSet('Chrome', 'Firefox')]
+  [string]$Target = 'Chrome',
   [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist')
 )
 
@@ -7,7 +9,20 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$manifest = Get-Content -LiteralPath (Join-Path $projectRoot 'manifest.json') -Raw | ConvertFrom-Json
+$chromeManifestPath = Join-Path $projectRoot 'manifest.json'
+$chromeManifestText = Get-Content -LiteralPath $chromeManifestPath -Raw
+$manifest = $chromeManifestText | ConvertFrom-Json
+if ($Target -eq 'Firefox') {
+  $firefoxOverlayPath = Join-Path $projectRoot 'manifests\firefox.json'
+  if (-not (Test-Path -LiteralPath $firefoxOverlayPath)) { throw "Firefox manifest overlay is missing: $firefoxOverlayPath" }
+  $firefoxOverlay = Get-Content -LiteralPath $firefoxOverlayPath -Raw | ConvertFrom-Json
+  foreach ($property in $firefoxOverlay.PSObject.Properties) {
+    if ($manifest.PSObject.Properties.Name -contains $property.Name) {
+      throw "Firefox manifest overlay may only add browser-specific fields; '$($property.Name)' already exists in manifest.json."
+    }
+    $manifest | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value
+  }
+}
 $releaseFiles = @(
   'manifest.json',
   'shared.js',
@@ -30,7 +45,8 @@ if ($missing) { throw "Release package is missing required file(s): $($missing -
 
 $outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 [System.IO.Directory]::CreateDirectory($outputPath) | Out-Null
-$zipPath = Join-Path $outputPath "Humble-Comic-Library-$($manifest.version).zip"
+$packageSuffix = if ($Target -eq 'Firefox') { '-firefox' } else { '' }
+$zipPath = Join-Path $outputPath "Humble-Comic-Library-$($manifest.version)$packageSuffix.zip"
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 
 Add-Type -AssemblyName System.IO.Compression
@@ -43,9 +59,16 @@ try {
   foreach ($relativePath in $releaseFiles) {
     $entry = $archive.CreateEntry(($relativePath -replace '\\', '/'), [System.IO.Compression.CompressionLevel]::Optimal)
     $entry.LastWriteTime = $fixedTime
-    $input = [System.IO.File]::OpenRead((Join-Path $projectRoot $relativePath))
     $output = $entry.Open()
-    try { $input.CopyTo($output) } finally { $output.Dispose(); $input.Dispose() }
+    try {
+      if ($relativePath -eq 'manifest.json' -and $Target -eq 'Firefox') {
+        $manifestBytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($manifest | ConvertTo-Json -Depth 20))
+        $output.Write($manifestBytes, 0, $manifestBytes.Length)
+      } else {
+        $input = [System.IO.File]::OpenRead((Join-Path $projectRoot $relativePath))
+        try { $input.CopyTo($output) } finally { $input.Dispose() }
+      }
+    } finally { $output.Dispose() }
   }
 } finally {
   if ($null -ne $archive) { $archive.Dispose() }
@@ -53,5 +76,5 @@ try {
 }
 
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Output "Created $zipPath"
+Write-Output "Created $Target package $zipPath"
 Write-Output "SHA256 $hash"

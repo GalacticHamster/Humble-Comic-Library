@@ -329,7 +329,7 @@ function catalogueCardTitle(link) {
 }
 
 function isExtensionId(value) {
-  return /^[a-p]{32}$/u.test(String(value ?? '').trim());
+  return HumbleComicLibrary.isExtensionId(value);
 }
 
 function createGalacticLookup(extensionId) {

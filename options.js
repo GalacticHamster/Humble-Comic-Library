@@ -16,7 +16,7 @@
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
 
   function isExtensionId(value) {
-    return /^[a-p]{32}$/u.test(String(value ?? '').trim());
+    return HumbleComicLibrary.isExtensionId(value);
   }
 
   async function testGalacticLibraryLink(id = galacticLibraryExtensionId.value.trim()) {

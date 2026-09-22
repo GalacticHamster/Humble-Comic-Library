@@ -53,5 +53,14 @@
     return [...new Set(values.filter(Boolean))];
   }
 
-  global.HumbleComicLibrary = { normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings };
+  function isExtensionId(value) {
+    const id = String(value ?? '').trim();
+    const chromeId = /^[a-p]{32}$/u;
+    // AMO uses email-style Gecko IDs. Require a non-empty local part and a
+    // dotted DNS-like domain rather than accepting arbitrary text.
+    const geckoId = /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/iu;
+    return chromeId.test(id) || geckoId.test(id);
+  }
+
+  global.HumbleComicLibrary = { normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId };
 }(globalThis));

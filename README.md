@@ -4,7 +4,7 @@ An unofficial browser extension that marks books, comics, games, or software you
 
 ## What works now
 
-- Load it unpacked in Chrome/Chromium browsers.
+- Load it unpacked in Chrome/Chromium browsers. A separately packaged Firefox desktop build is available for manual testing; it is not yet runtime-verified in Firefox.
 - Import DRM-free book, comic, and audiobook titles plus detected game and Humble-declared Software entitlements from your signed-in Humble Purchases page—without copying, reading, or saving a Humble cookie.
 - Track third-party entitlements that Humble has not yet revealed, including their source purchase and Humble-reported expiry status. A first key-reminder scan checks every purchase; later refreshes check new purchases and pending entitlements only. Actual redemption-key values are never stored.
 - On the Purchases page, download a safe key-reminder discovery report to identify which non-secret Humble key-status and expiry fields are available. The report contains aggregate field names, types, and counts only—never key values, titles, bundle names, purchase identifiers, purchase dates, or other field values.
@@ -22,7 +22,7 @@ An unofficial browser extension that marks books, comics, games, or software you
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
 - Export or clear all browser-local library titles, purchase summaries, and import history.
 
-Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance locally in Chrome until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a Chrome Web Store release, publish that policy at a public HTTPS URL and enter the URL in the Store's Privacy field.
+Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance in browser-local extension storage until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a store release, publish that policy at a public HTTPS URL and enter the URL in the store's Privacy field.
 
 If you explicitly configure the optional Galactic Library link, the extension sends only the exact titles visible in the current bundle to that locally installed extension. Galactic replies only with exact ownership results from its non-Humble providers; neither extension sends a full library or any data to a remote server.
 
@@ -30,10 +30,20 @@ The extension runs only on Humble bundle catalogue, Books, Games, Software, and 
 
 ## Load it
 
+### Chrome / Chromium
+
 1. In Chrome, open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Select **Load unpacked** and choose this folder.
-4. For a Humble import, open **Extension options**, select **Open Humble purchases importer**, and click **Import new purchases** on that page. It fetches Humble's order list, skips orders already imported successfully in this browser, and only retrieves details for new or previously failed orders. Use **Rescan every purchase** only when you need to rebuild the full Humble library. Keep the page open until it completes.
+
+### Firefox desktop
+
+1. Build the Firefox package with `./scripts/package-release.ps1 -Target Firefox`.
+2. Extract `dist/Humble-Comic-Library-<version>-firefox.zip` to a temporary folder.
+3. Open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose the extracted `manifest.json`.
+4. Follow the same import and bundle-page checks as Chrome. The Firefox package has automated manifest/package validation, but browser behavior still needs manual verification before AMO submission.
+
+For a Humble import in either browser, open **Extension options**, select **Open Humble purchases importer**, and click **Import new purchases** on that page. It fetches Humble's order list, skips orders already imported successfully in that browser profile, and only retrieves details for new or previously failed orders. Use **Rescan every purchase** only when you need to rebuild the full Humble library. Keep the page open until it completes.
 
    The importer requests Humble's purchase list and only the necessary purchase-detail records through the tab where you are already signed in. It retains DRM-free book/comic downloads (PDF, EPUB, CBZ, CBR, or MOBI), audiobook downloads (MP3, M4A/M4B, AAC, FLAC, OGG/Opus, or WAV), third-party game entitlements, and Software products identified by explicit Humble Software metadata, a narrow GameMaker project/asset format, or a third-party entitlement from an order explicitly labelled a Software Bundle. An unknown archive alone is not imported. Redemption-key values are redacted before the response is parsed and are never stored, exported, or logged. Books, audiobooks, games, and software are stored separately, together with their title, purchase date when Humble supplies it, bundle name, and purchase key. On its first import after this update, the extension automatically checks all prior purchases once to backfill newly supported deliveries and correct earlier Software-as-game classification; later imports again process only new purchases. It also records each purchase separately with its paid price and a `pricePerItem` value. A full rescan rebuilds Humble-sourced game, audiobook, and software entitlements and records every purchase origin for duplicate titles; incremental imports add only newly discovered purchases. It does not store the response or any account session token.
 
@@ -90,17 +100,21 @@ The mapping is applied only if the exact `collectionTitle` is already in your im
 
 ## Create a release ZIP
 
-Run the following from PowerShell at the repository root:
+Run one of the following from PowerShell at the repository root:
 
 ```powershell
+# Chrome (default; unchanged package name and manifest)
 .\scripts\package-release.ps1
+
+# Firefox desktop package; adds Firefox-only metadata inside its ZIP manifest
+.\scripts\package-release.ps1 -Target Firefox
 ```
 
-It creates `dist/Humble-Comic-Library-<version>.zip` with a fixed file order and timestamps, so identical source produces an identical ZIP and SHA-256 hash. The ZIP contains only the extension runtime files and icons; it excludes Git history, backups, exports, reports, notes, and documentation. Upload that ZIP—not the project folder—to the Chrome Web Store.
+The Chrome target creates `dist/Humble-Comic-Library-<version>.zip`; the Firefox target creates `dist/Humble-Comic-Library-<version>-firefox.zip`. Both use a fixed file order and timestamps, so identical source produces an identical ZIP and SHA-256 hash. The Firefox archive adds only its Gecko ID and AMO data-collection declaration to the generated `manifest.json`; shared runtime files are identical. Archives contain only extension runtime files and icons; they exclude Git history, backups, exports, reports, notes, and documentation. Upload the Chrome ZIP—not the project folder—to the Chrome Web Store. Submit the Firefox ZIP to AMO for signing only after manual Firefox testing.
 
 Store screenshots are checked into [store-assets/](store-assets/) for review and versioning, but are intentionally excluded from the extension ZIP. Upload those images separately in the Chrome Web Store dashboard.
 
-Record each published version in [CHANGELOG.md](CHANGELOG.md), and increase the numeric `version` in `manifest.json` before every subsequent Chrome Web Store upload.
+Record each published version in [CHANGELOG.md](CHANGELOG.md), and increase the numeric `version` in `manifest.json` before every subsequent Chrome Web Store or AMO upload.
 
 ## Roadmap
 

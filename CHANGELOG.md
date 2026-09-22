@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Adds a separately packaged Firefox desktop Manifest V3 build while retaining the existing Chrome manifest and package unchanged. Firefox runtime behavior still requires manual browser testing before AMO submission.
 - Adds first-class Humble Software support for purchases, bundle pages, and the Software catalogue.
 - Preserves `software` item kinds through local backup import/export and reports them in the options-page library summary.
 - Treats exact Software titles as owned and explicit version variants as Possible rather than Owned.
