@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Adds first-class Humble Software support for purchases, bundle pages, and the Software catalogue.
+- Preserves `software` item kinds through local backup import/export and reports them in the options-page library summary.
+- Treats exact Software titles as owned and explicit version variants as Possible rather than Owned.
+- Performs one full local entitlement backfill after upgrade to distinguish earlier Humble Software records from games, including GameMaker project deliveries and generic entitlements from explicitly named Software Bundles.
+- Adds a local, redacted Software product-classification discovery report for diagnosing real Humble purchase metadata without exposing keys, URLs, or raw purchase responses.
+
 ## 0.1.0
 
 Initial Chrome Web Store release candidate.

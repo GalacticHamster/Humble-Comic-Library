@@ -35,11 +35,12 @@
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
+    const software = items.filter((item) => item.kind === 'software').length;
     const audiobooks = items.filter((item) => item.kind === 'audiobook').length;
-    const mediaCounts = [games ? `${games} game${games === 1 ? '' : 's'}` : '', audiobooks ? `${audiobooks} audiobook${audiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
+    const mediaCounts = [games ? `${games} game${games === 1 ? '' : 's'}` : '', software ? `${software} software item${software === 1 ? '' : 's'}` : '', audiobooks ? `${audiobooks} audiobook${audiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
     count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${mediaCounts ? ` (${mediaCounts})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
     lastImport.textContent = summary
-      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
+      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
       : 'No Humble import has run yet.';
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');
@@ -111,10 +112,8 @@
       const parsed = JSON.parse(await file.text());
       const rows = Array.isArray(parsed) ? parsed : parsed.items;
       if (!Array.isArray(rows)) throw new Error('Expected a JSON array or an object with an items array.');
-      const items = rows.map((row) => typeof row === 'string' ? { title: row } : row)
-        .filter((row) => typeof row?.title === 'string' && row.title.trim())
-        .map((row) => ({ title: row.title.trim(), sourceBundle: String(row.sourceBundle ?? '').trim() }));
-      const unique = new Map(items.map((item) => [HumbleComicLibrary.titleKey(item.title), item]));
+      const items = rows.map(HumbleComicLibrary.normalizeLibraryImportItem).filter(Boolean);
+      const unique = new Map(items.map((item) => [`${item.kind ?? 'book'}:${HumbleComicLibrary.titleKey(item.title)}`, item]));
       const restoredMappings = parsed?.collectionMappings === undefined
         ? undefined
         : HumbleCollectionMappings.validateCustomMappings(parsed.collectionMappings);
@@ -189,7 +188,7 @@
 
   document.querySelector('#export-library').addEventListener('click', async () => {
     const { purchaseSummaries = [], customCollectionMappings = [], keyReminders = [], keyReminderScan = null } = await chrome.storage.local.get({ purchaseSummaries: [], customCollectionMappings: [], keyReminders: [], keyReminderScan: null });
-    const contents = JSON.stringify({ version: 4, exportedAt: new Date().toISOString(), items: await library(), purchases: purchaseSummaries, collectionMappings: customCollectionMappings, keyReminders, keyReminderScan }, null, 2);
+    const contents = JSON.stringify({ version: 5, exportedAt: new Date().toISOString(), items: await library(), purchases: purchaseSummaries, collectionMappings: customCollectionMappings, keyReminders, keyReminderScan }, null, 2);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-comic-library-export.json' });
     link.click();

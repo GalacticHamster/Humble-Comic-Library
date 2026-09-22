@@ -37,7 +37,9 @@ const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
     return;
   }
 
-  const itemKind = location.pathname.startsWith('/books/') ? 'book' : location.pathname.startsWith('/games/') ? 'game' : null;
+  const itemKind = location.pathname.startsWith('/books/') ? 'book'
+    : location.pathname.startsWith('/games/') ? 'game'
+      : location.pathname.startsWith('/software/') ? 'software' : null;
   if (!itemKind) return;
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
@@ -145,7 +147,7 @@ function showComparisonFailure(error) {
 }
 
 function isBundleCataloguePage() {
-  return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games';
+  return location.pathname === '/bundles' || location.pathname === '/books' || location.pathname === '/games' || location.pathname === '/software';
 }
 
 function normaliseCatalogueFilters(filters) {
@@ -828,7 +830,10 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       }
     }
   }
-  await queryGalacticLibrary(resolvedItems, itemKind, comparison, job);
+  // Galactic Library currently exposes game and book media types. Keep the
+  // Humble-local Software comparison self-contained until that API advertises
+  // a compatible software media type.
+  if (itemKind === 'book' || itemKind === 'game') await queryGalacticLibrary(resolvedItems, itemKind, comparison, job);
   if (comparison?.job !== job) return;
   for (const resolved of resolvedItems) {
     const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(itemKind, resolved.item.title, comparison);
@@ -1027,6 +1032,10 @@ function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
     if (candidate) return { items: candidate, reason: 'The game titles differ only by edition wording.' };
     const component = findGameCollectionOrComponentMatch(title, libraryByKey);
     if (component) return { items: component, reason: 'This game may be included in the named library collection or multi-game entry.' };
+  }
+  if (itemKind === 'software') {
+    const relatedSoftware = findPossibleSoftwareVersionRelation(title, libraryByKey);
+    if (relatedSoftware) return relatedSoftware;
   }
   const titleTokens = significantTokens(title);
   if (titleTokens.size < 2) return null;
@@ -1412,6 +1421,41 @@ function statusColor(state) {
   return state === 'owned' ? '#0a7a42' : state === 'elsewhere' ? '#0f766e' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
 }
 
+const SOFTWARE_VERSION_SUFFIX = /^(.*?)\s*(?:[,;:\-\u2013\u2014]\s*)?(?:(?:v(?:ersion)?\.?\s*)(\d+(?:\.\d+){0,3})|((?:19|20)\d{2}))\s*$/iu;
+
+function softwareTitleParts(title) {
+  const original = String(title ?? '').replace(/\s+/gu, ' ').trim();
+  const match = SOFTWARE_VERSION_SUFFIX.exec(original);
+  const base = match?.[1]?.trim() || original;
+  return {
+    key: HumbleComicLibrary.titleKey(original),
+    baseKey: HumbleComicLibrary.titleKey(base),
+    hasVersion: Boolean(match?.[1]?.trim())
+  };
+}
+
+function hasStrongSoftwareBaseTitle(baseKey) {
+  const tokens = new Set(HumbleComicLibrary.titleKey(baseKey).split(' ')
+    .filter((token) => token.length > 1 && !['the', 'and', 'of', 'a', 'an', 'software', 'tool', 'tools'].includes(token)));
+  const letters = [...tokens].join('').length;
+  return tokens.size >= 2 && letters >= 8;
+}
+
+function findPossibleSoftwareVersionRelation(title, libraryByKey) {
+  const target = softwareTitleParts(title);
+  if (!target.baseKey || !hasStrongSoftwareBaseTitle(target.baseKey)) return null;
+  let best = null;
+  for (const [, item] of libraryByKey) {
+    const candidate = softwareTitleParts(item.title);
+    if (candidate.baseKey !== target.baseKey || candidate.key === target.key) continue;
+    if (!target.hasVersion && !candidate.hasVersion) continue;
+    if (!best || HumbleComicLibrary.titleKey(item.title).localeCompare(HumbleComicLibrary.titleKey(best.title)) < 0) best = item;
+  }
+  return best
+    ? { items: best, reason: 'The software titles share a base name but have different version labels.' }
+    : null;
+}
+
 function applyBundleNewItemsOnlyFilter(enabled) {
   document.querySelectorAll('.hcl-bundle-filtered').forEach((card) => card.classList.remove('hcl-bundle-filtered'));
   if (!enabled) return;
@@ -1423,7 +1467,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
-  const itemLabel = itemKind === 'game' ? 'games' : 'books';
+  const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : 'books';
   headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
@@ -1432,7 +1476,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   legend.className = 'hcl-legend';
   legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
   summary.append(legend);
-  if (comparison?.galactic?.enabled) {
+  if ((itemKind === 'book' || itemKind === 'game') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
     galactic.textContent = comparison.galactic.error
       ? `Galactic Library is unavailable; showing local Humble results only. (${comparison.galactic.error})`
@@ -1468,7 +1512,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       cumulativeElsewhere += tier.elsewhere;
       cumulativePartial += tier.partial;
       cumulativePossible += tier.possible;
-      const newItems = cumulativeTotal - cumulativeOwned - cumulativeElsewhere - cumulativePartial - cumulativePossible;
+      const newItems = confirmedNewItemCount({ total: cumulativeTotal, owned: cumulativeOwned, elsewhere: cumulativeElsewhere, partial: cumulativePartial, possible: cumulativePossible });
       const row = document.createElement('li');
       const priceText = tier.price === null ? tier.label : `${tier.label}: `;
       const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
@@ -1527,7 +1571,7 @@ function appendBuyRecommendation(summary, tiers) {
     .sort((left, right) => left.price - right.price);
   let recommendation = null;
   for (const tier of orderedTiers) {
-    const confirmedNew = tier.total - tier.owned - tier.elsewhere - tier.partial - tier.possible;
+    const confirmedNew = confirmedNewItemCount(tier);
     if (confirmedNew > 0) recommendation = tier;
   }
   if (!recommendation) return;
@@ -1681,10 +1725,11 @@ function addPurchaseImporter() {
   panel.className = 'hcl-importer';
   panel.innerHTML = `
     <strong>Humble Comic Library</strong>
-    <span>Import eligible books, comics, and games from this purchase history into this browser.</span>
+    <span>Import eligible books, comics, games, and software from this purchase history into this browser.</span>
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
-      <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game entries.">Rescan every purchase</button>
+      <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game, audiobook, and software entries.">Rescan every purchase</button>
+      <button type="button" data-import-mode="software-discovery" title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-reminders" title="The first scan checks every purchase. Later scans check new purchases and purchases with still-unrevealed entitlements.">Scan / refresh key reminders</button>
       <button type="button" data-import-mode="key-discovery" title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
     </div>
@@ -1695,8 +1740,10 @@ function addPurchaseImporter() {
     const mode = button.dataset.importMode;
     const fullRescan = mode === 'all';
     const keyDiscovery = mode === 'key-discovery';
+    const softwareDiscovery = mode === 'software-discovery';
     const keyReminderScan = mode === 'key-reminders';
     if (fullRescan && !confirm('Rescan every Humble purchase? This can take a while.')) return;
+    if (softwareDiscovery && !confirm('Inspect non-book product classification metadata in every Humble purchase? This can take a while. The downloaded local report includes product titles and bundle names, but never redemption keys, purchase identifiers, URLs, or cookies.')) return;
     if (keyDiscovery && !confirm('Inspect third-party key reminder metadata in every Humble purchase? This can take a while. The downloaded report contains only aggregate field names and counts; it saves no key values, titles, bundle names, or purchase identifiers.')) return;
     buttons.forEach((control) => { control.disabled = true; });
     try {
@@ -1704,6 +1751,12 @@ function addPurchaseImporter() {
         const result = await discoverKeyReminderMetadata((message) => { status.textContent = message; });
         downloadJsonFile('humble-key-reminder-discovery.json', result.report);
         status.textContent = `Inspected ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} and found ${result.keyRecords} third-party key record${result.keyRecords === 1 ? '' : 's'}; downloaded a safe aggregate report${result.failures ? ` (${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be inspected)` : ''}.`;
+        return;
+      }
+      if (softwareDiscovery) {
+        const result = await discoverSoftwareProductMetadata((message) => { status.textContent = message; });
+        downloadJsonFile('humble-software-product-discovery.json', result.report);
+        status.textContent = `Inspected ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} and recorded ${result.candidateProducts} non-book/non-audiobook product${result.candidateProducts === 1 ? '' : 's'}; downloaded a local Software classification report${result.failures ? ` (${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be inspected)` : ''}.`;
         return;
       }
       if (keyReminderScan) {
@@ -1715,10 +1768,10 @@ function addPurchaseImporter() {
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
-        : result.audioBackfill
-          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add audiobook deliveries`
+        : result.audioBackfill || result.softwareBackfill
+          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add newly supported deliveries`
           : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
-      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
     } finally {
@@ -1742,9 +1795,14 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   // discover audio from purchases previously marked
   // as scanned, after which normal incremental import resumes.
   const audioBackfill = mediaImportVersion < 4;
+  // Version 6 recognizes positively identified Software deliveries and
+  // Software-bundle entitlements in addition to explicit product types.
+  // Reprocess existing entitlement-like records once so earlier entries can
+  // be corrected from the live Humble metadata.
+  const softwareBackfill = mediaImportVersion < 6;
   const purchasesToScan = orderList.filter((order) => {
     const key = order.gamekey ?? order.key ?? order.order_key;
-    return key && (fullRescan || audioBackfill || !previouslyScanned.has(key));
+    return key && (fullRescan || audioBackfill || softwareBackfill || !previouslyScanned.has(key));
   });
 
   const imported = [];
@@ -1766,15 +1824,21 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 175));
   }
 
-  // Rebuild Humble game and audiobook entries from the explicit entitlement
-  // collection. The audio backfill uses the same path once for older installs.
-  const rebuildEntitlements = fullRescan || audioBackfill;
+  // Rebuild entitlement-like records from source data. The one-time media
+  // backfills correct earlier classification while leaving books untouched.
+  const rebuildEntitlements = fullRescan || audioBackfill || softwareBackfill;
+  const failedPurchaseKeys = new Set(failures);
   const retainedItems = rebuildEntitlements
-    ? libraryItems.filter((item) => !['game', 'audiobook'].includes(item.kind) || item.source !== 'humble')
+    ? libraryItems.filter((item) => !['game', 'audiobook', 'software'].includes(item.kind)
+      || item.source !== 'humble'
+      // Never lose a previously imported entitlement merely because this
+      // retry could not fetch one of its purchase records.
+      || itemProvenance(item).some((record) => failedPurchaseKeys.has(record.purchaseKey)))
     : libraryItems;
   const merged = new Map(retainedItems.map((item) => [libraryItemKey(item), item]));
   let added = 0;
   let addedGames = 0;
+  let addedSoftware = 0;
   let addedAudiobooks = 0;
   let datesBackfilled = 0;
   for (const item of imported) {
@@ -1793,6 +1857,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     merged.set(key, withProvenance(item));
     added += 1;
     if (item.kind === 'game') addedGames += 1;
+    if (item.kind === 'software') addedSoftware += 1;
     if (item.kind === 'audiobook') addedAudiobooks += 1;
   }
   const importSummary = {
@@ -1801,6 +1866,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     skippedKnown: orderList.length - purchasesToScan.length,
     addedTitles: added,
     addedGames,
+    addedSoftware,
     addedAudiobooks,
     datesBackfilled,
     pricedPurchases: purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length,
@@ -1808,12 +1874,14 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   };
   const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
-  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary, ...(failures.length ? {} : { mediaImportVersion: 4 }) });
+  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary, ...(failures.length ? {} : { mediaImportVersion: 6 }) });
   return {
     added,
     addedGames,
+    addedSoftware,
     addedAudiobooks,
     audioBackfill,
+    softwareBackfill,
     datesBackfilled,
     pricedPurchases: importSummary.pricedPurchases,
     total: merged.size,
@@ -1821,6 +1889,142 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     scannedPurchases: purchasesToScan.length,
     skippedKnown: importSummary.skippedKnown
   };
+}
+
+async function discoverSoftwareProductMetadata(report) {
+  report('Loading your purchase list for Software discovery\u2026');
+  const orders = await fetchJson('/api/v1/user/order?all=true');
+  const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
+  if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
+
+  const products = [];
+  let failures = 0;
+  for (let index = 0; index < orderList.length; index += 1) {
+    const order = orderList[index];
+    const purchaseKey = order.gamekey ?? order.key ?? order.order_key;
+    if (!purchaseKey) continue;
+    report(`Inspecting Software signals ${index + 1} of ${orderList.length}\u2026`);
+    try {
+      const detail = await fetchOrderDetail(purchaseKey);
+      const sourceBundle = extractBundleName(order, detail);
+      for (const product of directOrderProducts(detail)) {
+        const kind = productKind(product);
+        // Books and audiobooks already use delivery-specific import paths.
+        // This report focuses on the ambiguous products that could plausibly
+        // represent Software without logging an entire purchase response.
+        if (kind === 'book' || kind === 'audiobook') continue;
+        products.push(softwareDiscoveryRecord(product, sourceBundle, kind, 'direct-product'));
+      }
+      // Subscription/tool products can be delivered as Humble third-party
+      // entitlement records rather than direct downloads. Normal import calls
+      // these games today, so include their non-secret metadata in the report
+      // instead of silently omitting the most relevant Software evidence.
+      for (const { record } of thirdPartyKeyRecords(detail)) {
+        products.push(softwareDiscoveryRecord(record, sourceBundle, thirdPartyEntitlementKind(record, sourceBundle), 'third-party-entitlement'));
+      }
+    } catch {
+      failures += 1;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 175));
+  }
+  const kindCounts = new Map();
+  for (const product of products) incrementCount(kindCounts, product.currentClassification);
+  return {
+    scannedPurchases: orderList.length,
+    candidateProducts: products.length,
+    failures,
+    report: {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      purpose: 'Local diagnostic for refining Humble Software product classification.',
+      privacy: 'This report includes product titles and bundle names, plus non-secret category/type/platform values and file extensions. It contains no redemption keys, purchase identifiers, purchase dates, URLs, cookies, or raw purchase responses.',
+      purchasesScanned: orderList.length,
+      purchasesFailed: failures,
+      candidateProducts: products.length,
+      classifications: Object.fromEntries([...kindCounts].sort(([left], [right]) => left.localeCompare(right))),
+      products
+    }
+  };
+}
+
+const SOFTWARE_DISCOVERY_TYPE_FIELDS = new Set(['category', 'content_type', 'item_content_type', 'product_type', 'key_type']);
+const SOFTWARE_DISCOVERY_PLATFORM_FIELDS = new Set(['platform', 'platform_name', 'platforms', 'platforms_and_oses', 'storefront']);
+const SOFTWARE_DISCOVERY_SECRET_FIELD = /(?:^|_)(?:key(?:_val(?:ue)?)?|token|secret|password|cookie|authorization)(?:$|_)/iu;
+
+function isSoftwareDiscoverySecretField(name) {
+  const field = String(name).toLowerCase();
+  return field !== 'key_type' && field !== 'key_type_human_name' && SOFTWARE_DISCOVERY_SECRET_FIELD.test(field);
+}
+
+function softwareDiscoveryRecord(product, sourceBundle, kind, recordSource) {
+  const signals = collectSoftwareDiscoverySignals(product);
+  return {
+    title: String(product?.human_name ?? product?.product_name ?? product?.title ?? product?.name ?? 'Unnamed direct product').trim() || 'Unnamed direct product',
+    sourceBundle,
+    recordSource,
+    currentClassification: kind ?? 'unknown',
+    declaredTypes: signals.declaredTypes,
+    platforms: signals.platforms,
+    fileExtensions: signals.fileExtensions,
+    topLevelFields: signals.topLevelFields
+  };
+}
+
+function collectSoftwareDiscoverySignals(product) {
+  const declaredTypes = new Set();
+  const platforms = new Set();
+  const fileExtensions = new Set();
+  const topLevelFields = Object.keys(product ?? {})
+    .filter((field) => !isSoftwareDiscoverySecretField(field))
+    .sort();
+  const visit = (value, fieldName = '', depth = 0) => {
+    if (value === null || value === undefined || depth > 12) return;
+    const name = String(fieldName).toLowerCase();
+    if (typeof value === 'string') {
+      if (SOFTWARE_DISCOVERY_TYPE_FIELDS.has(name)) declaredTypes.add(value.trim());
+      if (SOFTWARE_DISCOVERY_PLATFORM_FIELDS.has(name)) platforms.add(value.trim());
+      for (const extension of fileExtensionsFromValue(value)) fileExtensions.add(extension);
+      return;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      if (SOFTWARE_DISCOVERY_TYPE_FIELDS.has(name)) declaredTypes.add(String(value));
+      if (SOFTWARE_DISCOVERY_PLATFORM_FIELDS.has(name)) platforms.add(String(value));
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, name, depth + 1);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    for (const [childName, childValue] of Object.entries(value)) {
+      const child = String(childName).toLowerCase();
+      if (isSoftwareDiscoverySecretField(child)) continue;
+      // A URL or download field can contribute a file extension, but its
+      // value is never retained in the downloaded report.
+      if (/(?:url|uri|link|download|file)/iu.test(child) && typeof childValue === 'string') {
+        for (const extension of fileExtensionsFromValue(childValue)) fileExtensions.add(extension);
+        continue;
+      }
+      visit(childValue, child, depth + 1);
+    }
+  };
+  visit(product);
+  return {
+    declaredTypes: [...declaredTypes].filter(Boolean).sort(),
+    platforms: [...platforms].filter(Boolean).sort(),
+    fileExtensions: [...fileExtensions].sort(),
+    topLevelFields
+  };
+}
+
+function fileExtensionsFromValue(value) {
+  const ignored = new Set(['com', 'edu', 'gov', 'io', 'net', 'org']);
+  const extensions = new Set();
+  for (const match of String(value ?? '').matchAll(/\.([a-z0-9]{1,12})(?=[?#\s"']|$)/giu)) {
+    const extension = match[1].toLowerCase();
+    if (!ignored.has(extension)) extensions.add(extension);
+  }
+  return extensions;
 }
 
 async function discoverKeyReminderMetadata(report) {
@@ -2063,13 +2267,16 @@ async function fetchOrderDetail(purchaseKey) {
   return JSON.parse(redacted);
 }
 
-function extractLibraryItems(detail, order, purchaseKey) {
+function directOrderProducts(detail) {
   const products = Array.isArray(detail?.subproducts) ? detail.subproducts
     : Array.isArray(detail?.products) ? detail.products : [];
+  return products.length ? products : [detail];
+}
+
+function extractLibraryItems(detail, order, purchaseKey) {
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
-  const candidates = products.length ? products : [detail];
-  const directItems = candidates
+  const directItems = directOrderProducts(detail)
     .map((product) => ({ product, kind: productKind(product) }))
     .filter(({ kind }) => kind)
     .map(({ product, kind }) => ({
@@ -2091,7 +2298,14 @@ function extractThirdPartyKeyItems(detail, order, purchaseKey) {
   return keyRecords
     .map((record) => String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim())
     .filter(Boolean)
-    .map((title) => ({ title, kind: 'game', source: 'humble', sourceBundle, purchaseKey, purchasedAt }));
+    .map((title) => ({ title, kind: thirdPartyEntitlementKind(null, sourceBundle), source: 'humble', sourceBundle, purchaseKey, purchasedAt }));
+}
+
+function thirdPartyEntitlementKind(record, sourceBundle) {
+  // Humble's generic/external entitlement types are shared by games, courses,
+  // and tools. Only an order explicitly labelled a Software Bundle provides
+  // enough independent context to classify such an entitlement as Software.
+  return /\bsoftware\s+bundle\b/iu.test(String(sourceBundle ?? '')) ? 'software' : 'game';
 }
 
 function libraryItemKey(item) {
@@ -2216,7 +2430,14 @@ function normalizeDate(value) {
 }
 
 function productKind(product) {
-  // Check game delivery first: game bundles can include PDF manuals or art
+  // An explicit Humble software type is stronger evidence than a bundled
+  // executable or platform field. This includes assets/tools that Humble
+  // files under Software without guessing from an archive extension.
+  if (hasSoftwareEntitlement(product)) return 'software';
+  // GameMaker project archives are importable source/project deliveries, not
+  // executable games. This is a narrow, format-specific Software signal.
+  if (hasSoftwareAssetDelivery(product)) return 'software';
+  // Check game delivery next: game bundles can include PDF manuals or art
   // books, which must not cause the game itself to be filed as a book.
   if (hasGameEntitlement(product)) return 'game';
   // Audiobook products can include a PDF booklet; identify their delivered
@@ -2225,12 +2446,30 @@ function productKind(product) {
   return hasBookDownload(product) ? 'book' : null;
 }
 
+function hasSoftwareAssetDelivery(product) {
+  const serialized = JSON.stringify(product);
+  return /\.(?:gmz|gmx|yyz|yymp|yymps|gmez)(?:["?\\]|$)/iu.test(serialized)
+    || /"(?:format|filetype|extension)"\s*:\s*"(?:gmz|gmx|yyz|yymp|yymps|gmez)"/iu.test(serialized);
+}
+
+function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0 }) {
+  return total - owned - elsewhere - partial - possible;
+}
+
+function hasSoftwareEntitlement(product) {
+  const serialized = JSON.stringify(product);
+  // This deliberately relies on Humble's explicit content classification. A
+  // ZIP, Unity package, or other generic asset file by itself is not enough
+  // evidence to import an otherwise unknown item as Software.
+  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"software"/iu.test(serialized);
+}
+
 function hasGameEntitlement(product) {
   const serialized = JSON.stringify(product);
   // Humble has used several response shapes, but game products consistently
   // identify a storefront/platform or a game-like content category. Keep the
   // signals narrow to avoid importing arbitrary non-book extras.
-  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:game|software|dlc)"/iu.test(serialized)
+  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:game|dlc)"/iu.test(serialized)
     || /"(?:platform|platform_name|key_type|storefront)"\s*:\s*"[^"\\]*(?:steam|gog|epic|origin|uplay|ubisoft|ea(?:\s+app)?|itch(?:\.io)?|windows|mac|linux|android|ios)[^"\\]*"/iu.test(serialized)
     || /"(?:platforms|platforms_and_oses)"\s*:\s*(?:\[[^\]]*"(?:steam|gog|epic|windows|mac|linux|android|ios)|\{)/iu.test(serialized)
     || /\.(?:exe|dmg|apk|appimage|x86_64)(?:["?\\]|$)/iu.test(serialized);

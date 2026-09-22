@@ -1,15 +1,16 @@
 # Humble Comic Library
 
-An unofficial browser extension that marks books, comics, or games you already own while viewing a Humble Bundle listing. It is not affiliated with or endorsed by Humble Bundle.
+An unofficial browser extension that marks books, comics, games, or software you already own while viewing a Humble Bundle listing. It is not affiliated with or endorsed by Humble Bundle.
 
 ## What works now
 
 - Load it unpacked in Chrome/Chromium browsers.
-- Import DRM-free book, comic, and audiobook titles plus detected game entitlements from your signed-in Humble Purchases page—without copying, reading, or saving a Humble cookie.
+- Import DRM-free book, comic, and audiobook titles plus detected game and Humble-declared Software entitlements from your signed-in Humble Purchases page—without copying, reading, or saving a Humble cookie.
 - Track third-party entitlements that Humble has not yet revealed, including their source purchase and Humble-reported expiry status. A first key-reminder scan checks every purchase; later refreshes check new purchases and pending entitlements only. Actual redemption-key values are never stored.
 - On the Purchases page, download a safe key-reminder discovery report to identify which non-secret Humble key-status and expiry fields are available. The report contains aggregate field names, types, and counts only—never key values, titles, bundle names, purchase identifiers, purchase dates, or other field values.
-- Import a local JSON library of title strings or `{ "title", "sourceBundle" }` records as a fallback.
-- See an `Owned`, `New`, `Partially owned`, or `Possible match` status for every detected item on Humble Books and Games bundle pages. Books and games are kept separate. Listings such as `Vol. 1-3` are matched against individually owned volumes, and partial coverage is never treated as owned. Numbered presentations, conservative book subtitle or edition relationships, game edition variants, and games named within an owned collection can be labelled Possible, but are never automatically treated as owned. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
+- On the Purchases page, download a local Software classification report when diagnosing an unrecognized Software product. It includes product titles, bundle names, category/type/platform values, and file extensions, but never redemption keys, purchase identifiers, purchase dates, URLs, cookies, or raw purchase responses.
+- Import a local JSON library of title strings or `{ "title", "sourceBundle", "kind" }` records as a fallback. Recognized kinds are `book`, `game`, `software`, and `audiobook`; a missing kind remains compatible as a book.
+- See an `Owned`, `New`, `Partially owned`, or `Possible match` status for every detected item on Humble Books, Games, and Software bundle pages. Item kinds are kept separate. Listings such as `Vol. 1-3` are matched against individually owned volumes, and partial coverage is never treated as owned. Numbered presentations, conservative book subtitle or edition relationships, game edition variants, games named within an owned collection, and explicitly versioned Software titles can be labelled Possible, but are never automatically treated as owned. Page-only labels such as `preview` are ignored during matching and omitted from the summary lists.
 - Optionally pair with a locally installed Galactic Library extension to mark an exact game or book match from Steam, GOG, Epic, Kindle, or another non-Humble provider as `Owned elsewhere`. It remains distinct from your Humble purchase evidence and is never inferred from a fuzzy match.
 - Match verified single-comic issues through a collected edition you already own. The first built-in rule covers *Valiant Masters Rai: From Honor To Strength* and *Rai* (1992) #1–8. You can also import your own explicit, local issue-to-collection mappings.
 - See a bundle summary of owned/new items and a per-new-item price at detected tiers. Conservative near-matches are labelled `Possible match` and are never treated as owned.
@@ -25,7 +26,7 @@ Nothing is sent anywhere except Humble. The extension has no network destination
 
 If you explicitly configure the optional Galactic Library link, the extension sends only the exact titles visible in the current bundle to that locally installed extension. Galactic replies only with exact ownership results from its non-Humble providers; neither extension sends a full library or any data to a remote server.
 
-The extension runs only on Humble bundle catalogue, Books, Games, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
+The extension runs only on Humble bundle catalogue, Books, Games, Software, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
 
 ## Load it
 
@@ -34,9 +35,11 @@ The extension runs only on Humble bundle catalogue, Books, Games, and Purchases 
 3. Select **Load unpacked** and choose this folder.
 4. For a Humble import, open **Extension options**, select **Open Humble purchases importer**, and click **Import new purchases** on that page. It fetches Humble's order list, skips orders already imported successfully in this browser, and only retrieves details for new or previously failed orders. Use **Rescan every purchase** only when you need to rebuild the full Humble library. Keep the page open until it completes.
 
-   The importer requests Humble's purchase list and only the necessary purchase-detail records through the tab where you are already signed in. It retains DRM-free book/comic downloads (PDF, EPUB, CBZ, CBR, or MOBI), audiobook downloads (MP3, M4A/M4B, AAC, FLAC, OGG/Opus, or WAV), and the names of Humble's third-party game entitlements. Redemption-key values are redacted before the response is parsed and are never stored, exported, or logged. Books, audiobooks, and games are stored separately, together with their title, purchase date when Humble supplies it, bundle name, and purchase key. On its first import after this update, the extension automatically checks all prior purchases once to backfill audiobook deliveries; later imports again process only new purchases. It also records each purchase separately with its paid price and a `pricePerItem` value. A full rescan rebuilds Humble-sourced game and audiobook entitlements and records every purchase origin for duplicate titles; incremental imports add only newly discovered purchases. It does not store the response or any account session token.
+   The importer requests Humble's purchase list and only the necessary purchase-detail records through the tab where you are already signed in. It retains DRM-free book/comic downloads (PDF, EPUB, CBZ, CBR, or MOBI), audiobook downloads (MP3, M4A/M4B, AAC, FLAC, OGG/Opus, or WAV), third-party game entitlements, and Software products identified by explicit Humble Software metadata, a narrow GameMaker project/asset format, or a third-party entitlement from an order explicitly labelled a Software Bundle. An unknown archive alone is not imported. Redemption-key values are redacted before the response is parsed and are never stored, exported, or logged. Books, audiobooks, games, and software are stored separately, together with their title, purchase date when Humble supplies it, bundle name, and purchase key. On its first import after this update, the extension automatically checks all prior purchases once to backfill newly supported deliveries and correct earlier Software-as-game classification; later imports again process only new purchases. It also records each purchase separately with its paid price and a `pricePerItem` value. A full rescan rebuilds Humble-sourced game, audiobook, and software entitlements and records every purchase origin for duplicate titles; incremental imports add only newly discovered purchases. It does not store the response or any account session token.
 
    To help develop key-expiry reminders without exposing entitlement keys, **Inspect key reminder data** makes the same read-only purchase-detail requests for every purchase and downloads `humble-key-reminder-discovery.json`. It does not write to extension storage. The report has aggregate field names, value types, and counts, but no key values, titles, bundle names, purchase identifiers, purchase dates, or other values.
+
+   To diagnose a Humble product that was not recognized as Software, **Inspect Software product data** makes the same read-only requests and downloads `humble-software-product-discovery.json`. It includes direct-product and third-party-entitlement titles with their source bundle, category/type/platform values, file extensions, and non-secret top-level field names. It excludes redemption keys, purchase identifiers, purchase dates, URLs, cookies, and raw API responses; it does not write to extension storage.
 
    For the reminder feature, select **Scan / refresh key reminders**. The first scan checks every purchase. Later scans check new purchases and purchases with an unresolved entitlement, so a newly revealed key disappears after the next refresh. Open **Extension options** to see the global reminder list, including its Humble bundle, purchase date, entitlement type, and reported expiry. The extension stores no redemption-key values.
 
@@ -44,12 +47,13 @@ The extension runs only on Humble bundle catalogue, Books, Games, and Purchases 
 
 ```json
 [
-  { "title": "Hellboy Omnibus Volume 1", "sourceBundle": "Hellboy Universe Bundle" },
+  { "title": "Hellboy Omnibus Volume 1", "sourceBundle": "Hellboy Universe Bundle", "kind": "book" },
+  { "title": "Forest Builder Pro", "sourceBundle": "Asset Bundle", "kind": "software" },
   "B.P.R.D. Plague of Frogs Vol. 1"
 ]
 ```
 
-6. Visit a Humble URL beginning `https://www.humblebundle.com/books/` or `https://www.humblebundle.com/games/` and refresh.
+6. Visit a Humble URL beginning `https://www.humblebundle.com/books/`, `https://www.humblebundle.com/games/`, or `https://www.humblebundle.com/software/` and refresh.
 
 ### Pair with Galactic Library (optional)
 
@@ -60,8 +64,8 @@ The extension runs only on Humble bundle catalogue, Books, Games, and Purchases 
 
 ## Browse bundles
 
-- On an individual Books or Games bundle page, the lower-right summary reports ownership by tier and shows the lowest tier containing every confirmed-new item. **Show new items only** hides confirmed-owned cards while retaining partial and possible matches. Uncheck it at any time to restore the full view.
-- On `https://www.humblebundle.com/bundles`, `/books`, or `/games`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
+- On an individual Books, Games, or Software bundle page, the lower-right summary reports ownership by tier and shows the lowest tier containing every confirmed-new item. **Show new items only** hides confirmed-owned cards while retaining partial and possible matches. Uncheck it at any time to restore the full view.
+- On `https://www.humblebundle.com/bundles`, `/books`, `/games`, or `/software`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
 - In **Extension options**, enable **Show bundle and catalogue diagnostics** only when troubleshooting. It adds timing and sorting information without changing ownership results.
 
 ## Custom collection mappings
