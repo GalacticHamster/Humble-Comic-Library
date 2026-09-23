@@ -1729,13 +1729,17 @@ function addPurchaseImporter() {
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
       <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game, audiobook, and software entries.">Rescan every purchase</button>
-      <button type="button" data-import-mode="software-discovery" title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
+      <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-reminders" title="The first scan checks every purchase. Later scans check new purchases and purchases with still-unrevealed entitlements.">Scan / refresh key reminders</button>
-      <button type="button" data-import-mode="key-discovery" title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
+      <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
     </div>
     <output aria-live="polite"></output>`;
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
+  const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
+  chrome.storage.local.get({ showDiagnostics: false })
+    .then(({ showDiagnostics }) => debugButtons.forEach((button) => { button.hidden = !showDiagnostics; }))
+    .catch(() => {});
   for (const button of buttons) button.addEventListener('click', async () => {
     const mode = button.dataset.importMode;
     const fullRescan = mode === 'all';

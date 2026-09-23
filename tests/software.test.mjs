@@ -166,3 +166,10 @@ test('Software bundle and catalogue URLs are covered by the extension manifest a
   extension.location.pathname = '/software';
   assert.equal(run('isBundleCataloguePage()'), true);
 });
+
+test('purchase metadata discovery controls are hidden unless diagnostics are enabled', () => {
+  const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
+  assert.match(source, /data-import-mode="software-discovery" data-hcl-debug-action hidden/u);
+  assert.match(source, /data-import-mode="key-discovery" data-hcl-debug-action hidden/u);
+  assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false \}\)/u);
+});
