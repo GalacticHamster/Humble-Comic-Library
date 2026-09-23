@@ -85,6 +85,31 @@ test('mixed purchase records retain their distinct kinds and provenance', () => 
   ]);
 });
 
+test('exact owned titles count distinct Humble purchases from provenance', () => {
+  const duplicateMatch = {
+    state: 'owned',
+    item: {
+      title: 'Example Book',
+      provenance: [
+        { title: 'Example Book', purchaseKey: 'order-one', sourceBundle: 'First Bundle' },
+        { title: 'Example Book', purchaseKey: 'order-two', sourceBundle: 'Second Bundle' },
+        { title: 'Example Book', purchaseKey: 'order-one', sourceBundle: 'First Bundle' }
+      ]
+    }
+  };
+  assert.equal(run('matchPurchaseCount(__softwareTestValues.match)', { match: duplicateMatch }), 2);
+  assert.match(run('matchProvenance(__softwareTestValues.match)', { match: duplicateMatch }), /2 Humble purchases/u);
+  assert.equal(run('matchPurchaseCount(__softwareTestValues.match)', {
+    match: { state: 'owned', item: { title: 'Imported without a Humble order' } }
+  }), 0);
+  assert.equal(run('matchPurchaseCount(__softwareTestValues.match)', {
+    match: { state: 'owned', item: duplicateMatch.item, range: { complete: true, items: [duplicateMatch.item] } }
+  }), 0);
+  assert.equal(run('matchPurchaseCount(__softwareTestValues.match)', {
+    match: { state: 'possible', item: duplicateMatch.item }
+  }), 0);
+});
+
 test('software exact titles are owned while explicit version differences are possible', () => {
   assert.deepEqual(classifySoftware('Forest Builder Pro 2026', ['Forest Builder Pro 2026']), { state: 'owned', item: 'Forest Builder Pro 2026' });
   for (const [owned, bundle] of [

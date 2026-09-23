@@ -155,7 +155,8 @@
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
-.hcl-badge-host[data-hcl-badge="Owned"]::after { background: #0a7a42; }
+.hcl-badge-host[data-hcl-badge="Owned"]::after,
+.hcl-badge-host[data-hcl-badge^="Owned ×"]::after { background: #0a7a42; }
 .hcl-badge-host[data-hcl-badge="Owned elsewhere"]::after { background: #0f766e; }
 .hcl-badge-host[data-hcl-badge="New"]::after { background: #1769aa; }
 .hcl-badge-host[data-hcl-badge="Possible"]::after { background: #b06d00; }

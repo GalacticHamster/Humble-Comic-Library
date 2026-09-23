@@ -849,7 +849,12 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
         : resolved.match;
     matchesByTitleKey.set(HumbleComicLibrary.titleKey(resolved.item.title), match);
     counts[match.state] += 1;
-    titlesByState[match.state].push({ title: resolved.item.title, provenance: matchProvenance(match), range: match.range ?? null });
+    titlesByState[match.state].push({
+      title: resolved.item.title,
+      provenance: matchProvenance(match),
+      purchaseCount: matchPurchaseCount(match),
+      range: match.range ?? null
+    });
     const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0 };
     tier.total += 1;
     if (match.state === 'owned') tier.owned += 1;
@@ -1293,9 +1298,12 @@ function annotateBundleItem(bundleItem, match) {
   // it into a giant pill. Anchor the status to the stable item card instead.
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
   const provenance = matchProvenance(match);
+  const purchaseCount = matchPurchaseCount(match);
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
-    badgeHost.dataset.hclBadge = isOwned ? 'Owned' : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
+    badgeHost.dataset.hclBadge = isOwned
+      ? purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
+      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
   }
@@ -1336,11 +1344,14 @@ function matchProvenance(match) {
   }
   const records = matchLibraryItems(match).flatMap((item) => itemProvenance(item));
   if (!records.length) return '';
+  const purchaseCount = matchPurchaseCount(match);
   const heading = match.state === 'possible'
     ? `Possible match: ${match.possibleReason ?? 'similar library title.'}`
     : match.state === 'partial'
       ? `Partially owned: ${match.range.owned} of ${match.range.total} volumes found.`
-      : match.ownedReason ? `Owned in your library: ${match.ownedReason}` : 'Owned in your library:';
+      : match.ownedReason
+        ? `Owned in your library${purchaseCount > 1 ? ` (${purchaseCount} Humble purchases)` : ''}: ${match.ownedReason}`
+        : `Owned in your library${purchaseCount > 1 ? ` (${purchaseCount} Humble purchases)` : ''}:`;
   const seen = new Set();
   const lines = [heading];
   for (const record of records) {
@@ -1357,6 +1368,20 @@ function matchProvenance(match) {
 function matchLibraryItems(match) {
   const entries = match.range ? match.range.items : match.item ? [match.item] : [];
   return entries.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).filter(Boolean);
+}
+
+function matchPurchaseCount(match) {
+  // A completed volume range represents several different owned works, rather
+  // than duplicate purchases of one work. Only label a direct exact ownership
+  // match as a duplicate.
+  if (match.state !== 'owned' || match.range) return 0;
+  const purchaseKeys = new Set();
+  for (const item of matchLibraryItems(match)) {
+    for (const record of itemProvenance(item)) {
+      if (record.purchaseKey) purchaseKeys.add(record.purchaseKey);
+    }
+  }
+  return purchaseKeys.size;
 }
 
 function itemProvenance(item) {
@@ -1536,7 +1561,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
       const row = document.createElement('li');
-      row.textContent = `${displayTitle(item.title)}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
+      row.textContent = `${displayTitle(item.title)}${item.purchaseCount > 1 ? ` — purchased ${item.purchaseCount} times` : ''}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.provenance;
       list.append(row);
     }
