@@ -177,6 +177,7 @@ test('purchase metadata discovery controls are hidden unless diagnostics are ena
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   assert.match(source, /data-import-mode="software-discovery" data-hcl-debug-action hidden/u);
   assert.match(source, /data-import-mode="key-discovery" data-hcl-debug-action hidden/u);
+  assert.match(source, /data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden/u);
   assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false, keyReminderScan: null \}\)/u);
   assert.doesNotMatch(source, /data-import-mode="key-reminders"/u);
 });
@@ -237,4 +238,89 @@ test('purchase import shares detail requests with key reminders and requires an 
   requests.length = 0;
   await runAsync('importPurchases(() => {}, { fullRescan: false })');
   assert.deepEqual(requests.sort(), ['new-purchase', 'old-purchase'], 'later imports refresh known pending reminders without a second title-import pass');
+});
+
+test('purchase-focus lookup accepts exact Humble order links and data attributes without constructing a purchase URL', () => {
+  const link = { getAttribute: (name) => name === 'href' ? '/home/purchases?key=order-a' : null };
+  extension.document = {
+    querySelectorAll: (selector) => selector === 'a[href]' ? [link] : []
+  };
+  extension.location = { href: 'https://www.humblebundle.com/home/purchases', origin: 'https://www.humblebundle.com', pathname: '/home/purchases' };
+  assert.equal(run('findPurchaseFocusTarget("order-a") === __softwareTestValues.link', { link }), true);
+  assert.equal(run('safePurchaseLinkDestination(__softwareTestValues.link)', { link }), 'https://www.humblebundle.com/home/purchases?key=order-a');
+  assert.equal(run('findPurchaseFocusTarget("other-order") === null'), true);
+
+  const externalLink = { getAttribute: () => 'https://example.invalid/purchase' };
+  assert.equal(run('safePurchaseLinkDestination(__softwareTestValues.externalLink)', { externalLink }), null);
+
+  const element = {
+    getAttribute: (name) => name === 'data-purchase-key' ? 'order-b' : null
+  };
+  extension.document = {
+    querySelectorAll: (selector) => selector === 'a[href]' ? [] : [element]
+  };
+  assert.equal(run('findPurchaseFocusTarget("order-b") === __softwareTestValues.element', { element }), true);
+
+  const humbleCard = {
+    getAttribute: (name) => name === 'data-hb-gamekey' ? 'order-c' : null
+  };
+  extension.document = {
+    querySelectorAll: (selector) => selector === 'a[href]' ? [] : [humbleCard]
+  };
+  assert.equal(run('findPurchaseFocusTarget("order-c") === __softwareTestValues.humbleCard', { humbleCard }), true);
+
+  const sourceLink = {
+    textContent: 'Example Bundle — purchased January 1, 2026',
+    getAttribute: () => '/home/purchases'
+  };
+  extension.document = {
+    querySelectorAll: (selector) => selector === 'a[href]' ? [sourceLink] : []
+  };
+  assert.equal(run('findPurchaseFocusTarget("missing-order", { sourceBundle: "Example Bundle" }) === __softwareTestValues.sourceLink', { sourceLink }), true);
+
+  const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
+  assert.match(source, /hclPurchaseFocus/u);
+  assert.doesNotMatch(source, /home\/purchases\?key=/u);
+});
+
+test('purchase-navigation diagnostic reports structure without exposing link values or page text', () => {
+  const anchor = {
+    tagName: 'A',
+    attributes: [{ name: 'href' }, { name: 'data-order-key' }],
+    getAttribute: (name) => name === 'href' ? '/home/purchases?key=sensitive-purchase-value' : null
+  };
+  const candidate = {
+    tagName: 'DIV',
+    attributes: [{ name: 'data-purchase-key' }, { name: 'class' }]
+  };
+  const button = {
+    tagName: 'BUTTON',
+    attributes: [{ name: 'type' }, { name: 'class' }]
+  };
+  extension.document = {
+    querySelectorAll: (selector) => {
+      if (selector === 'a[href]') return [anchor];
+      if (selector === '*') return [anchor, candidate, button];
+      if (selector === 'button, [role="button"]') return [button];
+      return [];
+    }
+  };
+  extension.location = { href: 'https://www.humblebundle.com/home/purchases', origin: 'https://www.humblebundle.com', pathname: '/home/purchases' };
+  const diagnostic = run('inspectPurchaseNavigation()');
+  assert.equal(diagnostic.anchorCount, 1);
+  assert.equal(diagnostic.candidateCount, 2);
+  assert.doesNotMatch(JSON.stringify(diagnostic.report), /sensitive-purchase-value/u);
+  assert.doesNotMatch(JSON.stringify(diagnostic.report), /home\/purchases\?key/u);
+  assert.match(JSON.stringify(diagnostic.report), /data-order-key/u);
+  assert.match(JSON.stringify(diagnostic.report), /data-purchase-key/u);
+});
+
+test('direct Humble order links remain an explicit opt-in with a visible URL/history warning', () => {
+  const optionsSource = fs.readFileSync(new URL('../options.js', import.meta.url), 'utf8');
+  const optionsHtml = fs.readFileSync(new URL('../options.html', import.meta.url), 'utf8');
+  assert.match(optionsSource, /openDirectPurchaseLinks/u);
+  assert.match(optionsSource, /if \(directPurchaseLinksEnabled\)/u);
+  assert.match(optionsSource, /https:\/\/www\.humblebundle\.com\/downloads\?key=/u);
+  assert.match(optionsHtml, /Open direct Humble order links/u);
+  assert.match(optionsHtml, /purchase identifier appears in the Humble URL and browser history/u);
 });

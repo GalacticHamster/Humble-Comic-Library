@@ -11,6 +11,7 @@
   const showDiagnostics = document.querySelector('#show-diagnostics');
   const keyReminderSummary = document.querySelector('#key-reminder-summary');
   const keyReminderList = document.querySelector('#key-reminder-list');
+  const openDirectPurchaseLinks = document.querySelector('#open-direct-purchase-links');
   const humbleExtensionId = document.querySelector('#humble-extension-id');
   const galacticLibraryExtensionId = document.querySelector('#galactic-library-extension-id');
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
@@ -31,7 +32,7 @@
   }
 
   async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '' });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, openDirectPurchaseLinks: directPurchaseLinksEnabled = false, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, openDirectPurchaseLinks: false, galacticLibraryExtensionId: '' });
     const items = await library();
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
@@ -49,6 +50,7 @@
     }));
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;
+    openDirectPurchaseLinks.checked = directPurchaseLinksEnabled;
     humbleExtensionId.textContent = chrome.runtime.id;
     galacticLibraryExtensionId.value = isExtensionId(savedGalacticLibraryExtensionId) ? savedGalacticLibraryExtensionId : '';
     galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
@@ -74,13 +76,75 @@
       ? ''
       : ' Older purchases have not been checked yet; use Rescan every purchase to establish complete reminders.';
     keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.${baseline}`;
-    keyReminderList.replaceChildren(...sorted.map((record) => {
-      const row = document.createElement('li');
-      const source = [record.sourceBundle, record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
-      const detail = [record.keyType, keyReminderExpiryLabel(record, now), record.directRedeem ? 'direct redemption' : '', record.status === 'needs-review' ? 'needs review' : ''].filter(Boolean).join(' · ');
-      row.textContent = `${record.title} — ${detail}${source ? ` (${source})` : ''}`;
-      return row;
-    }));
+    const groups = [
+      ['Expiring or dated', sorted.filter((record) => {
+        const days = keyReminderDaysRemaining(record, now);
+        return !record.isExpired && days !== null && days >= 0;
+      })],
+      ['No expiry reported', sorted.filter((record) => !record.isExpired && keyReminderDaysRemaining(record, now) === null)],
+      ['Expired or may be expired', sorted.filter((record) => record.isExpired || keyReminderDaysRemaining(record, now) < 0)]
+    ];
+    const rows = [];
+    for (const [label, records] of groups) {
+      if (!records.length) continue;
+      const heading = document.createElement('li');
+      heading.className = 'key-reminder-group';
+      heading.textContent = label;
+      rows.push(heading, ...records.map((record) => keyReminderRow(record, now)));
+    }
+    keyReminderList.replaceChildren(...rows);
+  }
+
+  function keyReminderRow(record, now) {
+    const row = document.createElement('li');
+    const days = keyReminderDaysRemaining(record, now);
+    const state = record.isExpired || days < 0 ? 'expired' : days !== null && days <= 30 ? 'soon' : 'normal';
+    row.className = 'key-reminder-card';
+    row.dataset.keyReminderState = state;
+
+    const heading = document.createElement('div');
+    heading.className = 'key-reminder-heading';
+    const title = document.createElement('span');
+    title.textContent = record.title;
+    const expiry = document.createElement('span');
+    expiry.className = 'key-reminder-status';
+    expiry.textContent = keyReminderExpiryLabel(record, now);
+    heading.append(title, expiry);
+
+    const detail = document.createElement('div');
+    detail.className = 'key-reminder-meta';
+    detail.textContent = [record.keyType, record.directRedeem ? 'direct redemption' : '', record.status === 'needs-review' ? 'needs review' : ''].filter(Boolean).join(' · ');
+
+    const source = document.createElement('div');
+    source.className = 'key-reminder-source';
+    source.textContent = [record.sourceBundle || 'Humble purchase', record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
+
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.textContent = 'Open purchase';
+    open.addEventListener('click', async () => {
+      open.disabled = true;
+      try {
+        const { openDirectPurchaseLinks: directPurchaseLinksEnabled = false } = await chrome.storage.local.get({ openDirectPurchaseLinks: false });
+        if (directPurchaseLinksEnabled) {
+          await chrome.tabs.create({ url: directHumblePurchaseUrl(record.purchaseKey) });
+        } else {
+          await chrome.storage.local.set({
+            hclPurchaseFocus: {
+              purchaseKey: record.purchaseKey,
+              sourceBundle: record.sourceBundle ?? '',
+              purchasedAt: record.purchasedAt ?? '',
+              requestedAt: Date.now()
+            }
+          });
+          await chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
+        }
+      } finally {
+        open.disabled = false;
+      }
+    });
+    row.append(heading, detail, source, open);
+    return row;
   }
 
   function keyReminderDaysRemaining(record, now) {
@@ -106,6 +170,10 @@
     if (days < 0) return 'may be expired; refresh to confirm';
     if (days <= 0) return 'expires today';
     return `expires in ${days} day${days === 1 ? '' : 's'}`;
+  }
+
+  function directHumblePurchaseUrl(purchaseKey) {
+    return 'https://www.humblebundle.com/downloads?key=' + encodeURIComponent(purchaseKey);
   }
 
   fileInput.addEventListener('change', async () => {
@@ -154,6 +222,10 @@
 
   showDiagnostics.addEventListener('change', async () => {
     await chrome.storage.local.set({ showDiagnostics: showDiagnostics.checked });
+  });
+
+  openDirectPurchaseLinks.addEventListener('change', async () => {
+    await chrome.storage.local.set({ openDirectPurchaseLinks: openDirectPurchaseLinks.checked });
   });
 
   document.querySelector('#save-galactic-library-link').addEventListener('click', async () => {

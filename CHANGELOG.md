@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Adds a Diagnostics-only, privacy-preserving purchase-navigation report for adapting individual-order links to Humble's current Purchases markup.
+- Presents key reminders as an expiry-organized action queue with an **Open purchase** control, plus an explicit opt-in direct-order route for users who accept a purchase identifier in the Humble URL and browser history to avoid popup requirements.
 - Integrates key-reminder checks into purchase imports: new imports inspect new and pending purchases, while **Rescan every purchase** establishes the complete reminder baseline.
 - Adds a separately packaged Firefox desktop Manifest V3 build while retaining the existing Chrome manifest and package unchanged. Firefox runtime behavior still requires manual browser testing before AMO submission.
 - Adds first-class Humble Software support for purchases, bundle pages, and the Software catalogue.

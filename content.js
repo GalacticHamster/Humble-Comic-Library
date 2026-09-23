@@ -2,14 +2,18 @@ const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
 const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
+const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
+let purchaseFocusTimer;
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
 
   if (location.pathname.startsWith('/home/purchases')) {
     ensurePurchaseImporter();
+    schedulePurchaseFocus();
     let importerTimer;
     new MutationObserver(() => {
+      schedulePurchaseFocus();
       if (document.querySelector('#hcl-importer')) return;
       clearTimeout(importerTimer);
       importerTimer = setTimeout(ensurePurchaseImporter, 100);
@@ -1718,6 +1722,101 @@ function ensurePurchaseImporter() {
   addPurchaseImporter();
 }
 
+function schedulePurchaseFocus() {
+  clearTimeout(purchaseFocusTimer);
+  purchaseFocusTimer = setTimeout(focusRequestedPurchase, 125);
+}
+
+async function focusRequestedPurchase() {
+  const { hclPurchaseFocus: request = null } = await chrome.storage.local.get({ hclPurchaseFocus: null });
+  const purchaseKey = String(request?.purchaseKey ?? '').trim();
+  const requestedAt = Number(request?.requestedAt);
+  if (!purchaseKey) return;
+  if (!Number.isFinite(requestedAt) || Date.now() - requestedAt > PURCHASE_FOCUS_MAX_AGE_MS) {
+    await chrome.storage.local.remove('hclPurchaseFocus');
+    return;
+  }
+  const target = findPurchaseFocusTarget(purchaseKey, request);
+  if (!target) return;
+  if (target.tagName === 'A') {
+    // Follow Humble's own individual-purchase link when the current page
+    // exposes one. Navigate this same tab rather than programmatically
+    // clicking a target=_blank link, which browsers rightly treat as a
+    // popup outside the original Options-page user gesture.
+    const destination = safePurchaseLinkDestination(target);
+    if (destination) {
+      await chrome.storage.local.remove('hclPurchaseFocus');
+      location.assign(destination);
+      return;
+    }
+  }
+  if (target.hasAttribute('data-hb-gamekey')) {
+    // Humble's current Purchases cards retain the order identifier as a data
+    // attribute instead of putting it in an individual-order URL. Activating
+    // the matching card follows Humble's normal signed-in detail flow.
+    await chrome.storage.local.remove('hclPurchaseFocus');
+    target.click();
+    return;
+  }
+  const card = target.closest('article, li, [data-purchase-key], [data-order-key], [data-gamekey], [data-hb-gamekey], [class*="purchase" i], [class*="order" i]') ?? target;
+  card.classList.add('hcl-purchase-focus');
+  card.setAttribute('tabindex', '-1');
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.focus({ preventScroll: true });
+  showPurchaseFocusNotice('Purchase highlighted. Open it in Humble to reveal or redeem its entitlement.');
+  setTimeout(() => card.classList.remove('hcl-purchase-focus'), 20000);
+  await chrome.storage.local.remove('hclPurchaseFocus');
+}
+
+function findPurchaseFocusTarget(purchaseKey, request = {}) {
+  for (const link of document.querySelectorAll('a[href]')) {
+    if (purchaseLinkMatches(link, purchaseKey)) return link;
+  }
+  for (const element of document.querySelectorAll('[data-purchase-key], [data-order-key], [data-gamekey], [data-hb-gamekey], [data-key]')) {
+    if (['data-purchase-key', 'data-order-key', 'data-gamekey', 'data-hb-gamekey', 'data-key'].some((name) => element.getAttribute(name) === purchaseKey)) return element;
+  }
+  const bundleName = normalisePurchaseFocusText(request.sourceBundle);
+  if (!bundleName) return null;
+  for (const link of document.querySelectorAll('a[href]')) {
+    if (normalisePurchaseFocusText(link.textContent).includes(bundleName)) return link;
+  }
+  return null;
+}
+
+function purchaseLinkMatches(link, purchaseKey) {
+  const href = link.getAttribute('href') ?? '';
+  try {
+    const url = new URL(href, location.href);
+    return [...url.searchParams.values()].includes(purchaseKey) || url.pathname.split('/').includes(purchaseKey);
+  } catch {
+    return href.includes(encodeURIComponent(purchaseKey)) || href.includes(purchaseKey);
+  }
+}
+
+function safePurchaseLinkDestination(link) {
+  try {
+    const url = new URL(link.getAttribute('href') ?? '', location.href);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.origin === location.origin ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalisePurchaseFocusText(value) {
+  return String(value ?? '').replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+}
+
+function showPurchaseFocusNotice(message) {
+  document.querySelector('#hcl-purchase-focus-notice')?.remove();
+  const notice = document.createElement('div');
+  notice.id = 'hcl-purchase-focus-notice';
+  notice.className = 'hcl-purchase-focus-notice';
+  notice.setAttribute('role', 'status');
+  notice.textContent = message;
+  document.body.append(notice);
+  setTimeout(() => notice.remove(), 8000);
+}
+
 function addPurchaseImporter() {
   if (document.querySelector('#hcl-importer')) return;
   const panel = document.createElement('section');
@@ -1731,6 +1830,7 @@ function addPurchaseImporter() {
       <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan every purchase</button>
       <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
+      <button type="button" data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden title="Downloads a safe structural report of purchase-page links and attributes. It never includes titles, URLs, purchase identifiers, or redemption keys.">Inspect purchase navigation</button>
     </div>
     <output aria-live="polite"></output>`;
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
@@ -1748,9 +1848,11 @@ function addPurchaseImporter() {
     const fullRescan = mode === 'all';
     const keyDiscovery = mode === 'key-discovery';
     const softwareDiscovery = mode === 'software-discovery';
+    const purchaseNavigationDiscovery = mode === 'purchase-navigation-discovery';
     if (fullRescan && !confirm('Rescan every Humble purchase? This can take a while.')) return;
     if (softwareDiscovery && !confirm('Inspect non-book product classification metadata in every Humble purchase? This can take a while. The downloaded local report includes product titles and bundle names, but never redemption keys, purchase identifiers, URLs, or cookies.')) return;
     if (keyDiscovery && !confirm('Inspect third-party key reminder metadata in every Humble purchase? This can take a while. The downloaded report contains only aggregate field names and counts; it saves no key values, titles, bundle names, or purchase identifiers.')) return;
+    if (purchaseNavigationDiscovery && !confirm('Inspect the rendered Purchases page structure? The downloaded local report contains only aggregate tag names, attribute names, and link shapes; it contains no titles, URLs, purchase identifiers, redemption keys, dates, or text content.')) return;
     buttons.forEach((control) => { control.disabled = true; });
     try {
       if (keyDiscovery) {
@@ -1763,6 +1865,12 @@ function addPurchaseImporter() {
         const result = await discoverSoftwareProductMetadata((message) => { status.textContent = message; });
         downloadJsonFile('humble-software-product-discovery.json', result.report);
         status.textContent = `Inspected ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} and recorded ${result.candidateProducts} non-book/non-audiobook product${result.candidateProducts === 1 ? '' : 's'}; downloaded a local Software classification report${result.failures ? ` (${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be inspected)` : ''}.`;
+        return;
+      }
+      if (purchaseNavigationDiscovery) {
+        const result = inspectPurchaseNavigation();
+        downloadJsonFile('humble-purchase-navigation-discovery.json', result.report);
+        status.textContent = 'Inspected ' + result.anchorCount + ' link' + (result.anchorCount === 1 ? '' : 's') + ' and ' + result.candidateCount + ' possible purchase element' + (result.candidateCount === 1 ? '' : 's') + '; downloaded a safe structural navigation report.';
         return;
       }
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
@@ -1973,6 +2081,66 @@ async function importPurchases(report, { fullRescan = false } = {}) {
 
 function keyReminderSyncNotice(scan) {
   return scan?.complete ? '' : 'Key reminders have not been checked across older purchases. Use Rescan every purchase to establish complete reminders.';
+}
+
+function inspectPurchaseNavigation() {
+  const linkShapes = new Map();
+  const candidateShapes = new Map();
+  const dataAttributeNames = new Map();
+  const buttonShapes = new Map();
+  const signalName = /(?:^|[-_])(purchase|order|gamekey|game|key)(?:[-_]|$)/iu;
+  const anchors = [...document.querySelectorAll('a[href]')];
+  for (const link of anchors) incrementCount(linkShapes, JSON.stringify(safePurchaseLinkShape(link)));
+
+  const elements = [...document.querySelectorAll('*')];
+  let candidateCount = 0;
+  for (const element of elements) {
+    const attributes = safeAttributeNames(element);
+    for (const name of attributes) if (name.startsWith('data-')) incrementCount(dataAttributeNames, name);
+    const signalAttributes = attributes.filter((name) => signalName.test(name));
+    if (signalAttributes.length) {
+      candidateCount += 1;
+      incrementCount(candidateShapes, JSON.stringify({ tag: element.tagName.toLowerCase(), signalAttributes }));
+    }
+  }
+  for (const element of document.querySelectorAll('button, [role="button"]')) {
+    incrementCount(buttonShapes, JSON.stringify({ tag: element.tagName.toLowerCase(), attributes: safeAttributeNames(element) }));
+  }
+  return {
+    anchorCount: anchors.length,
+    candidateCount,
+    report: {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      purpose: 'Safe structural diagnostic for targeting a Humble individual-purchase page.',
+      privacy: 'This report contains only aggregate tag names, attribute names, link shapes, and counts. It contains no text content, titles, URLs, purchase identifiers, redemption keys, dates, cookies, or raw API responses.',
+      links: Object.fromEntries([...linkShapes].sort(([left], [right]) => left.localeCompare(right))),
+      possiblePurchaseElements: Object.fromEntries([...candidateShapes].sort(([left], [right]) => left.localeCompare(right))),
+      dataAttributeNames: Object.fromEntries([...dataAttributeNames].sort(([left], [right]) => left.localeCompare(right))),
+      buttons: Object.fromEntries([...buttonShapes].sort(([left], [right]) => left.localeCompare(right)))
+    }
+  };
+}
+
+function safePurchaseLinkShape(link) {
+  const href = link.getAttribute('href') ?? '';
+  const attributes = safeAttributeNames(link);
+  try {
+    const url = new URL(href, location.href);
+    return {
+      sameOrigin: url.origin === location.origin,
+      pathDepth: url.pathname.split('/').filter(Boolean).length,
+      queryParameterNames: [...url.searchParams.keys()].map((name) => name.toLowerCase()).sort(),
+      hasFragment: Boolean(url.hash),
+      attributes
+    };
+  } catch {
+    return { sameOrigin: null, pathDepth: null, queryParameterNames: [], hasFragment: false, attributes };
+  }
+}
+
+function safeAttributeNames(element) {
+  return [...element.attributes].map((attribute) => attribute.name.toLowerCase()).sort();
 }
 
 async function discoverSoftwareProductMetadata(report) {

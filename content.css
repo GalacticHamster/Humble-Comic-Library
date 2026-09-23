@@ -206,3 +206,5 @@
 .hcl-import-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-left: auto; }
 .hcl-import-actions button { margin-left: 0; }
 .hcl-import-actions button[data-import-mode="all"] { background: #275f88; }
+.hcl-purchase-focus { outline: 3px solid #f0a020 !important; outline-offset: 4px; box-shadow: 0 0 0 0.3rem rgb(240 160 32 / 25%) !important; }
+.hcl-purchase-focus-notice { position: fixed; right: 1rem; bottom: 1rem; z-index: 2147483647; max-width: 22rem; padding: 0.75rem 0.9rem; border-radius: 0.45rem; background: #171717; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 35%); color: #fff; font: 600 0.8rem/1.35 Arial, sans-serif; }
