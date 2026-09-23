@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Integrates key-reminder checks into purchase imports: new imports inspect new and pending purchases, while **Rescan every purchase** establishes the complete reminder baseline.
 - Adds a separately packaged Firefox desktop Manifest V3 build while retaining the existing Chrome manifest and package unchanged. Firefox runtime behavior still requires manual browser testing before AMO submission.
 - Adds first-class Humble Software support for purchases, bundle pages, and the Software catalogue.
 - Preserves `software` item kinds through local backup import/export and reports them in the options-page library summary.

@@ -31,6 +31,12 @@ function run(expression, values = {}) {
   return JSON.parse(JSON.stringify(vm.runInContext(`(() => ${expression})()`, extension)));
 }
 
+async function runAsync(expression, values = {}) {
+  extension.__softwareTestValues = values;
+  const result = await vm.runInContext(`(async () => ${expression})()`, extension);
+  return JSON.parse(JSON.stringify(result));
+}
+
 function productKind(product) {
   return run('productKind(__softwareTestValues.product)', { product });
 }
@@ -171,5 +177,64 @@ test('purchase metadata discovery controls are hidden unless diagnostics are ena
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   assert.match(source, /data-import-mode="software-discovery" data-hcl-debug-action hidden/u);
   assert.match(source, /data-import-mode="key-discovery" data-hcl-debug-action hidden/u);
-  assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false \}\)/u);
+  assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false, keyReminderScan: null \}\)/u);
+  assert.doesNotMatch(source, /data-import-mode="key-reminders"/u);
+});
+
+test('purchase import shares detail requests with key reminders and requires an explicit full baseline', async () => {
+  const orders = [
+    { gamekey: 'old-purchase', product: { human_name: 'Old Bundle' }, created: '2026-01-01T00:00:00Z' },
+    { gamekey: 'new-purchase', product: { human_name: 'New Bundle' }, created: '2026-02-01T00:00:00Z' }
+  ];
+  const details = Object.fromEntries(orders.map((order) => [order.gamekey, {
+    tpkd_dict: {
+      all_tpks: [{
+        human_name: `${order.product.human_name} entitlement`,
+        machine_name: `${order.gamekey}-entitlement`,
+        keyindex: 0,
+        key_type: 'steam',
+        num_days_until_expired: 45
+      }]
+    }
+  }]));
+  const storage = {
+    libraryItems: [],
+    purchaseSummaries: [{ purchaseKey: 'old-purchase', pricePaid: null }],
+    mediaImportVersion: 6,
+    keyReminders: [],
+    keyReminderScan: null
+  };
+  const requests = [];
+  extension.chrome = {
+    storage: {
+      local: {
+        get: async (defaults) => ({ ...defaults, ...storage }),
+        set: async (values) => { Object.assign(storage, JSON.parse(JSON.stringify(values))); }
+      }
+    }
+  };
+  extension.fetch = async (url) => {
+    if (url === '/api/v1/user/order?all=true') return { ok: true, json: async () => orders };
+    const key = decodeURIComponent(url.match(/\/order\/([^?]+)/u)[1]);
+    requests.push(key);
+    return { ok: true, status: 200, text: async () => JSON.stringify(details[key]) };
+  };
+  extension.setTimeout = (callback) => { callback(); return 0; };
+
+  const incremental = await runAsync('importPurchases(() => {}, { fullRescan: false })');
+  assert.deepEqual(requests, ['new-purchase'], 'new import fetches a purchase detail once for both title import and reminders');
+  assert.equal(incremental.keyReminders.complete, false);
+  assert.deepEqual(storage.keyReminders.map((record) => record.purchaseKey), ['new-purchase']);
+  assert.deepEqual(storage.keyReminderScan.baselinePurchaseKeys, []);
+
+  requests.length = 0;
+  const full = await runAsync('importPurchases(() => {}, { fullRescan: true })');
+  assert.deepEqual(requests.sort(), ['new-purchase', 'old-purchase'], 'full rescan fetches each purchase detail once');
+  assert.equal(full.keyReminders.complete, true);
+  assert.deepEqual(new Set(storage.keyReminderScan.baselinePurchaseKeys), new Set(['old-purchase', 'new-purchase']));
+  assert.deepEqual(new Set(storage.keyReminders.map((record) => record.purchaseKey)), new Set(['old-purchase', 'new-purchase']));
+
+  requests.length = 0;
+  await runAsync('importPurchases(() => {}, { fullRescan: false })');
+  assert.deepEqual(requests.sort(), ['new-purchase', 'old-purchase'], 'later imports refresh known pending reminders without a second title-import pass');
 });

@@ -1728,24 +1728,26 @@ function addPurchaseImporter() {
     <span>Import eligible books, comics, games, and software from this purchase history into this browser.</span>
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
-      <button type="button" data-import-mode="all" title="Reprocesses every purchase and rebuilds Humble game, audiobook, and software entries.">Rescan every purchase</button>
+      <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan every purchase</button>
       <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
-      <button type="button" data-import-mode="key-reminders" title="The first scan checks every purchase. Later scans check new purchases and purchases with still-unrevealed entitlements.">Scan / refresh key reminders</button>
       <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
     </div>
     <output aria-live="polite"></output>`;
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
-  chrome.storage.local.get({ showDiagnostics: false })
-    .then(({ showDiagnostics }) => debugButtons.forEach((button) => { button.hidden = !showDiagnostics; }))
+  chrome.storage.local.get({ showDiagnostics: false, keyReminderScan: null })
+    .then(({ showDiagnostics, keyReminderScan }) => {
+      debugButtons.forEach((button) => { button.hidden = !showDiagnostics; });
+      const reminderNotice = keyReminderSyncNotice(keyReminderScan);
+      if (reminderNotice) status.textContent = reminderNotice;
+    })
     .catch(() => {});
   for (const button of buttons) button.addEventListener('click', async () => {
     const mode = button.dataset.importMode;
     const fullRescan = mode === 'all';
     const keyDiscovery = mode === 'key-discovery';
     const softwareDiscovery = mode === 'software-discovery';
-    const keyReminderScan = mode === 'key-reminders';
     if (fullRescan && !confirm('Rescan every Humble purchase? This can take a while.')) return;
     if (softwareDiscovery && !confirm('Inspect non-book product classification metadata in every Humble purchase? This can take a while. The downloaded local report includes product titles and bundle names, but never redemption keys, purchase identifiers, URLs, or cookies.')) return;
     if (keyDiscovery && !confirm('Inspect third-party key reminder metadata in every Humble purchase? This can take a while. The downloaded report contains only aggregate field names and counts; it saves no key values, titles, bundle names, or purchase identifiers.')) return;
@@ -1763,19 +1765,17 @@ function addPurchaseImporter() {
         status.textContent = `Inspected ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} and recorded ${result.candidateProducts} non-book/non-audiobook product${result.candidateProducts === 1 ? '' : 's'}; downloaded a local Software classification report${result.failures ? ` (${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be inspected)` : ''}.`;
         return;
       }
-      if (keyReminderScan) {
-        const result = await scanKeyReminders((message) => { status.textContent = message; });
-        const scope = result.fullScan ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}` : `Checked ${result.scannedPurchases} new or still-pending purchase${result.scannedPurchases === 1 ? '' : 's'}`;
-        status.textContent = `${scope}; ${result.unrevealed} pending entitlement${result.unrevealed === 1 ? '' : 's'} saved locally${result.expiringSoon ? `, ${result.expiringSoon} expiring within 30 days` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be checked and will be retried` : ''}.`;
-        return;
-      }
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
         : result.audioBackfill || result.softwareBackfill
           ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add newly supported deliveries`
           : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
-      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${result.total} total items.`;
+      const reminders = result.keyReminders;
+      const reminderStatus = reminders.complete
+        ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}${reminders.expiringSoon ? `, ${reminders.expiringSoon} expiring within 30 days` : ''}`
+        : `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; older purchases have not been checked yet—use Rescan every purchase for complete reminders`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
     } finally {
@@ -1792,7 +1792,13 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   const orders = await fetchJson('/api/v1/user/order?all=true');
   const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
   if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
-  const { libraryItems = [], purchaseSummaries: existingPurchases = [], mediaImportVersion = 1 } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], mediaImportVersion: 1 });
+  const {
+    libraryItems = [],
+    purchaseSummaries: existingPurchases = [],
+    mediaImportVersion = 1,
+    keyReminders: existingReminders = [],
+    keyReminderScan: priorReminderScan = null
+  } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], mediaImportVersion: 1, keyReminders: [], keyReminderScan: null });
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
   // Version 4 recognizes Humble's audio download platform, generic audio
   // category, and audio download formats. One complete backfill lets established installations
@@ -1804,25 +1810,57 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   // Reprocess existing entitlement-like records once so earlier entries can
   // be corrected from the live Humble metadata.
   const softwareBackfill = mediaImportVersion < 6;
-  const purchasesToScan = orderList.filter((order) => {
-    const key = order.gamekey ?? order.key ?? order.order_key;
+  const purchaseKey = (order) => order.gamekey ?? order.key ?? order.order_key;
+  const titlePurchaseKeys = new Set(orderList.filter((order) => {
+    const key = purchaseKey(order);
     return key && (fullRescan || audioBackfill || softwareBackfill || !previouslyScanned.has(key));
+  }).map(purchaseKey));
+  const allPurchaseKeys = new Set(orderList.map(purchaseKey).filter(Boolean));
+  const newPurchaseKeys = new Set([...allPurchaseKeys].filter((key) => !previouslyScanned.has(key)));
+  const successfullyChecked = new Set(priorReminderScan?.purchaseKeys ?? []);
+  const failedReminderKeys = new Set(priorReminderScan?.failedPurchaseKeys ?? []);
+  const pendingReminderKeys = new Set(existingReminders.map((record) => record.purchaseKey).filter(Boolean));
+  // A normal import only refreshes newly discovered purchases and entries that
+  // still need attention. An explicit full rescan is the deliberate, complete
+  // reminder baseline for purchases imported before this feature existed.
+  const reminderPurchaseKeys = fullRescan
+    ? allPurchaseKeys
+    : new Set([...newPurchaseKeys, ...pendingReminderKeys, ...failedReminderKeys]);
+  const purchasesToInspect = orderList.filter((order) => {
+    const key = purchaseKey(order);
+    return key && (titlePurchaseKeys.has(key) || reminderPurchaseKeys.has(key));
   });
 
   const imported = [];
   const purchaseSummaries = [];
   const failures = [];
-  for (let index = 0; index < purchasesToScan.length; index += 1) {
-    const order = purchasesToScan[index];
-    const key = order.gamekey ?? order.key ?? order.order_key;
-    report(`Checking ${fullRescan ? 'purchase' : 'new purchase'} ${index + 1} of ${purchasesToScan.length}…`);
+  const reminders = new Map(existingReminders.map((record) => [record.id, record]));
+  let reminderFailures = 0;
+  for (let index = 0; index < purchasesToInspect.length; index += 1) {
+    const order = purchasesToInspect[index];
+    const key = purchaseKey(order);
+    const importTitles = titlePurchaseKeys.has(key);
+    const refreshReminders = reminderPurchaseKeys.has(key);
+    report(`Checking purchase ${index + 1} of ${purchasesToInspect.length}…`);
     try {
       const detail = await fetchOrderDetail(key);
-      const items = extractLibraryItems(detail, order, key);
-      imported.push(...items);
-      purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
+      if (importTitles) {
+        const items = extractLibraryItems(detail, order, key);
+        imported.push(...items);
+        purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
+      }
+      if (refreshReminders) {
+        for (const [id, record] of reminders) if (record.purchaseKey === key) reminders.delete(id);
+        extractKeyReminderRecords(detail, order, key).forEach((record) => reminders.set(record.id, record));
+        successfullyChecked.add(key);
+        failedReminderKeys.delete(key);
+      }
     } catch {
-      failures.push(key);
+      if (importTitles) failures.push(key);
+      if (refreshReminders) {
+        reminderFailures += 1;
+        failedReminderKeys.add(key);
+      }
     }
     // Avoid piling up requests against Humble for accounts with long histories.
     await new Promise((resolve) => setTimeout(resolve, 175));
@@ -1866,8 +1904,8 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   }
   const importSummary = {
     importedAt: new Date().toISOString(),
-    scannedPurchases: purchasesToScan.length,
-    skippedKnown: orderList.length - purchasesToScan.length,
+    scannedPurchases: titlePurchaseKeys.size,
+    skippedKnown: orderList.length - titlePurchaseKeys.size,
     addedTitles: added,
     addedGames,
     addedSoftware,
@@ -1878,7 +1916,38 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   };
   const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
-  await chrome.storage.local.set({ libraryItems: [...merged.values()], purchaseSummaries: [...allPurchases.values()], lastImport: importSummary, ...(failures.length ? {} : { mediaImportVersion: 6 }) });
+  const checkedAt = new Date().toISOString();
+  const reminderRecords = [...reminders.values()];
+  const baselinePurchaseKeys = fullRescan
+    ? [...allPurchaseKeys]
+    : Array.isArray(priorReminderScan?.baselinePurchaseKeys)
+      ? priorReminderScan.baselinePurchaseKeys.filter((key) => allPurchaseKeys.has(key))
+      : priorReminderScan?.complete
+        // The original reminder scan recorded all successful keys in
+        // purchaseKeys. Keep existing complete scans complete when upgrading.
+        ? [...allPurchaseKeys]
+        : [];
+  const baselineComplete = baselinePurchaseKeys.length > 0
+    && baselinePurchaseKeys.every((key) => successfullyChecked.has(key));
+  const expiringSoon = reminderRecords.filter((record) => {
+    const days = keyReminderDaysRemaining(record, checkedAt);
+    return days !== null && days >= 0 && days <= 30;
+  }).length;
+  const keyReminders = {
+    complete: baselineComplete,
+    checkedAt,
+    purchaseKeys: [...successfullyChecked],
+    baselinePurchaseKeys,
+    failedPurchaseKeys: [...failedReminderKeys]
+  };
+  await chrome.storage.local.set({
+    libraryItems: [...merged.values()],
+    purchaseSummaries: [...allPurchases.values()],
+    lastImport: importSummary,
+    keyReminders: reminderRecords,
+    keyReminderScan: keyReminders,
+    ...(failures.length ? {} : { mediaImportVersion: 6 })
+  });
   return {
     added,
     addedGames,
@@ -1890,9 +1959,20 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     pricedPurchases: importSummary.pricedPurchases,
     total: merged.size,
     failures: failures.length,
-    scannedPurchases: purchasesToScan.length,
-    skippedKnown: importSummary.skippedKnown
+    scannedPurchases: titlePurchaseKeys.size,
+    skippedKnown: importSummary.skippedKnown,
+    keyReminders: {
+      complete: baselineComplete,
+      scannedPurchases: reminderPurchaseKeys.size,
+      failures: reminderFailures,
+      unrevealed: reminderRecords.length,
+      expiringSoon
+    }
   };
+}
+
+function keyReminderSyncNotice(scan) {
+  return scan?.complete ? '' : 'Key reminders have not been checked across older purchases. Use Rescan every purchase to establish complete reminders.';
 }
 
 async function discoverSoftwareProductMetadata(report) {

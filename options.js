@@ -58,8 +58,8 @@
   }
 
   function renderKeyReminders(reminders, scan) {
-    if (!scan?.complete) {
-      keyReminderSummary.textContent = 'No complete key-reminder scan yet. Open Humble Purchases and select Scan / refresh key reminders.';
+    if (!scan) {
+      keyReminderSummary.textContent = 'No key-reminder scan yet. Open Humble Purchases and select Rescan every purchase to establish complete reminders.';
       keyReminderList.replaceChildren();
       return;
     }
@@ -70,7 +70,10 @@
       return days !== null && days >= 0 && days <= 30;
     }).length;
     const needsReview = sorted.filter((record) => record.status === 'needs-review').length;
-    keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.`;
+    const baseline = scan.complete
+      ? ''
+      : ' Older purchases have not been checked yet; use Rescan every purchase to establish complete reminders.';
+    keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.${baseline}`;
     keyReminderList.replaceChildren(...sorted.map((record) => {
       const row = document.createElement('li');
       const source = [record.sourceBundle, record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
