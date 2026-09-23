@@ -47,6 +47,28 @@ function classify(title, ownedTitles, itemKind = 'book', mappings = matcher.Humb
   return JSON.parse(JSON.stringify(result));
 }
 
+function classifyCurrentBundleVariant(title, ownedTitles, currentBundleTitle) {
+  const previousTitle = matcher.document.title;
+  matcher.document.title = currentBundleTitle;
+  try {
+    const libraryByKey = new Map(ownedTitles.map((ownedTitle) => [
+      matcher.HumbleComicLibrary.titleKey(ownedTitle),
+      { title: ownedTitle, provenance: [{ title: ownedTitle, sourceBundle: currentBundleTitle, purchaseKey: 'current-order' }] }
+    ]));
+    matcher.__values = { libraryByKey, title };
+    const result = vm.runInContext(`(() => {
+      const { libraryByKey, title } = __values;
+      const libraryMatcher = createLibraryMatcher(libraryByKey, 'book');
+      const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
+      const variant = exact ? null : findOwnedBookVariant(title, libraryMatcher);
+      return exact || variant ? { state: 'owned', item: (exact ?? variant.item).title } : { state: 'new' };
+    })()`, matcher);
+    return JSON.parse(JSON.stringify(result));
+  } finally {
+    matcher.document.title = previousTitle;
+  }
+}
+
 test('literal Maggie the Mechanic and Heartbreak Soup remain exact owned matches', () => {
   assert.equal(classify('Maggie the Mechanic', ['Maggie the Mechanic']).state, 'owned');
   assert.equal(classify('Heartbreak Soup', ['Heartbreak Soup']).state, 'owned');
@@ -121,6 +143,29 @@ test('two distinct subtitle-bearing books with the same main title remain new', 
 test('punctuation remains normalization-only and exact matches still win', () => {
   const result = classify("Hello, World!: A Programmer's Guide", ["Hello World A Programmers Guide"]);
   assert.equal(result.state, 'owned');
+});
+
+test('TPB is a book-format suffix rather than a distinct owned work', () => {
+  assert.deepEqual(classify('4001 A.D.: Beyond New Japan TPB', ['4001 A.D.: Beyond New Japan']), {
+    state: 'owned', item: '4001 A.D.: Beyond New Japan'
+  });
+});
+
+test('same purchased bundle bridges volume subtitles and entitlement qualifiers', () => {
+  const bundle = 'Humble Comics Bundle: Masters of the Craft: A Megabundle by Valiant Entertainment';
+  for (const [listing, imported] of [
+    ['Archer & Armstrong Vol 3 Far Faraway', 'Archer & Armstrong, Vol. 3:Far Faraway (plus extra content)'],
+    ['X-O Manowar, Vol. 3: Planet Death', 'X-O Manowar, Vol. 3:Planet Death (plus extra content)'],
+    ['X-O Manowar, Vol. 4: Homecoming', 'X-O Manowar Vol 4']
+  ]) {
+    assert.deepEqual(classifyCurrentBundleVariant(listing, [imported], bundle), { state: 'owned', item: imported }, listing);
+  }
+});
+
+test('same-bundle volume matching still requires the same series and volume', () => {
+  const bundle = 'Humble Comics Bundle: Masters of the Craft: A Megabundle by Valiant Entertainment';
+  assert.deepEqual(classifyCurrentBundleVariant('X-O Manowar, Vol. 3: Planet Death', ['X-O Manowar Vol 4'], bundle), { state: 'new' });
+  assert.deepEqual(classifyCurrentBundleVariant('X-O Manowar, Vol. 3: Planet Death', ['Ninjak Vol 3'], bundle), { state: 'new' });
 });
 
 test('short titles do not become possible solely through a subtitle or edition suffix', () => {

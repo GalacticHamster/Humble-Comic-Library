@@ -1185,10 +1185,13 @@ function parseIssueTitle(title) {
 
 function bookVariantParts(title) {
   const key = HumbleComicLibrary.titleKey(title)
-    .replace(/\b(?:tp|hc|hardcover|paperback|trade paperback|dlx(?: ed)?|deluxe(?: edition)?|digital edition)\b/giu, ' ')
+    .replace(/\b(?:tp|tpb|hc|hardcover|paperback|trade paperback|dlx(?: ed)?|deluxe(?: edition)?|digital edition)\b/giu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
-  const match = /^(.*?)\s+vol\s*(\d+)$/u.exec(key);
+  // Entitlements and bundle cards often disagree about whether the volume
+  // subtitle is present. Retain the series and volume for the verified
+  // same-bundle bridge even when words follow the number.
+  const match = /^(.*?)\s+vol\s*(\d+)(?:\s|$)/u.exec(key);
   return { key, base: match?.[1]?.trim() ?? key, volume: match ? Number(match[2]) : null };
 }
 
