@@ -111,9 +111,12 @@ test('wishlist options validate before writing, preserve bibliographic identity 
 
 test('options export and restore round trip preserves complete library state and replaces unrelated reminders', async () => {
   const expected = libraryState();
+  Object.assign(expected.libraryItems[0],{entitlement:'third-party-key',entitlementId:'software:0',keyType:'Publisher',keyStatus:'expired',expiresAt:'2026-09-30T00:00:00.000Z',keyCheckedAt:'2026-10-01T12:00:00.000Z'});
+  Object.assign(expected.libraryItems[0].provenance[0],{entitlement:'third-party-key',entitlementId:'software:0',keyStatus:'expired',expiresAt:'2026-09-30T00:00:00.000Z'});
+  Object.assign(expected.libraryItems[0].provenance[1],{entitlement:'third-party-key',entitlementId:'software:0',keyStatus:'unrevealed'});
   const source = options(expected);
   const backup = await source.export();
-  assert.equal(backup.version, 7);
+  assert.equal(backup.version, 8);
   const target = options({
     ...libraryState(), keyReminders: [{ id: 'unrelated', purchaseKey: 'other', title: 'Other item' }],
     showDiagnostics: true, galacticLibraryExtensionId: 'local-connection', hclPurchaseFocus: { purchaseKey: 'other' }

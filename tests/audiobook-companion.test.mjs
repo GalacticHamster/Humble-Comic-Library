@@ -184,6 +184,17 @@ test('media-separated library indexes preserve existing exact games and partial 
   assert.equal(plain(run(books, 'collectBundleItems()'))[0].kind, 'book');
 });
 
+test('expired local game purchases require review, while independent Steam ownership still wins',async()=>{
+  const records=[{title:'Game',kind:'game',source:'humble',entitlement:'third-party-key',keyStatus:'expired',purchaseKey:'order'}];
+  for(const owned of [false,true]){
+    const context=load({pathname:'/games/example-games',cards:[{title:'Game'}]});
+    context.chrome.runtime.sendMessage=async(id,request)=>({ok:true,apiVersion:1,results:request.items.map(item=>({requestId:item.requestId,matches:owned?[{title:'Game',provider:'steam',ownership:'owned',relationship:'same-edition'}]:[]}))});
+    const result=await render(context,records,'game');
+    assert.equal(result.counts.owned,0);assert.equal(result.counts.new,0);
+    assert.equal(result.counts[owned?'elsewhere':'possible'],1);
+  }
+});
+
 test('ambiguous formats never borrow ownership from an ebook or audiobook with the same title', async () => {
   const context = load({ cards: [{ title: 'Shared Work' }], bundleData: { tier_item_data: {
     audio: { human_name: 'Shared Work', format: 'mp3' },

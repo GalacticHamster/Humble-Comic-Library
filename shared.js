@@ -111,7 +111,7 @@
     return [...new Map(rows.map(item => [catalogItemKey(item), item])).values()];
   }
 
-  const BACKUP_VERSION = 7;
+  const BACKUP_VERSION = 8;
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
     keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
@@ -141,16 +141,31 @@
 
   const PROVENANCE_FIELDS = { title: 'string', sourceBundle: 'string', purchaseKey: 'string', purchasedAt: 'string?' };
 
+  function entitlementFields(value) {
+    const result = {};
+    for (const field of ['entitlement', 'entitlementId', 'keyType', 'keyStatus', 'expiresAt', 'keyCheckedAt']) {
+      if (!Object.hasOwn(value, field)) continue;
+      const entry = value[field];
+      if (['expiresAt', 'keyCheckedAt'].includes(field) && entry === null) { result[field] = null; continue; }
+      if (typeof entry !== 'string' || entry.length > 500) throw new Error(`Invalid entitlement ${field}.`);
+      if (field === 'entitlement' && !['direct-download', 'third-party-key'].includes(entry)
+        || field === 'keyStatus' && !['unknown', 'unrevealed', 'revealed', 'expired', 'unavailable'].includes(entry)
+        || ['expiresAt', 'keyCheckedAt'].includes(field) && (!/^\d{4}-\d{2}-\d{2}T/iu.test(entry) || !Number.isFinite(Date.parse(entry)))) throw new Error(`Invalid entitlement ${field}.`);
+      result[field] = entry;
+    }
+    return result;
+  }
+
   function restoreBackupItem(value, label) {
     if (typeof value === 'string') {
       const item = normalizeLibraryImportItem(value);
       if (!item) throw new Error(`${label} needs a title.`);
       return item;
     }
-    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string' }, label, ['title']), ...bibliographicFields(value) };
+    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string' }, label, ['title']), ...bibliographicFields(value), ...entitlementFields(value) };
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
     if (value.provenance !== undefined) {
-      item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => backupRecord(record, PROVENANCE_FIELDS, path));
+      item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => ({...backupRecord(record, PROVENANCE_FIELDS, path), ...entitlementFields(record)}));
     }
     return item;
   }
@@ -207,7 +222,7 @@
       });
     }
     const mediaImportVersion = value.mediaImportVersion === undefined ? 1 : value.mediaImportVersion;
-    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 6) {
+    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 7) {
       throw new Error('Unsupported media import scan version.');
     }
     const customCollectionMappings = global.HumbleCollectionMappings.validateCustomMappings(value.collectionMappings === undefined ? [] : value.collectionMappings);
@@ -255,7 +270,7 @@
   }
 
   global.HumbleComicLibrary = {
-    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist,
+    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };

@@ -937,8 +937,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher), isFromCurrentBundle);
     const exact = identity.exact;
     const fallbackRecords = exact ? [] : ownershipFallbackCandidates(item, matcher, collectionMappings);
-    const compatible = candidateLibrary(fallbackRecords.filter(record => !HumbleOwnership.conflicts(item, record, true).length));
-    const rangeCandidates = candidateLibrary(fallbackRecords.filter(record => !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));
+    const compatible = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).length));
+    const rangeCandidates = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));
     const volumeRange = exact ? null : findOwnedVolumeRange(title, rangeCandidates);
     const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, createLibraryMatcher(compatible, item.kind), item);
     const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item);
@@ -950,7 +950,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
           ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
           : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
           : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
-          : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
+          : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason,
+            ...(identity.possible.some(record => !HumbleOwnership.purchased(record)) ? {ownershipReview:true,possibleReason:'A Humble purchase exists, but its key is expired or unavailable. Check destination-library ownership.'} : {}) } : { state: 'new' };
     const target = HumbleOwnership.offerContents(item, collectionMappings);
     resolvedItems.push({ item, match, target });
     // Large libraries can make an individual card comparison expensive. Yield
@@ -1529,10 +1530,13 @@ function annotateBundleItem(bundleItem, match) {
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
   const provenance = matchProvenance(match);
   const purchaseCount = matchPurchaseCount(match);
+  const localRecords=[match.item].flat(Infinity).filter(Boolean);
+  const purchasedKey=isOwned&&localRecords.some(record=>(record.provenance?.length?record.provenance:[record])
+    .some(origin=>origin.entitlement==='third-party-key')||record.kind==='game'&&record.source==='humble');
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
-      ? purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
+      ? purchasedKey ? `Purchased${purchaseCount>1?` ×${purchaseCount}`:''}` : purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
       : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} ${match.coverage?.owned === match.range.owned ? 'Owned' : 'titles found'}` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
@@ -1671,7 +1675,7 @@ function matchPurchaseCount(match) {
 function itemProvenance(item) {
   const records = Array.isArray(item.provenance) && item.provenance.length
     ? item.provenance
-    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt }];
+    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt, ...HumbleComicLibrary.entitlementFields(item) }];
   return records.map((record) => ({ ...record, title: record.title ?? item.title }));
 }
 
@@ -2344,9 +2348,9 @@ function addPurchaseImporter() {
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`
-        : result.audioBackfill || result.softwareBackfill
-          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add newly supported deliveries`
-          : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
+        : result.audioBackfill || result.softwareBackfill || result.entitlementBackfill
+          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to refresh delivery and key ownership evidence`
+          : `Checked ${result.scannedPurchases} new or pending purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
       const reminders = result.keyReminders;
       const reminderStatus = reminders.complete
         ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}${reminders.expiringSoon ? `, ${reminders.expiringSoon} expiring within 30 days` : ''}`
@@ -2389,6 +2393,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   // Reprocess existing entitlement-like records once so earlier entries can
   // be corrected from the live Humble metadata.
   const softwareBackfill = mediaImportVersion < 6;
+  const entitlementBackfill = mediaImportVersion < 7;
   const purchaseKey = (order) => order?.gamekey ?? order?.key ?? order?.order_key;
   if (orderList.some((order) => typeof purchaseKey(order) !== 'string' || !purchaseKey(order).trim())) {
     throw new Error('Humble returned a purchase without a valid identifier. No scan data was changed.');
@@ -2396,19 +2401,26 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   const priorFailedPurchaseKeys = new Set(priorImport?.failedPurchaseKeys ?? []);
   const titlePurchaseKeys = new Set(orderList.filter((order) => {
     const key = purchaseKey(order);
-    return key && (fullRescan || audioBackfill || softwareBackfill || priorFailedPurchaseKeys.has(key) || !previouslyScanned.has(key));
+    return key && (fullRescan || audioBackfill || softwareBackfill || entitlementBackfill || priorFailedPurchaseKeys.has(key) || !previouslyScanned.has(key));
   }).map(purchaseKey));
   const allPurchaseKeys = new Set(orderList.map(purchaseKey).filter(Boolean));
   const newPurchaseKeys = new Set([...allPurchaseKeys].filter((key) => !previouslyScanned.has(key)));
   const successfullyChecked = new Set(priorReminderScan?.purchaseKeys ?? []);
   const failedReminderKeys = new Set(priorReminderScan?.failedPurchaseKeys ?? []);
   const pendingReminderKeys = new Set(existingReminders.map((record) => record.purchaseKey).filter(Boolean));
+  const dueKeyPurchaseKeys = new Set(libraryItems.flatMap(itemProvenance)
+    .filter(record=>record.entitlement==='third-party-key'&&record.expiresAt&&Date.parse(record.expiresAt)<=Date.now())
+    .map(record=>record.purchaseKey).filter(Boolean));
   // A normal import only refreshes newly discovered purchases and entries that
   // still need attention. An explicit full rescan is the deliberate, complete
   // reminder baseline for purchases imported before this feature existed.
   const reminderPurchaseKeys = fullRescan
     ? allPurchaseKeys
-    : new Set([...newPurchaseKeys, ...pendingReminderKeys, ...failedReminderKeys]);
+    : new Set([...newPurchaseKeys, ...pendingReminderKeys, ...failedReminderKeys, ...dueKeyPurchaseKeys]);
+  // Refresh ownership evidence whenever a pending purchase is revisited, and
+  // establish reminders while backfilling older key evidence.
+  for (const key of reminderPurchaseKeys) if (allPurchaseKeys.has(key)) titlePurchaseKeys.add(key);
+  if (entitlementBackfill) for (const key of titlePurchaseKeys) reminderPurchaseKeys.add(key);
   const purchasesToInspect = orderList.filter((order) => {
     const key = purchaseKey(order);
     return key && (titlePurchaseKeys.has(key) || reminderPurchaseKeys.has(key));
@@ -2461,7 +2473,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   // Only a complete explicit rescan can prune the current Humble snapshot.
   // Media backfills continue to correct entitlement classification separately.
   const reconciled = fullRescan && failures.length === 0 && reminderFailures === 0;
-  const rebuildEntitlements = !fullRescan && (audioBackfill || softwareBackfill);
+  const rebuildEntitlements = !fullRescan && (audioBackfill || softwareBackfill || entitlementBackfill);
   const failedPurchaseKeys = new Set(failures);
   const retainedItems = reconciled
     ? libraryItems.filter((item) => item.source !== 'humble').map(retainManualLibraryItem)
@@ -2554,7 +2566,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     lastImport: importSummary,
     keyReminders: reminderRecords,
     keyReminderScan: keyReminders,
-    ...(failures.length ? {} : { mediaImportVersion: 6 })
+    ...(failures.length ? {} : { mediaImportVersion: 7 })
   });
   return {
     added,
@@ -2563,6 +2575,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     addedAudiobooks,
     audioBackfill,
     softwareBackfill,
+    entitlementBackfill,
     datesBackfilled,
     pricedPurchases: importSummary.pricedPurchases,
     total: merged.size,
@@ -2876,10 +2889,9 @@ function extractKeyReminderRecords(detail, order, purchaseKey) {
   const purchasedAt = extractPurchasedAt(order, detail);
   const checkedAt = new Date().toISOString();
   return thirdPartyKeyRecords(detail).flatMap(({ record }) => {
-    const hasRevealedValue = Object.prototype.hasOwnProperty.call(record, 'redeemed_key_val');
-    const value = record.redeemed_key_val;
-    if (value === REDACTED_REDEMPTION_KEY_VALUE) return [];
-    const status = hasRevealedValue ? 'needs-review' : 'unrevealed';
+    const evidence = keyEvidence(record);
+    if (evidence.keyStatus === 'revealed') return [];
+    const status = evidence.keyStatus === 'unrevealed' ? 'unrevealed' : 'needs-review';
     const machineName = String(record.machine_name ?? 'unknown');
     const keyIndex = Number.isInteger(record.keyindex) ? record.keyindex : 0;
     const daysUntilExpiry = typeof record.num_days_until_expired === 'number' && Number.isFinite(record.num_days_until_expired)
@@ -2978,6 +2990,7 @@ function withProvenance(item) {
 function mergeLibraryItem(existing, incoming) {
   return {
     ...existing,
+    ...HumbleComicLibrary.entitlementFields(incoming),
     purchasedAt: existing.purchasedAt || incoming.purchasedAt,
     purchaseKey: existing.purchaseKey || incoming.purchaseKey,
     provenance: dedupeProvenance([...itemProvenance(existing), ...itemProvenance(incoming)])
@@ -2985,13 +2998,14 @@ function mergeLibraryItem(existing, incoming) {
 }
 
 function dedupeProvenance(records) {
-  const seen = new Set();
-  return records.filter((record) => {
-    const key = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}\u0000${record.sourceBundle ?? ''}\u0000${record.purchasedAt ?? ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const current = new Map();
+  for (const record of records) {
+    const origin = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}${record.purchaseKey ? '' : `\u0000${record.sourceBundle ?? ''}`}`;
+    if (record.entitlementId) current.delete(origin);
+    const key = `${origin}${record.entitlementId ? `\u0000${record.entitlementId}` : ''}`;
+    current.set(key, { ...current.get(key), ...record });
+  }
+  return [...current.values()];
 }
 
 async function fetchJson(path) {
@@ -3028,7 +3042,7 @@ function directOrderProducts(detail) {
 function retainManualLibraryItem(item) {
   // A manual title can also have Humble provenance from a later import. Keep
   // the manual title, but rebuild its Humble evidence from the current scan.
-  const { purchaseKey, purchasedAt, provenance, ...manual } = item;
+  const { purchaseKey, purchasedAt, provenance, entitlement, entitlementId, keyType, keyStatus, expiresAt, keyCheckedAt, ...manual } = item;
   return { ...manual, provenance: itemProvenance(item).filter((record) => !record.purchaseKey) };
 }
 
@@ -3076,17 +3090,28 @@ function extractLibraryItems(detail, order, purchaseKey) {
       ...HumbleComicLibrary.bibliographicFields(product)
     }))
     .filter(({ title }) => Boolean(title));
-  return [...directItems, ...extractThirdPartyKeyItems(detail, order, purchaseKey)];
+  const keys=extractThirdPartyKeyItems(detail, order, purchaseKey);
+  const keyedTitles=new Set(keys.map(item=>HumbleComicLibrary.normalizeTitle(item.title)));
+  return [...directItems.filter(item=>!['game','software'].includes(item.kind)||!keyedTitles.has(HumbleComicLibrary.normalizeTitle(item.title))), ...keys];
 }
 
 function extractThirdPartyKeyItems(detail, order, purchaseKey) {
   const keyRecords = thirdPartyKeyRecords(detail).map(({ record }) => record);
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
-  return keyRecords
-    .map((record) => String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim())
-    .filter(Boolean)
-    .map((title) => ({ title, kind: thirdPartyEntitlementKind(null, sourceBundle), source: 'humble', sourceBundle, purchaseKey, purchasedAt }));
+  return keyRecords.flatMap((record,index) => {
+    const title=String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim();
+    return title ? [{title,kind:thirdPartyEntitlementKind(record,sourceBundle),source:'humble',sourceBundle,purchaseKey,purchasedAt,
+      entitlement:'third-party-key',entitlementId:`${String(record.machine_name??`position-${index}`).slice(0,450)}:${Number.isInteger(record.keyindex)?record.keyindex:0}`,
+      keyType:String(record.key_type_human_name??record.key_type??'').trim().slice(0,500),...keyEvidence(record)}] : [];
+  });
+}
+
+function keyEvidence(record) {
+  const keyStatus=record.is_expired===true?'expired':record.is_available===false||record.key_status==='unavailable'?'unavailable':
+    ['redeemed_key_val','redeemed_key_value','key_val','key_value','key'].some(field=>record[field]===REDACTED_REDEMPTION_KEY_VALUE)?'revealed':
+    !Object.hasOwn(record,'redeemed_key_val')?'unrevealed':'unknown';
+  return {keyStatus,expiresAt:normalizeDate(record.expiration_date??record.expiry_date),keyCheckedAt:new Date().toISOString()};
 }
 
 function thirdPartyEntitlementKind(record, sourceBundle) {

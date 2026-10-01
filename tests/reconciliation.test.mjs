@@ -42,12 +42,38 @@ function initialState() {
   return {
     libraryItems: [item('Old Book'), item('Old Game', 'game'), item('Old Software', 'software'), item('Old Audio', 'audiobook'), { title: 'Manual book' }],
     purchaseSummaries: [{ purchaseKey: 'old', sourceBundle: 'Old Bundle', itemCount: 4, pricePaid: 8 }],
-    mediaImportVersion: 6,
+    mediaImportVersion: 7,
     keyReminders: [{ id: 'old-reminder', purchaseKey: 'old', title: 'Old Game', status: 'unrevealed' }],
     keyReminderScan: { complete: true, purchaseKeys: ['old'], baselinePurchaseKeys: ['old'] },
     customCollectionMappings: [{ id: 'keep-this-rule' }]
   };
 }
+
+test('key evidence backfills once, then pending refresh updates purchase status without duplicates',async()=>{
+  const details={old:{all_tpks:[{human_name:'Old Game',machine_name:'game',keyindex:0,key_type:'steam'}]}};
+  const initial={...initialState(),mediaImportVersion:6,keyReminders:[],keyReminderScan:null};
+  const scan=importer(initial,[order('old')],details);
+  await scan.scan(false);assert.equal(scan.stored.mediaImportVersion,7);
+  assert.deepEqual(scan.requests,['old']);assert.equal(scan.stored.libraryItems.find(item=>item.title==='Old Game').keyStatus,'unrevealed');
+  details.old.all_tpks[0].is_expired=true;scan.requests.length=0;
+  await scan.scan(false);
+  const game=scan.stored.libraryItems.find(item=>item.title==='Old Game');
+  assert.deepEqual(scan.requests,['old']);assert.equal(game.keyStatus,'expired');assert.equal(game.provenance.length,1);
+  assert.equal(scan.context.HumbleOwnership.purchased(game),false);
+  assert.equal(scan.stored.keyReminders[0].status,'needs-review');
+  delete details.old.all_tpks[0].is_expired;details.old.all_tpks[0].redeemed_key_val='must-not-store';
+  await scan.scan(false);assert.equal(scan.stored.keyReminders.length,0);
+  assert.equal(scan.stored.libraryItems.find(item=>item.title==='Old Game').keyStatus,'revealed');
+  assert.equal(JSON.stringify(scan.stored).includes('must-not-store'),false);
+  scan.requests.length=0;await scan.scan(false);assert.equal(scan.requests.length,0,'resolved purchases retain incremental scanning');
+});
+
+test('resolved key purchases are revisited when their reported expiry is due',async()=>{
+  const evidence={title:'Old Game',kind:'game',source:'humble',sourceBundle:'Bundle old',purchaseKey:'old',entitlement:'third-party-key',entitlementId:'game:0',keyStatus:'revealed',expiresAt:'2000-01-01T00:00:00.000Z'};
+  const scan=importer({...initialState(),libraryItems:[evidence],keyReminders:[]},[order('old')],{old:{all_tpks:[{human_name:'Old Game',machine_name:'game',keyindex:0,is_available:false}]}});
+  await scan.scan(false);assert.deepEqual(scan.requests,['old']);
+  assert.equal(scan.stored.libraryItems[0].keyStatus,'unavailable');assert.equal(scan.stored.keyReminders[0].status,'needs-review');
+});
 
 test('complete full rescans replace all Humble kinds, purchases and reminders, while archiving evidence', async () => {
   const initial = initialState();

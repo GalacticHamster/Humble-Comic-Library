@@ -54,6 +54,19 @@
     check(sequence[0].textContent.includes('Owned collection') && sequence[1].textContent.includes('GL collection'), 'Reading coverage names local and central ownership sources');
     check(sequence[2].dataset.coverage === 'gap', 'An uncovered volume remains a gap instead of becoming owned');
     check(fixtureCalls.some(call => call.items.some(item => item.title.startsWith('Series coverage:') && item.contentsComplete === false)), 'Series context is checked through the bounded central contents API');
+    const keyItem={title:'Synthetic game',kind:'game',source:'humble',sourceBundle:'Synthetic bundle',purchaseKey:'synthetic',entitlement:'third-party-key',keyStatus:'revealed'};
+    const host=document.createElement('div');const image=document.createElement('img');host.append(image);document.body.append(host);
+    const offered={title:keyItem.title,kind:'game',container:host,element:image};
+    annotateBundleItem(offered,{state:'owned',item:keyItem,offered});
+    check(host.querySelector('.hcl-status-button').textContent==='Purchased','Usable key purchases display Purchased without implying activation');
+    host.querySelector('.hcl-status-button').click();
+    check(document.querySelector('#hcl-match-inspector').textContent.includes('Destination activation: unknown'),'Key explanation keeps revelation separate from destination activation');
+    document.querySelector('#hcl-match-inspector button').click();
+    host.querySelector('.hcl-status-button').remove();
+    annotateBundleItem(offered,{state:'possible',item:{...keyItem,keyStatus:'expired'},offered,ownershipReview:true,possibleReason:'Expired key needs destination-library review'});
+    check(host.querySelector('.hcl-status-button').textContent==='Check ownership','Expired purchase evidence displays Check ownership');
+    host.querySelector('.hcl-status-button').click();
+    check(document.querySelector('#hcl-match-inspector').textContent.includes('key status: expired'),'Ownership review retains the expired purchase title and key evidence');
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

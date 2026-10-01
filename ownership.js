@@ -4,6 +4,10 @@
   const H = global.HumbleComicLibrary;
   const C = global.HumbleCollectionMappings;
   const permanent = record => ['owned', 'claimed'].includes(record?.ownership);
+  function purchased(item) {
+    const records = item.provenance?.length ? item.provenance : [item];
+    return records.some(record => record.entitlement !== 'third-party-key' || !['expired', 'unavailable'].includes(record.keyStatus));
+  }
   const key = C.scopeKey;
   const intersect = (left, right) => left.some(value => right.includes(value));
   const localContentsIndexes = new WeakMap();
@@ -69,9 +73,9 @@
     // A literal local ownership assertion is usable; a lossy title key alone
     // is not. Multiple homonyms require independent edition/author evidence.
     const literal = value => H.text(value).toLowerCase();
-    const exact = compatible.find(record => editionIdentifier(record)
+    const exact = compatible.find(record => purchased(record) && (editionIdentifier(record)
       || H.normalizeTitle(record.title) === target && (sharedIdentity(offered, record) || currentBundle(record))
-      || compatible.length === 1 && related.length === 1 && literal(record.title) === literal(offered.lookupTitle ?? offered.title));
+      || compatible.length === 1 && related.length === 1 && literal(record.title) === literal(offered.lookupTitle ?? offered.title)));
     return { exact, possible: exact ? [] : related, reason: related.length
       ? related.map(record => `${record.title}: ${conflicts(offered, record, true).join('; ') || 'Title identity needs review'}`).join('\n') : '' };
   }
@@ -100,6 +104,7 @@
   function localEvidence(records, mappings) {
     const entries = [];
     for (const item of records) {
+      if (!purchased(item)) continue;
       const reviewed = offerContents(item, mappings);
       for (const mapping of reviewed.mappings ?? []) {
         for (const unit of C.expandContents(mapping)) if (unit.completeness === 'full') entries.push({ ...unit,
@@ -187,7 +192,7 @@
       const identity = `${record.provider || 'humble'}:${record.itemRef || H.catalogItemKey(item)}`;
       if (seen.has(identity)) continue;
       seen.add(identity);
-      lines.push(`Library item: ${item.title || 'Unnamed record'} · ${record.provider || 'humble'} · ${record.ownership || 'locally recorded as owned'}`);
+      lines.push(`Library item: ${item.title || 'Unnamed record'} · ${record.provider || 'humble'} · ${record.ownership || (purchased(item) ? 'locally recorded as owned' : 'purchase recorded; key needs review')}`);
       const data = record.evidence ? { ...record.evidence, title: record.title } : item;
       describe('Library evidence', data);
       const differences = conflicts(offered, data, true);
@@ -195,6 +200,13 @@
       if (record.reason || record.relationship) lines.push(`Basis: ${record.reason || record.relationship}${record.relationship ? ` (${record.relationship})` : ''}`);
       if (record.evidence?.source || record.evidence?.checkedAt || record.verifiedAt) lines.push(`Source: ${record.evidence?.source || 'GL review'} · checked ${record.evidence?.checkedAt || 'unknown'} · verified ${record.verifiedAt || 'unknown'}`);
       for (const provenance of item.provenance ?? [item]) if (provenance.sourceBundle) lines.push(`Humble bundle: ${provenance.sourceBundle}${provenance.purchasedAt ? ` · purchased ${provenance.purchasedAt}` : ''}`);
+      for (const origin of item.provenance?.length ? item.provenance : [item]) {
+        if (origin.entitlement === 'third-party-key' || item.kind === 'game' && item.source === 'humble') {
+          lines.push(`Humble purchase evidence; key status: ${origin.keyStatus || 'unknown'}${origin.keyType ? ` (${origin.keyType})` : ''}${origin.expiresAt ? ` · reported expiry ${origin.expiresAt}` : ''}${origin.keyCheckedAt ? ` · checked ${origin.keyCheckedAt}` : ''}. Destination activation: unknown.`);
+          lines.push('Purchase and key revelation do not prove activation in Steam or another destination library. An expired/unavailable key needs review and does not revoke a separately verified destination license.');
+        }
+      }
+      if (record.evidence?.purchaseEvidence) lines.push(`Reseller purchase: ${record.evidence.purchaseEvidence}; key status: ${record.evidence.keyStatus || 'unknown'}; destination activation: ${record.evidence.activationStatus || 'unknown'}.`);
       if (record.mapping) lines.push(`Contents source: ${record.mapping.sourceLabel || 'Reviewed mapping'} · ${record.mapping.sourceUrl || 'No source URL'} · verified ${record.mapping.verifiedAt || 'date not supplied'}`);
     }
     const coverage = match.coverage;
@@ -315,5 +327,5 @@
     }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || a.run.localeCompare(b.run));
   }
 
-  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
+  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
