@@ -17,7 +17,7 @@ function background(id) {
 test('review navigation uses only the saved extension ID and accepts only internal callers', async () => {
   const worker = background('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.equal((await worker.request({ type: 'HCL_OPEN_GALACTIC_REVIEW', url: 'https://untrusted.example' })).ok, true);
-  assert.equal(worker.tabs[0].url, 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/options.html');
+  assert.equal(worker.tabs[0].url, 'chrome://extensions/?options=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.equal(await worker.request({ type: 'HCL_OPEN_GALACTIC_REVIEW' }, { id: 'foreign' }), null);
   assert.equal(worker.tabs.length, 1);
 });

@@ -257,3 +257,15 @@ test('known ISBN differences and ambiguous homonyms stay Possible; different aut
   assert.equal(result.counts.possible, 1);
   assert.equal(result.counts.owned, 0);
 });
+
+test('a complete title-derived range still needs edition/contents review; lossy article equality stays Possible', async () => {
+  const context = load({ cards: [{ title: 'Manga Vol. 1-3' }] });
+  context.chrome.runtime.sendMessage = async (_id, request) => ({ ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [] })) });
+  const result = await render(context, [1, 2, 3].map(number => ({ title: `Manga Vol. ${number}` })));
+  assert.equal(result.counts.owned, 0);
+  assert.equal(result.counts.partial, 1);
+  const article = load({ cards: [{ title: 'The Room' }] }); article.chrome.runtime.sendMessage = context.chrome.runtime.sendMessage;
+  const related = await render(article, [{ title: 'Room' }]);
+  assert.equal(related.counts.owned, 0);
+  assert.equal(related.counts.possible, 1);
+});

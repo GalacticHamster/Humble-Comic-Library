@@ -221,7 +221,7 @@
 .hcl-purchase-focus-notice { position: fixed; right: 1rem; bottom: 1rem; z-index: 2147483647; max-width: 22rem; padding: 0.75rem 0.9rem; border-radius: 0.45rem; background: #171717; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 35%); color: #fff; font: 600 0.8rem/1.35 Arial, sans-serif; }
 
 .hcl-interactive-badge::after { display: none; }
-.hcl-status-button { position: absolute; z-index: 3; top: .4rem; left: .4rem; border: 0; border-radius: 1rem; padding: .3rem .6rem; background: #1769aa; color: #fff; font: 700 .75rem/1.2 Arial, sans-serif; cursor: pointer; }
+.hcl-status-button { position: absolute; z-index: 2147483647; top: .4rem; left: .4rem; border: 0; border-radius: 1rem; padding: .3rem .6rem; background: #1769aa; color: #fff; font: 700 .75rem/1.2 Arial, sans-serif; cursor: pointer; }
 .hcl-status-button[data-state="owned"] { background: #0a7a42; }
 .hcl-status-button[data-state="elsewhere"] { background: #0f766e; }
 .hcl-status-button[data-state="possible"] { background: #b06d00; }
@@ -238,3 +238,11 @@
 .hcl-bundle-plan ul { padding-left: 1.2rem; }
 .hcl-bundle-plan li { margin-block: .45rem; }
 .hcl-wishlist-control { white-space: nowrap; font-weight: normal; }
+.hcl-series-coverage { font-size: .8rem; margin-block: .7rem; }
+.hcl-series-coverage summary { cursor: pointer; }
+.hcl-series-coverage details { margin-block: .5rem; }
+.hcl-reading-sequence { max-height: 15rem; overflow: auto; padding-left: 1.2rem; }
+.hcl-reading-sequence li { margin-block: .4rem; }
+.hcl-reading-sequence [data-coverage="covered"] { color: #9ce4b7; }
+.hcl-reading-sequence [data-coverage="uncertain"] { color: #f8cf7d; }
+.hcl-series-coverage button { color: #fff; background: #333; border: 1px solid #aaa; padding: .3rem .5rem; border-radius: .3rem; cursor: pointer; }

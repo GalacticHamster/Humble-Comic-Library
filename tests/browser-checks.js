@@ -44,6 +44,16 @@
     const uncertain = document.querySelector('#hcl-plan-uncertain'); uncertain.checked = true; uncertain.dispatchEvent(new Event('change'));
     check(document.querySelector('.hcl-plan-output').textContent.includes('uncertain selections'), 'Uncertain selections enter plans only through an explicit control');
     check([...document.querySelectorAll('.hcl-status-button')].some(button => button.dataset.state === 'possible'), 'Planning leaves Possible ownership unchanged');
+    const seriesPanel = document.querySelector('#hcl-series-coverage');
+    check(seriesPanel?.textContent.includes('Manga') && seriesPanel.textContent.includes('Gaps: 3'), 'Storefront series coverage displays reviewed gaps in the offered span');
+    seriesPanel.open = true;
+    const seriesGroup = seriesPanel.querySelector('details'); seriesGroup.open = true;
+    await waitFor(() => seriesGroup.querySelector('.hcl-reading-sequence'));
+    const sequence = [...seriesGroup.querySelectorAll('.hcl-reading-sequence li')];
+    check(sequence.length === 4 && sequence[0].textContent.includes('volume 1') && sequence[3].textContent.includes('volume 4'), 'Reading coverage is presented in numeric order');
+    check(sequence[0].textContent.includes('Owned collection') && sequence[1].textContent.includes('GL collection'), 'Reading coverage names local and central ownership sources');
+    check(sequence[2].dataset.coverage === 'gap', 'An uncovered volume remains a gap instead of becoming owned');
+    check(fixtureCalls.some(call => call.items.some(item => item.title.startsWith('Series coverage:') && item.contentsComplete === false)), 'Series context is checked through the bounded central contents API');
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

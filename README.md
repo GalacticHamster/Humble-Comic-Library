@@ -103,6 +103,14 @@ Use **Wishlist** beside a summary title to add/remove it. In Extension options, 
 
 Wishlist preferences survive library restores and clearing the library. Save or restore them separately with **Export wishlist**/**Restore wishlist**. These controls validate before writing and transfer no purchase records. Plans apply only to the detected bundle tiers and checked library evidence; they do not purchase anything.
 
+## Series gaps and numbered coverage
+
+The summary's **Series coverage** view combines the same reviewed local/GL contents model with a numbered sequence for the series represented in the offer. It checks intervening issues/volumes with GL, including units absent from the bundle, before presenting gaps. Fractions sort numerically; runs, languages, issues, volumes, annuals, and specials remain separate. Unknown scope is shown as needing review, and excerpts/audio do not prove ebook/comic coverage. Expand a series to see its ordered units and actual ownership sources.
+
+This is coverage within the offered span, not a full series bibliography or a publisher's chronological reading order. Very large spans show only explicitly requested units. When GL is unavailable, the panel states that only local evidence was checked. **Open central series review** opens GL's options page for its full central Series coverage view (with the same Firefox toolbar fallback as the ownership inspector). Context queries use the existing bounded `MATCH_ITEMS` API and never claim an offered edition fully owned.
+
+Single-unit titles imported as previews/samples do not establish full-unit contents ownership. A shared author alone never matches unrelated books. Literal range titles remain Partial until the offered contents/edition is sufficiently established, even when every numbered title is found locally. Title/identifier candidate indexes and an index of owned contents keep comparison work focused on relevant records in large libraries.
+
 ## Custom collection mappings
 
 In **Extension options**, use **Collection mappings** to import a JSON file like this:
@@ -148,9 +156,11 @@ Rich mappings can include `sourceLabel`, `sourceId`, `sourceUrl` (HTTP/HTTPS wit
 
 Importing replaces previous custom mappings; built-in mappings remain. Mappings and imported bibliographic evidence are included in backups. Run IDs are retained locally; GL contents requests also need a readable run name/year to establish coverage.
 
+A matching edition-bound rule takes precedence over generic title rules. Conflicting reviewed lists, including contradictory full/excerpt assertions, require review and supply no automatic owned-contents evidence.
+
 ## Create a release ZIP
 
-Chrome uses a background service worker for the review-opening action. The Firefox package substitutes background scripts, following [Mozilla's background manifest guidance](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background). This adds no permissions.
+Chrome uses a background service worker for the review-opening action and opens GL through [Chromium's trusted extension-options route](https://github.com/chromium/chromium/blob/main/chrome/browser/resources/extensions/navigation_helper.ts), rather than navigating directly to another extension's private HTML. The Firefox package substitutes background scripts, following [Mozilla's background manifest guidance](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background). This adds no permissions.
 
 Run one of the following from PowerShell at the repository root:
 
@@ -167,6 +177,10 @@ The Chrome target creates `dist/Humble-Comic-Library-<version>.zip`; the Firefox
 Store screenshots are checked into [store-assets/](store-assets/) for review and versioning, but are intentionally excluded from the extension ZIP. Upload those images separately in the Chrome Web Store dashboard.
 
 Record each published version in [CHANGELOG.md](CHANGELOG.md), and increase the numeric `version` in `manifest.json` before every subsequent Chrome Web Store or AMO upload.
+
+## Verification
+
+Run `node --test --test-concurrency=1 tests` for the core, backup, navigation, and Windows Chrome/Firefox packaging checks. When the adjacent GalacticLibrary repo is present, the suite also exercises its actual companion API; the standalone HB suite uses contract fixtures otherwise. Run `node tests/browser.mjs` for the storefront UI checks in an isolated headless Chrome profile with synthetic libraries. Set `CHROME_BIN` if Chrome/Chromium is installed elsewhere. These checks do not use a personal browser profile or signed-in provider accounts.
 
 ## Roadmap
 

@@ -6,11 +6,19 @@
   const permanent = record => ['owned', 'claimed'].includes(record?.ownership);
   const key = C.scopeKey;
   const intersect = (left, right) => left.some(value => right.includes(value));
+  const localContentsIndexes = new WeakMap();
+  const mappingIndexes = new WeakMap();
+  const unitKey = entry => JSON.stringify([key(entry.series), entry.unitType, C.numberKey(entry.number)]);
+  function indexContents(entries) {
+    const index = new Map();
+    for (const entry of entries) { const token = unitKey(entry); const group = index.get(token) ?? []; group.push(entry); index.set(token, group); }
+    return index;
+  }
 
   function editionParts(title, kind = 'book') {
     const normalized = H.normalizeTitle(title);
     const suffix = kind === 'game'
-      ? /\s+(?:(?:base game|standard|deluxe|gold|platinum|ultimate|complete|definitive|collectors?|anniversary|remastered|enhanced|premium|super|game of the year|goty)(?:\s+edition)?|[\p{L}\p{N}]+ edition)$/iu
+      ? /\s+(?:(?:base(?: game)?|standard|digital deluxe|deluxe|gold|platinum|ultimate|complete|definitive|collectors?|anniversary|remastered|enhanced|premium|super|game of the year|goty)(?:\s+edition)?|complete pack|ultimate collection|collection|trilogy|[\p{L}\p{N}]+ edition)$/iu
       : /\s+(?:(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|revised|updated|expanded|annotated|new|deluxe|dlx)(?:\s+(?:revised|updated))?\s+(?:edition|ed)|deluxe|dlx)$/iu;
     const found = suffix.exec(normalized);
     return { base: found ? normalized.slice(0, found.index).trim() : normalized, edition: found ? found[0].trim() : '' };
@@ -50,23 +58,40 @@
 
   function exactCandidate(offered, records, currentBundle = () => false) {
     const target = H.normalizeTitle(offered.lookupTitle ?? offered.title);
+    const editionIdentifier = record => {
+      const left = H.bibliographicFields(offered); const right = H.bibliographicFields(record);
+      return Boolean(left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)
+        || left.asin && left.asin === right.asin || left.editionId && left.editionId === right.editionId);
+    };
     const related = records.filter(record => !conflicts(offered, record).length
-      && (H.normalizeTitle(record.title) === target || sharedIdentity(offered, record)));
+      && (H.titleKey(record.title) === H.titleKey(offered.lookupTitle ?? offered.title) || editionIdentifier(record)));
     const compatible = related.filter(record => !conflicts(offered, record, true).length);
     // A literal local ownership assertion is usable; a lossy title key alone
     // is not. Multiple homonyms require independent edition/author evidence.
     const literal = value => H.text(value).toLowerCase();
-    const exact = compatible.find(record => sharedIdentity(offered, record) || currentBundle(record)
+    const exact = compatible.find(record => editionIdentifier(record)
+      || H.normalizeTitle(record.title) === target && (sharedIdentity(offered, record) || currentBundle(record))
       || compatible.length === 1 && related.length === 1 && literal(record.title) === literal(offered.lookupTitle ?? offered.title));
     return { exact, possible: exact ? [] : related, reason: related.length
       ? related.map(record => `${record.title}: ${conflicts(offered, record, true).join('; ') || 'Title identity needs review'}`).join('\n') : '' };
   }
 
   function offerContents(item, mappings) {
-    const applicable = mappings.filter(mapping => C.mappingMatches(mapping, item));
+    let index = mappingIndexes.get(mappings);
+    if (!index) {
+      index = new Map();
+      for (const mapping of mappings) {
+        const token = H.normalizeTitle(mapping.collectionTitle); const rows = index.get(token) ?? [];
+        rows.push(mapping); index.set(token, rows);
+      }
+      mappingIndexes.set(mappings, index);
+    }
+    const matched = (index.get(H.normalizeTitle(item.title)) ?? []).filter(mapping => C.mappingMatches(mapping, item));
+    const specific = matched.filter(mapping => mapping.editionId || mapping.identifiers);
+    const applicable = specific.length ? specific : matched;
     // Two conflicting reviewed maps must not silently choose a contents list.
     const lists = applicable.map(mapping => C.expandContents(mapping));
-    const fingerprints = new Set(lists.map(entries => JSON.stringify(entries.map(C.contentKey).sort())));
+    const fingerprints = new Set(lists.map(entries => JSON.stringify(entries.map(entry => `${C.contentKey(entry)}:${entry.completeness}`).sort())));
     if (fingerprints.size > 1) return { entries: [], complete: false, uncertain: true, reason: 'Conflicting collection mappings' };
     if (lists.length) return { entries: lists[0], complete: applicable.some(mapping => mapping.contentsComplete === true), mappings: applicable, uncertain: false };
     return { entries: item.kind === 'book' || !item.kind ? C.titleContents(item.lookupTitle ?? item.title, H.bibliographicFields(item)) : [], complete: false, mappings: [], uncertain: false };
@@ -75,27 +100,30 @@
   function localEvidence(records, mappings) {
     const entries = [];
     for (const item of records) {
-      for (const mapping of mappings) {
-        if (!C.mappingMatches(mapping, item)) continue;
+      const reviewed = offerContents(item, mappings);
+      for (const mapping of reviewed.mappings ?? []) {
         for (const unit of C.expandContents(mapping)) if (unit.completeness === 'full') entries.push({ ...unit,
           evidence: [{ provider: 'humble', title: item.title, ownership: 'owned', relationship: 'contains',
             reason: mapping.sourceLabel || 'Reviewed local mapping', evidence: { source: mapping.sourceLabel, checkedAt: mapping.verifiedAt || null }, item, mapping }] });
       }
       const units = C.titleContents(item.title, H.bibliographicFields(item));
       // A multi-unit title is a query hint, never an owned contents assertion.
-      if (units.length === 1) entries.push({ ...units[0], evidence: [{ provider: 'humble', title: item.title, ownership: 'owned', relationship: 'same-edition', item,
+      if (units.length === 1 && !reviewed.uncertain && !(reviewed.mappings?.length && reviewed.entries.every(entry => entry.completeness === 'excerpt'))
+        && !/\b(?:preview|sample|excerpt|read\s+now)\b/iu.test(item.title)) entries.push({ ...units[0], evidence: [{ provider: 'humble', title: item.title, ownership: 'owned', relationship: 'same-edition', item,
         reason: 'Locally owned single issue/volume; scope must agree' }] });
     }
+    localContentsIndexes.set(entries, indexContents(entries));
     return entries;
   }
 
   function coverageFor(target, local, external = null) {
     const units = [...new Map(target.entries.filter(entry => entry.completeness === 'full').map(entry => [C.contentKey(entry), entry])).values()];
     const covered = []; const possibleCovered = []; const missing = [];
-    const candidates = [...local, ...(external?.coverage?.covered ?? []), ...(external?.coverage?.possibleCovered ?? []).map(entry => ({ ...entry, uncertain: true }))];
+    const localIndex = localContentsIndexes.get(local) ?? indexContents(local);
+    const externalIndex = indexContents([...(external?.coverage?.covered ?? []), ...(external?.coverage?.possibleCovered ?? []).map(entry => ({ ...entry, uncertain: true }))]);
     for (const unit of units) {
       const confirmed = []; const possible = [];
-      for (const candidate of candidates) {
+      for (const candidate of [...(localIndex.get(unitKey(unit)) ?? []), ...(externalIndex.get(unitKey(unit)) ?? [])]) {
         if (candidate.completeness === 'excerpt' || key(candidate.series) !== key(unit.series)
           || candidate.unitType !== unit.unitType || C.numberKey(candidate.number) !== C.numberKey(unit.number)) continue;
         if (unit.seriesId && candidate.seriesId && unit.seriesId !== candidate.seriesId || unit.runId && candidate.runId && unit.runId !== candidate.runId) continue;
@@ -116,14 +144,14 @@
       contentsComplete: target.complete, scopeUncertain, covered, possibleCovered, missing, target };
   }
 
-  function request(item, mappings = []) {
+  function request(item, mappings = [], targetOverride = null) {
     const mediaType = item.kind; const title = H.text(item.lookupTitle ?? item.title);
     const data = H.bibliographicFields(item); const fields = { mediaType, title, excludeProviders: ['humble'] };
     const identifiers = {};
     for (const name of ['isbn', 'asin', 'workId']) if (data[name]) identifiers[name] = data[name];
     if (Object.keys(identifiers).length) fields.identifiers = identifiers;
     for (const name of ['authors', 'language', 'edition', 'series', 'run', 'volume', 'issue']) if (data[name]) fields[name] = data[name];
-    const target = offerContents(item, mappings);
+    const target = targetOverride ?? offerContents(item, mappings);
     if (target.entries.length) {
       fields.contents = target.entries.map(entry => ({ series: entry.series, run: entry.run, unitType: entry.unitType,
         number: entry.number, language: entry.language, completeness: entry.completeness }));
@@ -236,5 +264,56 @@
       excludedUncertain: rows.filter(row => row.match.state === 'possible' || row.match.state === 'partial' && !row.units.length).length };
   }
 
-  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle };
+  function seriesKey(entry) {
+    return JSON.stringify([key(entry.series), key(entry.run), entry.unitType, key(entry.language), entry.seriesId || '', entry.runId || '']);
+  }
+
+  function readingTargets(resolved) {
+    const groups = new Map();
+    for (const { item, target } of resolved) {
+      if (item.kind !== 'book') continue;
+      for (const entry of target?.entries ?? []) {
+        if (entry.completeness !== 'full') continue;
+        const scope = seriesKey(entry);
+        const group = groups.get(scope) ?? { ...entry, entries: new Map() };
+        group.entries.set(C.contentKey(entry), entry); groups.set(scope, group);
+      }
+    }
+    return [...groups.values()].map(group => {
+      const entries = new Map(group.entries);
+      const numeric = [...entries.values()].map(entry => Number(C.numberKey(entry.number))).filter(Number.isFinite);
+      const first = Math.ceil(Math.min(...numeric)); const last = Math.floor(Math.max(...numeric));
+      const bounded = ['issue', 'volume', 'annual'].includes(group.unitType) && numeric.length > 0 && last - first <= 1999;
+      if (bounded) for (let number = first; number <= last && entries.size < 2000; number++) {
+        const entry = { series: group.series, run: group.run, unitType: group.unitType, language: group.language, number: String(number), completeness: 'full',
+          ...(group.seriesId ? { seriesId: group.seriesId } : {}), ...(group.runId ? { runId: group.runId } : {}) };
+        if (!entries.has(C.contentKey(entry))) entries.set(C.contentKey(entry), entry);
+      }
+      return { item: { title: `Series coverage: ${group.series}${group.run ? ` (${group.run})` : ''} ${group.unitType} [${group.language || 'unknown language'}]`,
+          kind: 'book', series: group.series, run: group.run, language: group.language },
+        match: { state: 'new' }, target: { entries: [...entries.values()], complete: false, uncertain: false },
+        enumerationLimited: numeric.length > 0 && !bounded };
+    });
+  }
+
+  function seriesCoverage(queries, local, resultsByKey = new Map()) {
+    return queries.map(query => {
+      const coverage = coverageFor(query.target, local, resultsByKey.get(query.item.galacticKey));
+      const covered = new Map(coverage.covered.map(entry => [C.contentKey(entry), entry]));
+      const possible = new Map(coverage.possibleCovered.map(entry => [C.contentKey(entry), entry]));
+      const first = query.target.entries[0];
+      const entries = query.target.entries.map(entry => ({ ...entry,
+        state: covered.has(C.contentKey(entry)) ? 'covered' : possible.has(C.contentKey(entry)) || !entry.run || !entry.language ? 'uncertain' : 'gap',
+        evidence: covered.get(C.contentKey(entry))?.evidence ?? possible.get(C.contentKey(entry))?.evidence ?? []
+      })).sort((a, b) => {
+        const left = Number(C.numberKey(a.number)); const right = Number(C.numberKey(b.number));
+        return Number.isFinite(left) && Number.isFinite(right) ? left - right : a.number.localeCompare(b.number, undefined, { numeric: true });
+      });
+      return { series: first.series, run: first.run, language: first.language, unitType: first.unitType,
+        entries, covered: coverage.owned, gaps: entries.filter(entry => entry.state === 'gap'), uncertain: entries.filter(entry => entry.state === 'uncertain'),
+        enumerationLimited: query.enumerationLimited };
+    }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || a.run.localeCompare(b.run));
+  }
+
+  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));

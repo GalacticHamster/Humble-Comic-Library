@@ -38,6 +38,9 @@ test('bibliographic imports retain homonyms and conflicting identifiers instead 
 test('lossy title keys and fraction/range collisions cannot establish exact edition ownership', () => {
   assert.equal(O.exactCandidate({ title: 'The Room' }, [{ title: 'Room' }]).exact, undefined);
   assert.equal(O.exactCandidate({ title: 'Comic #1/2', authors: ['A'] }, [{ title: 'Comic #1-2', authors: ['A'] }]).exact, undefined);
+  assert.equal(O.exactCandidate({ title: 'Unrelated novel', authors: ['Same writer'] }, [{ title: 'Different novel', authors: ['Same writer'] }]).exact, undefined);
+  assert.equal(O.exactCandidate({ title: 'Unrelated novel', authors: ['Same writer'] }, [{ title: 'Different novel', authors: ['Same writer'] }]).possible.length, 0);
+  assert.equal(O.exactCandidate({ title: 'The Room', authors: ['Writer'] }, [{ title: 'Room', authors: ['Writer'] }]).exact, undefined);
 });
 
 test('game base, deluxe, gold and platinum are Possible in both directions; title words stay intact', () => {
@@ -63,6 +66,18 @@ test('local reviewed collections union with GL coverage, with duplicates counted
   assert.equal(O.coverageFor({ ...target, complete: false }, local, { coverage: { covered: [external(3)] } }).contentsComplete, false);
 });
 
+test('contradictory full/excerpt mappings need review; a matching edition-bound rule supersedes generic title rules', () => {
+  const excerpt = { ...mapping, id: 'excerpt', contains: [{ ...mapping.contains[0], completeness: 'excerpt' }] };
+  assert.equal(O.offerContents({ title: mapping.collectionTitle }, [mapping, excerpt]).uncertain, true);
+  assert.equal(O.localEvidence([{ title: mapping.collectionTitle }], [mapping, excerpt]).length, 0);
+  const specific = { ...mapping, id: 'specific', editionId: 'second', contains: [{ series: '漫画', run: '2020', unitType: 'volume', number: '3' }] };
+  const target = O.offerContents({ title: mapping.collectionTitle, editionId: 'second' }, [mapping, specific]);
+  assert.deepEqual(Array.from(target.entries, entry => entry.number), ['3']);
+  assert.equal(target.uncertain, false);
+  const local = O.localEvidence([{ title: mapping.collectionTitle, editionId: 'second' }], [mapping, specific]);
+  assert.deepEqual(Array.from(local, entry => entry.number), ['3']);
+});
+
 test('different runs/languages, excerpts, temporary access and excluded stale Humble evidence never prove coverage', () => {
   for (const candidate of [external(1, { ownership: 'subscription' }), external(1, { provider: 'humble' }), { ...external(1), run: '2021' }, { ...external(1), language: 'en' }, { ...external(1), completeness: 'excerpt' }]) {
     assert.equal(O.coverageFor({ entries: [unit(1)], complete: true }, [], { coverage: { covered: [candidate] } }).owned, 0);
@@ -71,6 +86,7 @@ test('different runs/languages, excerpts, temporary access and excluded stale Hu
   assert.equal(unknown.owned, 0);
   assert.equal(unknown.possibleCovered.length, 1);
   assert.equal(unknown.complete, false);
+  assert.equal(O.localEvidence([{ title: 'Manga Vol. 1 Preview', run: '2000', language: 'en' }], []).length, 0);
 });
 
 test('contents requests carry bounded catalog evidence and exclude Humble; source secrets remain local', () => {
@@ -105,6 +121,39 @@ test('large libraries respect both GL request limits; incomplete results are not
   await vm.runInContext("queryGalacticLibrary(records,'book',comparison,1)", context);
   assert.equal(context.comparison.galactic.resultsByKey.size, 0);
   assert.match(context.comparison.galactic.error, /incomplete/u);
+});
+
+test('new lazy cards wait for earlier lookups; a later successful batch does not hide an earlier failed check', async () => {
+  for (const failFirst of [false, true]) {
+    let finishFirst; let count = 0;
+    context.chrome.runtime.sendMessage = async (_id, request) => {
+      count++;
+      if (count === 1) return await new Promise(resolve => { finishFirst = () => resolve({ ok: true, apiVersion: 1, results: failFirst ? [] : request.items.map(({ requestId }) => ({ requestId, matches: [] })) }); });
+      return { ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [] })) };
+    };
+    vm.runInContext("comparison = {job:1,galactic:createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')}; oldCards=[{item:{title:'Old card',kind:'book'},match:{state:'new'}}]; newCards=[...oldCards,{item:{title:'Lazy card',kind:'book'},match:{state:'new'}}]", context);
+    const first = vm.runInContext("queryGalacticLibrary(oldCards,'book',comparison,1)", context);
+    context.comparison.job = 2;
+    const second = vm.runInContext("queryGalacticLibrary(newCards,'book',comparison,2)", context);
+    assert.equal(count, 1, 'The new request is serialized behind the existing cache update');
+    finishFirst(); await Promise.all([first, second]);
+    assert.equal(context.comparison.galactic.resultsByKey.size, failFirst ? 1 : 2);
+    assert.equal(Boolean(context.comparison.galactic.error), failFirst);
+    if (failFirst) {
+      await vm.runInContext("queryGalacticLibrary(oldCards,'book',comparison,2)", context);
+      assert.equal(context.comparison.galactic.resultsByKey.size, 2);
+      assert.equal(context.comparison.galactic.error, null);
+    }
+  }
+});
+
+test('indexed lookup keeps distinct metadata candidates while finding editions in a large unrelated library', () => {
+  context.largeLibrary = Array.from({ length: 20000 }, (_, n) => ({ title: `Unrelated ${n}`, kind: 'game' }));
+  context.largeLibrary.push({ title: 'Control Gold Edition', kind: 'game' }, { title: 'Shared', authors: ['A'], kind: 'game' }, { title: 'Shared', authors: ['B'], kind: 'game' });
+  vm.runInContext("largeMatcher = createBundleLibraryMatcher(largeLibrary,'game')", context);
+  const candidate = vm.runInContext("findPossibleMatch('Control',largeMatcher,'game')", context);
+  assert.equal(candidate.items.title, 'Control Gold Edition');
+  assert.equal(vm.runInContext("identityCandidates({title:'Shared',kind:'game'},largeMatcher).length", context), 2);
 });
 
 const glApi = new URL('../../GalacticLibrary/src/lib/external-api.js', import.meta.url);
