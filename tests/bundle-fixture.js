@@ -8,6 +8,10 @@ window.chrome = { storage: { local: {
   get: async defaults => ({ ...defaults, ...structuredClone(fixtureStored) }),
   set: async value => Object.assign(fixtureStored, structuredClone(value))
 } }, runtime: { sendMessage: async (id, request) => {
+  if(id?.type==='HCL_STORE'){
+    window.fixtureStore??=HumbleComicLibrary.createSyncStore(chrome.storage.local);
+    try{return {ok:true,result:await fixtureStore.execute(id.operation,id.args)};}catch(error){return {ok:false,error:error.message};}
+  }
   if (typeof id === 'object') { fixtureReviewCalls.push(id); return { ok: true }; }
   fixtureCalls.push(request);
   return { ok: true, apiVersion: 1, results: request.items.map(item => {

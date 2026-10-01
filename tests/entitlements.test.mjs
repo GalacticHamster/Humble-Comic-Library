@@ -59,7 +59,7 @@ test('expired keys remain Possible, cannot supply owned contents, and survive ba
   assert.equal(identity.exact,undefined);assert.equal(identity.possible.length,1);
   assert.equal(O.localEvidence([item],[]).length,0);
   const backup=plain(H.createLibraryBackup({libraryItems:[item],mediaImportVersion:7}));
-  assert.equal(backup.version,8);
+  assert.equal(backup.version,9);
   const restored=plain(H.restoreBackupState(backup));assert.equal(restored.libraryItems[0].keyStatus,'expired');
   assert.equal(O.purchased(restored.libraryItems[0]),false);
   assert.throws(()=>H.restoreBackupState({...backup,items:[{...item,keyStatus:'activated'}]}),/keyStatus/);

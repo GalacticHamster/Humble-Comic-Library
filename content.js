@@ -34,7 +34,7 @@ let bundleSummaryMinimized = false;
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => renderCataloguePurchaseMarkers(purchaseSummaries, showDiagnostics, filters, (nextFilters) => {
         filters = normaliseCatalogueFilters(nextFilters);
-        chrome.storage.local.set({ catalogueFilters: filters }).catch(() => {});
+        HumbleComicLibrary.storageSet({ catalogueFilters: filters }).catch(() => {});
         refresh();
       }), 150);
     };
@@ -1954,7 +1954,7 @@ function appendBundleNewItemsOnlyFilter(summary, comparison) {
   input.checked = comparison.showNewItemsOnly;
   input.addEventListener('change', () => {
     comparison.showNewItemsOnly = input.checked;
-    chrome.storage.local.set({ showNewItemsOnly: input.checked }).catch(() => {});
+    HumbleComicLibrary.storageSet({ showNewItemsOnly: input.checked }).catch(() => {});
     applyBundleNewItemsOnlyFilter(input.checked);
   });
   label.append(input, ' Show new items only');
@@ -2091,11 +2091,8 @@ function appendWishlistControl(row, offered, comparison) {
   toggle.checked = (comparison.wishlistItems ?? []).some(item => HumbleOwnership.wishlistMatches(item, offered));
   toggle.addEventListener('change', async () => {
     try {
-      // Merge the latest list so another bundle tab's wishlist edits survive.
-      const saved = await chrome.storage.local.get({ wishlistItems: [] });
-      const wanted = HumbleComicLibrary.normalizeWishlist(saved.wishlistItems).filter(item => !HumbleOwnership.wishlistMatches(item, offered));
-      if (toggle.checked) wanted.push({ title: offered.title, kind: offered.kind === 'unknown' ? 'book' : offered.kind, weight: 1, ...HumbleComicLibrary.bibliographicFields(offered) });
-      await chrome.storage.local.set({ wishlistItems: wanted });
+      const entry={title:offered.title,kind:offered.kind==='unknown'?'book':offered.kind,weight:1,...HumbleComicLibrary.bibliographicFields(offered)};
+      const wanted=await HumbleComicLibrary.storageRequest('wishlist',toggle.checked?'add':'remove',toggle.checked?[entry]:HumbleComicLibrary.catalogItemKey(entry));
       comparison.wishlistItems = wanted;
       document.querySelector('#hcl-bundle-plan')?.dispatchEvent(new Event('hcl-plan-update'));
     } catch (error) { toggle.checked = !toggle.checked; label.title = error.message; }
@@ -2205,7 +2202,7 @@ async function focusRequestedPurchase() {
   const requestedAt = Number(request?.requestedAt);
   if (!purchaseKey) return;
   if (!Number.isFinite(requestedAt) || Date.now() - requestedAt > PURCHASE_FOCUS_MAX_AGE_MS) {
-    await chrome.storage.local.remove('hclPurchaseFocus');
+    await HumbleComicLibrary.storageRemove('hclPurchaseFocus');
     return;
   }
   const target = findPurchaseFocusTarget(purchaseKey, request);
@@ -2217,7 +2214,7 @@ async function focusRequestedPurchase() {
     // popup outside the original Options-page user gesture.
     const destination = safePurchaseLinkDestination(target);
     if (destination) {
-      await chrome.storage.local.remove('hclPurchaseFocus');
+      await HumbleComicLibrary.storageRemove('hclPurchaseFocus');
       location.assign(destination);
       return;
     }
@@ -2226,7 +2223,7 @@ async function focusRequestedPurchase() {
     // Humble's current Purchases cards retain the order identifier as a data
     // attribute instead of putting it in an individual-order URL. Activating
     // the matching card follows Humble's normal signed-in detail flow.
-    await chrome.storage.local.remove('hclPurchaseFocus');
+    await HumbleComicLibrary.storageRemove('hclPurchaseFocus');
     target.click();
     return;
   }
@@ -2237,7 +2234,7 @@ async function focusRequestedPurchase() {
   card.focus({ preventScroll: true });
   showPurchaseFocusNotice('Purchase highlighted. Open it in Humble to reveal or redeem its entitlement.');
   setTimeout(() => card.classList.remove('hcl-purchase-focus'), 20000);
-  await chrome.storage.local.remove('hclPurchaseFocus');
+  await HumbleComicLibrary.storageRemove('hclPurchaseFocus');
 }
 
 function findPurchaseFocusTarget(purchaseKey, request = {}) {
@@ -2297,6 +2294,9 @@ function addPurchaseImporter() {
   panel.innerHTML = `
     <strong>Humble Comic Library</strong>
     <span>Import eligible books, comics, games, and software from this purchase history into this browser.</span>
+    <label>Account/profile label <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
+    <label><input type="checkbox" data-profile-confirm> Signed-in account matches this label</label>
+    <label><input type="checkbox" data-profile-switch> Switch active profile on full rescan</label>
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
       <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan every purchase</button>
@@ -2308,8 +2308,9 @@ function addPurchaseImporter() {
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
-  chrome.storage.local.get({ showDiagnostics: false, keyReminderScan: null })
-    .then(({ showDiagnostics, keyReminderScan }) => {
+  chrome.storage.local.get({ showDiagnostics: false, keyReminderScan: null, humbleProfileLabel:'' })
+    .then(({ showDiagnostics, keyReminderScan, humbleProfileLabel }) => {
+      panel.querySelector('[data-profile-label]').value=humbleProfileLabel;
       debugButtons.forEach((button) => { button.hidden = !showDiagnostics; });
       const reminderNotice = keyReminderSyncNotice(keyReminderScan);
       if (reminderNotice) status.textContent = reminderNotice;
@@ -2345,7 +2346,7 @@ function addPurchaseImporter() {
         status.textContent = 'Inspected ' + result.anchorCount + ' link' + (result.anchorCount === 1 ? '' : 's') + ' and ' + result.candidateCount + ' possible purchase element' + (result.candidateCount === 1 ? '' : 's') + '; downloaded a safe structural navigation report.';
         return;
       }
-      const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
+      const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan, profileLabel:panel.querySelector('[data-profile-label]').value, confirmed:panel.querySelector('[data-profile-confirm]').checked, switchProfile:panel.querySelector('[data-profile-switch]').checked });
       const scope = fullRescan
         ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`
         : result.audioBackfill || result.softwareBackfill || result.entitlementBackfill
@@ -2365,7 +2366,9 @@ function addPurchaseImporter() {
   document.body.prepend(panel);
 }
 
-async function importPurchases(report, { fullRescan = false } = {}) {
+async function importPurchases(report, { fullRescan = false, profileLabel='', confirmed=false, switchProfile=false } = {}) {
+  const scan=await HumbleComicLibrary.storageRequest('begin',{fullRescan,profileLabel,confirmed,switchProfile});
+  fullRescan=fullRescan||scan.forceFull;
   // This endpoint is used by Humble's purchase pages. Fetching occurs in the
   // authenticated Humble tab, so no cookie is read, copied, or stored by us.
   report('Loading your purchase list…');
@@ -2381,7 +2384,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     mediaImportVersion = 1,
     keyReminders: existingReminders = [],
     keyReminderScan: priorReminderScan = null
-  } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], historicalLibraryItems: [], historicalPurchaseSummaries: [], lastImport: null, mediaImportVersion: 1, keyReminders: [], keyReminderScan: null });
+  } = scan.state;
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
   // Version 4 recognizes Humble's audio download platform, generic audio
   // category, and audio download formats. One complete backfill lets established installations
@@ -2558,7 +2561,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     baselinePurchaseKeys,
     failedPurchaseKeys: [...failedReminderKeys]
   };
-  await chrome.storage.local.set({
+  await HumbleComicLibrary.storageRequest('commit',scan.token,{
     libraryItems: [...merged.values()],
     purchaseSummaries: [...allPurchases.values()],
     historicalLibraryItems: mergeHistoricalLibraryItems(historicalLibraryItems, libraryItems, imported),
@@ -2843,45 +2846,8 @@ async function discoverKeyReminderMetadata(report) {
   };
 }
 
-async function scanKeyReminders(report) {
-  report('Loading your purchase list for key reminders\u2026');
-  const orders = await fetchJson('/api/v1/user/order?all=true');
-  const orderList = Array.isArray(orders) ? orders : orders?.data ?? orders?.orders;
-  if (!Array.isArray(orderList)) throw new Error('Humble returned an unexpected purchase list. Please report this page format.');
-
-  const { keyReminders: existingReminders = [], keyReminderScan: priorScan = null } = await chrome.storage.local.get({ keyReminders: [], keyReminderScan: null });
-  const successfullyScanned = new Set(priorScan?.purchaseKeys ?? []);
-  const pendingPurchaseKeys = new Set(existingReminders.map((record) => record.purchaseKey).filter(Boolean));
-  const fullScan = !priorScan?.complete;
-  const purchasesToScan = orderList.filter((order) => {
-    const key = order.gamekey ?? order.key ?? order.order_key;
-    return key && (fullScan || !successfullyScanned.has(key) || pendingPurchaseKeys.has(key));
-  });
-  const reminders = new Map(fullScan ? [] : existingReminders.map((record) => [record.id, record]));
-  let failures = 0;
-  for (let index = 0; index < purchasesToScan.length; index += 1) {
-    const order = purchasesToScan[index];
-    const purchaseKey = order.gamekey ?? order.key ?? order.order_key;
-    report(`Checking key reminders ${index + 1} of ${purchasesToScan.length}\u2026`);
-    try {
-      const detail = await fetchOrderDetail(purchaseKey);
-      for (const [id, record] of reminders) if (record.purchaseKey === purchaseKey) reminders.delete(id);
-      extractKeyReminderRecords(detail, order, purchaseKey).forEach((record) => reminders.set(record.id, record));
-      successfullyScanned.add(purchaseKey);
-    } catch {
-      failures += 1;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 175));
-  }
-
-  const checkedAt = new Date().toISOString();
-  const records = [...reminders.values()];
-  const expiringSoon = records.filter((record) => keyReminderDaysRemaining(record, checkedAt) !== null && keyReminderDaysRemaining(record, checkedAt) >= 0 && keyReminderDaysRemaining(record, checkedAt) <= 30).length;
-  await chrome.storage.local.set({
-    keyReminders: records,
-    keyReminderScan: { complete: failures === 0 || Boolean(priorScan?.complete), checkedAt, purchaseKeys: [...successfullyScanned] }
-  });
-  return { fullScan, scannedPurchases: purchasesToScan.length, failures, unrevealed: records.length, expiringSoon };
+async function scanKeyReminders(report, options={}) {
+  const result=await importPurchases(report,options);return result.keyReminders;
 }
 
 function extractKeyReminderRecords(detail, order, purchaseKey) {

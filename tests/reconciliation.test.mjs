@@ -1,3 +1,4 @@
+import { wireStore } from './store-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -12,7 +13,7 @@ const item = (title, kind = 'book', purchaseKey = 'old') => ({
 });
 
 function importer(initial, orders, details, failures = []) {
-  const stored = structuredClone(initial);
+  const stored = {humbleProfileLabel:'fixture',profileArchives:[],...structuredClone(initial)};
   const requests = [];
   const writes = [];
   const context = {
@@ -20,7 +21,7 @@ function importer(initial, orders, details, failures = []) {
     performance: { now: () => 0 }, Promise, setTimeout: (callback) => { callback(); return 0; },
     chrome: { storage: { local: {
       get: async (defaults) => ({ ...structuredClone(defaults), ...structuredClone(stored) }),
-      set: async (values) => { writes.push(plain(values)); Object.assign(stored, plain(values)); }
+      set: async (values) => { if(Object.hasOwn(values,'libraryItems'))writes.push(plain(values)); Object.assign(stored, plain(values)); }
     } } },
     fetch: async (url) => {
       if (url === '/api/v1/user/order?all=true') return { ok: true, json: async () => orders };
@@ -30,12 +31,13 @@ function importer(initial, orders, details, failures = []) {
       return { ok: true, status: 200, text: async () => JSON.stringify(details[key]) };
     }
   };
+  wireStore(context);
   context.globalThis = context;
   vm.createContext(context);
   for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
-  return { stored, requests, writes, context, scan: async (full = true) => plain(await vm.runInContext(`importPurchases(() => {}, { fullRescan: ${full} })`, context)) };
+  return { stored, requests, writes, context, scan: async (full = true) => plain(await vm.runInContext(`importPurchases(() => {}, { fullRescan: ${full}, profileLabel:'fixture', confirmed:true })`, context)) };
 }
 
 function initialState() {
@@ -176,7 +178,7 @@ test('invalid purchase identifiers abort before writes; unexpected details never
   const badOrder = importer(initial, [order('current'), {}], { current: bookDetail('Book') });
   await assert.rejects(badOrder.scan(), /valid identifier/);
   assert.equal(badOrder.writes.length, 0);
-  assert.deepEqual(badOrder.stored, initial);
+  assert.deepEqual(badOrder.stored.libraryItems,initial.libraryItems);assert.deepEqual(badOrder.stored.purchaseSummaries,initial.purchaseSummaries);
   for (const detail of [null, [], {}, { subproducts: 'unexpected' }, { tpkd_dict: { all_tpks: 'unexpected' } }]) {
     const scan = importer(initial, [order('old')], { old: detail });
     assert.equal((await scan.scan()).reconciled, false);

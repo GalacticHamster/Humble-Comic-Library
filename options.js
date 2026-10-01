@@ -19,11 +19,9 @@
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
   const wishlistStatus = document.querySelector('#wishlist-status');
 
-  async function editWishlist(transform) {
+  async function editWishlist(action,items) {
     try {
-      const saved = await chrome.storage.local.get({ wishlistItems: [] });
-      const wishlistItems = HumbleComicLibrary.normalizeWishlist(transform(HumbleComicLibrary.normalizeWishlist(saved.wishlistItems)));
-      await chrome.storage.local.set({ wishlistItems });
+      const wishlistItems=await HumbleComicLibrary.storageRequest('wishlist',action,items);
       renderWishlist(wishlistItems);
       wishlistStatus.textContent = `Saved ${wishlistItems.length} wishlist items.`;
     } catch (error) { wishlistStatus.textContent = `Wishlist update failed: ${error.message}`; }
@@ -40,14 +38,14 @@
       const priority = document.createElement('input');
       priority.type = 'number'; priority.min = '1'; priority.max = '100'; priority.step = '1'; priority.value = String(item.weight);
       priority.title = `Priority for ${item.title}`;
-      priority.addEventListener('change', () => editWishlist(current => current.map(record => HumbleComicLibrary.catalogItemKey(record) === HumbleComicLibrary.catalogItemKey(item) ? { ...record, weight: Number(priority.value) } : record)));
+      priority.addEventListener('change', () => editWishlist('add',[{...item,weight:Number(priority.value)}]));
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Remove';
-      remove.addEventListener('click', () => editWishlist(current => current.filter(record => HumbleComicLibrary.catalogItemKey(record) !== HumbleComicLibrary.catalogItemKey(item))));
+      remove.addEventListener('click', () => editWishlist('remove',HumbleComicLibrary.catalogItemKey(item)));
       row.append(priority, ' ', remove); return row;
     }));
   }
 
-  document.querySelector('#add-wishlist').addEventListener('click', () => editWishlist(current => [...current, {
+  document.querySelector('#add-wishlist').addEventListener('click', () => editWishlist('add',[{
     title: document.querySelector('#wishlist-title').value,
     kind: document.querySelector('#wishlist-kind').value,
     weight: Number(document.querySelector('#wishlist-weight').value)
@@ -58,7 +56,7 @@
     try {
       const value = JSON.parse(await file.text());
       const wishlistItems = HumbleComicLibrary.normalizeWishlist(Array.isArray(value) ? value : value.wishlist);
-      await chrome.storage.local.set({ wishlistItems }); renderWishlist(wishlistItems);
+      await HumbleComicLibrary.storageRequest('wishlist','replace',wishlistItems); renderWishlist(wishlistItems);
       wishlistStatus.textContent = `Restored ${wishlistItems.length} wishlist items.`;
     } catch (error) { wishlistStatus.textContent = `Wishlist restore failed: ${error.message}`; }
     finally { input.value = ''; }
@@ -105,8 +103,8 @@
         ? ' Current Humble snapshot reconciled; historical evidence archived.'
         : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
     }
-    const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [] });
-    count.textContent += ` History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (excluded from matching).`;
+    const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel:'', profileArchives:[] });
+    count.textContent += ` Active profile: ${history.humbleProfileLabel||'unassigned'}. ${history.profileArchives.length} other profile archives (backup only; excluded from matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (excluded from matching).`;
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');
       row.textContent = item.sourceBundle ? `${item.title} — ${item.sourceBundle}` : item.title;
@@ -193,7 +191,7 @@
         if (directPurchaseLinksEnabled) {
           await chrome.tabs.create({ url: directHumblePurchaseUrl(record.purchaseKey) });
         } else {
-          await chrome.storage.local.set({
+          await HumbleComicLibrary.storageSet({
             hclPurchaseFocus: {
               purchaseKey: record.purchaseKey,
               sourceBundle: record.sourceBundle ?? '',
@@ -247,7 +245,7 @@
       const parsed = JSON.parse(await file.text());
       const replacement = HumbleComicLibrary.manualTitleImportState(parsed);
       if (!confirm('Replace your library with this manual title list? This clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings.')) return;
-      await chrome.storage.local.set(replacement);
+      await HumbleComicLibrary.storageSet(replacement);
       status.textContent = `Imported ${replacement.libraryItems.length} unique titles. Previous purchase data, reminders, scan history, and custom mappings cleared.`;
       await render();
     } catch (error) {
@@ -262,7 +260,7 @@
     if (!file) return;
     try {
       const mappings = HumbleCollectionMappings.validateCustomMappings(JSON.parse(await file.text()));
-      await chrome.storage.local.set({ customCollectionMappings: mappings });
+      await HumbleComicLibrary.storageSet({ customCollectionMappings: mappings });
       mappingStatus.textContent = `Imported ${mappings.length} custom collection mapping${mappings.length === 1 ? '' : 's'}, replacing your previous custom mappings.`;
       await render();
     } catch (error) {
@@ -273,7 +271,7 @@
   });
 
   showDiagnostics.addEventListener('change', async () => {
-    await chrome.storage.local.set({ showDiagnostics: showDiagnostics.checked });
+    await HumbleComicLibrary.storageSet({ showDiagnostics: showDiagnostics.checked });
   });
 
   backupFileInput.addEventListener('change', async () => {
@@ -282,7 +280,7 @@
     try {
       const replacement = HumbleComicLibrary.restoreBackupState(JSON.parse(await file.text()));
       if (!confirm('Restore this backup and replace all current library items, purchases, reminders, scan history, the history archive, and custom mappings?')) return;
-      await chrome.storage.local.set({ ...replacement, hclPurchaseFocus: null });
+      await HumbleComicLibrary.storageSet({ ...replacement, hclPurchaseFocus: null });
       restoreStatus.textContent = `Restored ${replacement.libraryItems.length} items, ${replacement.purchaseSummaries.length} purchases, and ${replacement.keyReminders.length} reminders. Previous library data replaced.`;
       await render();
     } catch (error) {
@@ -293,7 +291,7 @@
   });
 
   openDirectPurchaseLinks.addEventListener('change', async () => {
-    await chrome.storage.local.set({ openDirectPurchaseLinks: openDirectPurchaseLinks.checked });
+    await HumbleComicLibrary.storageSet({ openDirectPurchaseLinks: openDirectPurchaseLinks.checked });
   });
 
   document.querySelector('#save-galactic-library-link').addEventListener('click', async () => {
@@ -302,7 +300,7 @@
       galacticLibraryLinkStatus.textContent = 'Enter a valid 32-character Galactic Library extension ID.';
       return;
     }
-    await chrome.storage.local.set({ galacticLibraryExtensionId: id });
+    await HumbleComicLibrary.storageSet({ galacticLibraryExtensionId: id });
     galacticLibraryLinkStatus.textContent = 'Link saved. In Galactic Library, allow the Humble Comic Library extension ID shown above.';
   });
 
@@ -316,7 +314,7 @@
   });
 
   document.querySelector('#clear-galactic-library-link').addEventListener('click', async () => {
-    await chrome.storage.local.remove('galacticLibraryExtensionId');
+    await HumbleComicLibrary.storageRemove('galacticLibraryExtensionId');
     galacticLibraryExtensionId.value = '';
     galacticLibraryLinkStatus.textContent = 'Galactic Library link removed.';
   });
@@ -340,7 +338,7 @@
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
     if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping?')) return;
-    await chrome.storage.local.remove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
+    await HumbleComicLibrary.storageRemove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();
   });

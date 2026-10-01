@@ -1,3 +1,4 @@
+import { wireStore } from './store-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -6,7 +7,7 @@ import vm from 'node:vm';
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function options(initial = {}) {
-  const stored = structuredClone(initial);
+  const stored = {humbleProfileLabel:'fixture',profileArchives:[],...structuredClone(initial)};
   const elements = new Map();
   const writes = [];
   let exportedBlob;
@@ -40,6 +41,7 @@ function options(initial = {}) {
       } }
     }
   };
+  wireStore(context);
   context.globalThis = context;
   vm.createContext(context);
   for (const file of ['shared.js', 'collection-mappings.js', 'options.js']) {
@@ -116,7 +118,7 @@ test('options export and restore round trip preserves complete library state and
   Object.assign(expected.libraryItems[0].provenance[1],{entitlement:'third-party-key',entitlementId:'software:0',keyStatus:'unrevealed'});
   const source = options(expected);
   const backup = await source.export();
-  assert.equal(backup.version, 8);
+  assert.equal(backup.version, 9);
   const target = options({
     ...libraryState(), keyReminders: [{ id: 'unrelated', purchaseKey: 'other', title: 'Other item' }],
     showDiagnostics: true, galacticLibraryExtensionId: 'local-connection', hclPurchaseFocus: { purchaseKey: 'other' }

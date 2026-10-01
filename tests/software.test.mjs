@@ -1,3 +1,4 @@
+import { wireStore } from './store-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -247,7 +248,7 @@ test('purchase metadata discovery controls are hidden unless diagnostics are ena
   assert.match(source, /data-import-mode="software-discovery" data-hcl-debug-action hidden/u);
   assert.match(source, /data-import-mode="key-discovery" data-hcl-debug-action hidden/u);
   assert.match(source, /data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden/u);
-  assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false, keyReminderScan: null \}\)/u);
+  assert.match(source, /chrome\.storage\.local\.get\(\{ showDiagnostics: false, keyReminderScan: null, humbleProfileLabel:'' \}\)/u);
   assert.doesNotMatch(source, /data-import-mode="key-reminders"/u);
 });
 
@@ -291,21 +292,22 @@ test('purchase import shares detail requests with key reminders and requires an 
   };
   extension.setTimeout = (callback) => { callback(); return 0; };
 
-  const incremental = await runAsync('importPurchases(() => {}, { fullRescan: false })');
+  wireStore(extension);storage.humbleProfileLabel='fixture';
+  const incremental = await runAsync('importPurchases(() => {}, { fullRescan: false, profileLabel:"fixture", confirmed:true })');
   assert.deepEqual(requests, ['new-purchase'], 'new import fetches a purchase detail once for both title import and reminders');
   assert.equal(incremental.keyReminders.complete, false);
   assert.deepEqual(storage.keyReminders.map((record) => record.purchaseKey), ['new-purchase']);
   assert.deepEqual(storage.keyReminderScan.baselinePurchaseKeys, []);
 
   requests.length = 0;
-  const full = await runAsync('importPurchases(() => {}, { fullRescan: true })');
+  const full = await runAsync('importPurchases(() => {}, { fullRescan: true, profileLabel:"fixture", confirmed:true })');
   assert.deepEqual(requests.sort(), ['new-purchase', 'old-purchase'], 'full rescan fetches each purchase detail once');
   assert.equal(full.keyReminders.complete, true);
   assert.deepEqual(new Set(storage.keyReminderScan.baselinePurchaseKeys), new Set(['old-purchase', 'new-purchase']));
   assert.deepEqual(new Set(storage.keyReminders.map((record) => record.purchaseKey)), new Set(['old-purchase', 'new-purchase']));
 
   requests.length = 0;
-  await runAsync('importPurchases(() => {}, { fullRescan: false })');
+  await runAsync('importPurchases(() => {}, { fullRescan: false, profileLabel:"fixture", confirmed:true })');
   assert.deepEqual(requests.sort(), ['new-purchase', 'old-purchase'], 'later imports refresh known pending reminders without a second title-import pass');
 });
 
