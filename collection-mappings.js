@@ -136,7 +136,7 @@
   }
 
   function mappingMatches(mapping, item) {
-    if (mapping.verified === false || global.HumbleComicLibrary.titleKey(mapping.collectionTitle) !== global.HumbleComicLibrary.titleKey(item.title)) return false;
+    if (mapping.verified === false || global.HumbleComicLibrary.normalizeTitle(mapping.collectionTitle) !== global.HumbleComicLibrary.normalizeTitle(item.title)) return false;
     const identity = global.HumbleComicLibrary.bibliographicFields(item);
     if (mapping.editionId && identity.editionId !== mapping.editionId) return false;
     if (mapping.identifiers?.isbn?.length && !identity.isbn?.some(isbn => mapping.identifiers.isbn.includes(isbn))) return false;

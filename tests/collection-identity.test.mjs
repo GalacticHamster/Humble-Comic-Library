@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const context = { URL, Blob, console, clearTimeout, setTimeout, document: { title: '' }, location: { pathname: '/' }, performance: { now: () => 0 } };
 context.globalThis = context;
 vm.createContext(context);
-for (const file of ['shared.js', 'collection-mappings.js', 'content.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
+for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
 const rules = context.HumbleCollectionMappings;
 const plain = value => JSON.parse(JSON.stringify(value));
 const rich = {

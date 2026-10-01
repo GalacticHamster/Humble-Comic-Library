@@ -32,7 +32,7 @@ function importer(initial, orders, details, failures = []) {
   };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js', 'collection-mappings.js', 'content.js']) {
+  for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
   return { stored, requests, writes, context, scan: async (full = true) => plain(await vm.runInContext(`importPurchases(() => {}, { fullRescan: ${full} })`, context)) };

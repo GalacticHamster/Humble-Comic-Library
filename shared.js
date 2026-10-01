@@ -12,15 +12,14 @@
 
   function normalizeTitle(value) {
     let normalized = String(value ?? '')
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/gu, '')
+      .normalize('NFKC')
       .toLowerCase()
       .replace(/&/gu, ' and ')
       .replace(FORMAT_WORDS, ' ')
       .replace(PRESENTATION_WORDS, ' ')
       .replace(/\bvolume\b|\bvol\.?\b/giu, ' vol ')
       .replace(/[’'`]/gu, '')
-      .replace(/[^a-z0-9]+/gu, ' ')
+      .replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ')
       .trim();
 
     normalized = normalized.replace(/\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, (match) => ROMAN_NUMERALS.get(match) ?? match);
@@ -89,6 +88,13 @@
       if (entry) fields[key] = key === 'language' ? entry.toLowerCase() : entry;
     }
     return fields;
+  }
+
+  function catalogItemKey(item) {
+    const fields = bibliographicFields(item);
+    const identity = Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, value]) => [name, Array.isArray(value) ? [...value].sort() : value]));
+    return `${item.kind ?? 'book'}:${normalizeTitle(item.title)}${Object.keys(identity).length ? `:${JSON.stringify(identity)}` : ''}`;
   }
 
   const BACKUP_VERSION = 7;
@@ -220,7 +226,7 @@
     for (const row of rows) {
       const item = normalizeLibraryImportItem(row);
       if (!item) throw new Error('Every title-list entry needs a nonempty title.');
-      unique.set(`${item.kind ?? 'book'}:${titleKey(item.title)}`, item);
+      unique.set(catalogItemKey(item), item);
     }
     return { ...LIBRARY_STATE_DEFAULTS, libraryItems: [...unique.values()], hclPurchaseFocus: null };
   }
@@ -235,7 +241,7 @@
   }
 
   global.HumbleComicLibrary = {
-    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId,
+    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey,
     LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };

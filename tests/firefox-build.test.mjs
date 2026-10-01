@@ -13,6 +13,7 @@ const runtimeFiles = [
   'manifest.json',
   'shared.js',
   'collection-mappings.js',
+  'ownership.js',
   'content.js',
   'content.css',
   'options.html',

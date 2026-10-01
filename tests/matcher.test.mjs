@@ -17,7 +17,7 @@ function loadMatcher() {
   };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js', 'collection-mappings.js', 'content.js']) {
+  for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
   return context;
@@ -168,9 +168,9 @@ test('same-bundle volume matching still requires the same series and volume', ()
   assert.deepEqual(classifyCurrentBundleVariant('X-O Manowar, Vol. 3: Planet Death', ['Ninjak Vol 3'], bundle), { state: 'new' });
 });
 
-test('short titles do not become possible solely through a subtitle or edition suffix', () => {
+test('short generic subtitles stay new; explicit editions of meaningful short titles are possible', () => {
   assert.deepEqual(classify('It', ['It: A Novel']), { state: 'new' });
-  assert.deepEqual(classify('Dune', ['Dune, Second Edition']), { state: 'new' });
+  assert.equal(classify('Dune', ['Dune, Second Edition']).state, 'possible');
 });
 
 test('volume-range partial and complete ownership behavior is unchanged', () => {

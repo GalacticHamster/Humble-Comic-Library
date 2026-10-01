@@ -17,7 +17,7 @@ function load({ pathname = '/books/example-books', heading = '', bundleData = {}
   const context = { Blob, URL, clearTimeout, console, document, location: { pathname: '/' }, performance: { now: () => 0 }, Promise, setTimeout };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js', 'collection-mappings.js', 'content.js']) {
+  for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
   context.location.pathname = pathname;
@@ -95,11 +95,12 @@ test('ambiguous same-title metadata does not infer ownership without a local for
   assert.equal(run(context, 'describeBundleItem(item, bundleMediaContext()).kind'), 'audiobook');
 });
 
-async function render(context, records = [], baseKind = 'book') {
+async function render(context, records = [], baseKind = 'book', mappings = []) {
   context.records = records;
   context.baseKind = baseKind;
+  context.mappings = mappings;
   run(context, `comparison = { job: 1, galactic: createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') };`);
-  await run(context, 'renderBundleComparison(createBundleLibraryMatcher(records, baseKind), baseKind, [], [], comparison, 1)');
+  await run(context, 'renderBundleComparison(createBundleLibraryMatcher(records, baseKind), baseKind, [], mappings, comparison, 1)');
   return plain(context.summary);
 }
 
@@ -109,7 +110,7 @@ test('audio exact companion ownership renders elsewhere with audible provenance 
   assert.equal(result.kind, 'audiobook');
   assert.equal(result.counts.elsewhere, 1);
   assert.equal(result.counts.owned, 0, 'an ebook is not an owned audiobook');
-  assert.deepEqual(plain(context.calls[0].items), [{ requestId: 'audiobook:shared work', mediaType: 'audiobook', title: 'Shared Work' }]);
+  assert.deepEqual(plain(context.calls[0].items), [{ requestId: 'audiobook:shared work', mediaType: 'audiobook', title: 'Shared Work', excludeProviders: ['humble'] }]);
   assert.equal(run(context, "matchProvenance({state:'elsewhere',externalMatches:galacticOwnedMatches('audiobook','Shared Work',comparison)}).includes('Audible: Shared Work')"), true);
 });
 
@@ -223,4 +224,36 @@ test('a DOM refresh during an audio lookup waits for shared results rather than 
   await Promise.all([first, second]);
   assert.equal(context.calls.length, 1);
   assert.equal(run(context, "galacticOwnedMatches('audiobook','Audio Work',comparison).length"), 1);
+});
+
+test('storefront combines local and GL contents; incomplete lists stay Partial even at full unit coverage', async () => {
+  const entries = [1, 2, 3].map(number => ({ series: 'Manga', run: '2000', unitType: 'volume', number: String(number), language: 'en', completeness: 'full' }));
+  const localMap = { id: 'local', collectionTitle: 'Owned collection', language: 'en', contains: [{ series: 'Manga', run: '2000', unitType: 'volume', from: 1, to: 2 }] };
+  for (const contentsComplete of [false, true]) {
+    const offeredMap = { id: 'offered', collectionTitle: 'Offered collection', language: 'en', contentsComplete, contains: [{ series: 'Manga', run: '2000', unitType: 'volume', from: 1, to: 3 }] };
+    const context = load({ cards: [{ title: offeredMap.collectionTitle }] });
+    context.chrome.runtime.sendMessage = async (_id, request) => ({ ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [], partialMatches: [{ provider: 'kindle', title: 'Other collection', ownership: 'owned', relationship: 'contains' }], coverage: { covered: [{ ...entries[2], evidence: [{ provider: 'kindle', title: 'Other collection', ownership: 'owned', relationship: 'contains' }] }], possibleCovered: [] } })) });
+    const result = await render(context, [{ title: localMap.collectionTitle }], 'book', [localMap, offeredMap]);
+    assert.equal(result.counts.owned, contentsComplete ? 1 : 0);
+    assert.equal(result.counts.partial, contentsComplete ? 0 : 1);
+    assert.equal(context.comparison.resolvedItems[0].match.coverage.owned, 3);
+  }
+});
+
+test('known ISBN differences and ambiguous homonyms stay Possible; different authors do not become Owned', async () => {
+  const context = load({ cards: [{ title: 'Shared Title' }], bundleData: { tier_item_data: {
+    offered: { human_name: 'Shared Title', format: 'epub', isbn: '9780306406157', author: 'Writer' }
+  } } });
+  context.chrome.runtime.sendMessage = async (_id, request) => ({ ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [] })) });
+  let result = await render(context, [{ title: 'Shared Title', isbn: ['9780140328721'], authors: ['Writer'] }]);
+  assert.equal(result.counts.possible, 1);
+  assert.equal(result.counts.owned, 0);
+  result = await render(context, [{ title: 'Shared Title', authors: ['Other writer'] }]);
+  assert.equal(result.counts.owned, 0);
+  assert.equal(result.counts.possible, 0);
+  const ambiguous = load({ cards: [{ title: 'Shared Title' }] });
+  ambiguous.chrome.runtime.sendMessage = context.chrome.runtime.sendMessage;
+  result = await render(ambiguous, [{ title: 'Shared Title', authors: ['A'] }, { title: 'Shared Title', authors: ['B'] }]);
+  assert.equal(result.counts.possible, 1);
+  assert.equal(result.counts.owned, 0);
 });

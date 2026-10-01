@@ -52,20 +52,15 @@ let bundleSummaryMinimized = false;
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '' });
+  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] });
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
+  comparison.wishlistItems = storage.wishlistItems;
   const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
   const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
-  if (!libraryItems.length && !comparison.galactic.enabled) {
-    removeComparisonProgress();
-    renderPurchasedBundleSummary(currentBundlePurchases);
-    return;
-  }
-
   const libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind);
   const collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
@@ -336,6 +331,7 @@ function createGalacticLookup(extensionId) {
     enabled: isExtensionId(id),
     extensionId: id,
     resultsByKey: new Map(),
+    requestKeys: new Map(),
     inFlightKeys: new Set(),
     inFlight: null,
     error: null,
@@ -357,7 +353,9 @@ function waitForGalacticResponse(promise) {
 
 function ownedOutsideHumble(result) {
   return (Array.isArray(result?.matches) ? result.matches : [])
-    .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
+    .filter((match) => match?.provider !== 'humble' && HumbleOwnership.permanent(match)
+      && (match.relationship === undefined || match.relationship === 'same-edition'
+        || match.relationship === 'contains' && result?.coverage?.complete === true));
 }
 
 function needsOwnershipReviewOutsideHumble(result) {
@@ -374,15 +372,23 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
   const lookup = comparison?.galactic;
   if (!lookup?.enabled) return;
   const requested = new Map();
-  for (const { item, match } of items) {
-    if (match.state === 'owned') continue;
+  for (const { item, match, target } of items) {
+    if (match.state === 'owned' && !target?.entries.length) continue;
     const mediaType = item.kind ?? itemKind;
     if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)) continue;
-    const title = item.lookupTitle ?? item.title;
-    const requestId = galacticRequestKey(mediaType, title);
+    const fields = HumbleOwnership.request({ ...item, kind: mediaType }, comparison.collectionMappings ?? []);
+    const fingerprint = JSON.stringify(fields);
+    let requestId = lookup.requestKeys.get(fingerprint);
+    if (!requestId) {
+      const base = galacticRequestKey(mediaType, fields.title).slice(0, 440);
+      const hasEvidence = Object.keys(fields).length > 3;
+      requestId = !hasEvidence && ![...lookup.requestKeys.values()].includes(base) ? base : `${base}:request-${lookup.requestKeys.size + 1}`;
+      lookup.requestKeys.set(fingerprint, requestId);
+    }
+    item.galacticKey = requestId;
     if (lookup.resultsByKey.has(requestId) || lookup.inFlightKeys.has(requestId)) continue;
     lookup.inFlightKeys.add(requestId);
-    requested.set(requestId, { requestId, mediaType, title });
+    requested.set(requestId, { requestId, ...fields });
   }
   if (!requested.size) {
     // A DOM refresh can begin while the first request is still running. Wait
@@ -393,21 +399,31 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
   }
   lookup.status = `Checking ${requested.size} title${requested.size === 1 ? '' : 's'}…`;
   showComparisonProgress(`Checking ${requested.size} title${requested.size === 1 ? '' : 's'} in Galactic Library…`);
-  const responsePromise = waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId, {
-    type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: [...requested.values()]
-  }));
+  // GL bounds both item count and aggregate contents. Keep one in-flight
+  // promise across batches so lazy cards/resize refreshes share the cache.
+  const responsePromise = (async () => {
+    const batches = []; let batch = []; let units = 0;
+    for (const fields of requested.values()) {
+      const count = fields.contents?.length ?? 0;
+      if (batch.length && (batch.length === 500 || units + count > 20000)) { batches.push(batch); batch = []; units = 0; }
+      batch.push(fields); units += count;
+    }
+    if (batch.length) batches.push(batch);
+    for (const entries of batches) {
+      const response = await waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId, {
+        type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: entries
+      }));
+      if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
+        throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
+      }
+      const results = new Map(response.results.map(result => [result?.requestId, result]));
+      if (entries.some(entry => !Array.isArray(results.get(entry.requestId)?.matches))) throw new Error('Galactic Library returned incomplete matching results.');
+      for (const entry of entries) lookup.resultsByKey.set(entry.requestId, results.get(entry.requestId));
+    }
+  })();
   lookup.inFlight = responsePromise;
   try {
-    const response = await responsePromise;
-    if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
-      throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
-    }
-    const returnedByKey = new Map(response.results.map((result) => [result?.requestId, result]));
-    for (const requestId of requested.keys()) {
-      // A valid response represents every requested title. Cache no-match
-      // results too, so ordinary page refreshes do not repeat the request.
-      lookup.resultsByKey.set(requestId, returnedByKey.get(requestId) ?? { requestId, matches: [] });
-    }
+    await responsePromise;
     const matchCount = [...lookup.resultsByKey.values()].filter((result) => ownedOutsideHumble(result).length).length;
     lookup.status = `Available. ${matchCount} exact non-Humble title match${matchCount === 1 ? '' : 'es'}.`;
     lookup.error = null;
@@ -768,21 +784,24 @@ function audiobookLookupTitle(title) {
 
 function bundleMediaContext(baseKind = location.pathname.startsWith('/games/') ? 'game' : location.pathname.startsWith('/software/') ? 'software' : 'book') {
   const kindsByTitle = new Map();
+  const productsByTitle = new Map();
   let defaultKind = baseKind;
-  if (baseKind !== 'book') return { defaultKind, kindsByTitle };
   // Audiobook bundles use Humble's /books/ route. Do not infer media from a
   // random description, soundtrack, or an ebook about producing audiobooks.
   const heading = document.querySelector('h1')?.textContent ?? '';
   const listing = `${location.pathname} ${heading}`;
   const mixed = /\b(?:e?books?|comics?)[\s-]*(?:and|&|\+)[\s-]*audio[ -]?books?\b|\baudio[ -]?books?[\s-]*(?:and|&|\+)[\s-]*(?:e?books?|comics?)\b/iu.test(listing);
-  if (!mixed && (/(?:^|[-/])audiobooks(?:[-/]|$)/iu.test(location.pathname)
+  if (baseKind === 'book' && !mixed && (/(?:^|[-/])audiobooks(?:[-/]|$)/iu.test(location.pathname)
     || /\baudio[ -]?books?\s+bundle\b/iu.test(heading))) defaultKind = 'audiobook';
   try {
     const data = JSON.parse(document.querySelector('#webpack-bundle-page-data')?.textContent ?? '{}').bundleData;
-    if (!mixed && /^(?:audio[ _-]?book|audio)$/iu.test(data?.content_type ?? data?.product_type ?? '')) defaultKind = 'audiobook';
+    if (baseKind === 'book' && !mixed && /^(?:audio[ _-]?book|audio)$/iu.test(data?.content_type ?? data?.product_type ?? '')) defaultKind = 'audiobook';
     for (const product of Object.values(data?.tier_item_data ?? {})) {
       const key = HumbleComicLibrary.titleKey(product?.human_name);
       if (!key) continue;
+      const products = productsByTitle.get(key) ?? [];
+      products.push(product);
+      productsByTitle.set(key, products);
       const kind = hasAudiobookDownload(product) ? 'audiobook'
         : hasBookDownload(product) || /^(?:book|ebook)$/iu.test(product?.content_type ?? product?.product_type ?? '') ? 'book' : null;
       if (!kind) continue;
@@ -793,7 +812,7 @@ function bundleMediaContext(baseKind = location.pathname.startsWith('/games/') ?
   } catch {
     // Missing/unhydrated or malformed metadata must not stop ordinary matching.
   }
-  return { defaultKind, kindsByTitle };
+  return { defaultKind, kindsByTitle, productsByTitle };
 }
 
 function describeBundleItem(item, media) {
@@ -811,11 +830,20 @@ function describeBundleItem(item, media) {
     else if (audiobookLookupTitle(item.title) !== String(item.title).trim()) kind = 'audiobook';
     else if (metadataKinds?.size > 1) kind = 'unknown'; // no ownership claim for ambiguous media
   }
-  return { ...item, kind, lookupTitle: kind === 'audiobook' ? audiobookLookupTitle(item.title) : item.title };
+  const candidates = (media.productsByTitle?.get(HumbleComicLibrary.titleKey(item.title)) ?? [])
+    .filter(product => kind !== 'audiobook' || hasAudiobookDownload(product))
+    .filter(product => kind !== 'book' || !hasAudiobookDownload(product));
+  const fields = candidates.length === 1 ? HumbleComicLibrary.bibliographicFields(candidates[0]) : {};
+  for (const field of ['isbn', 'asin', 'edition', 'editionId', 'language', 'series', 'seriesId', 'run', 'runId', 'volume', 'issue', 'author']) {
+    const attribute = `data-${field.replace(/[A-Z]/gu, letter => `-${letter.toLowerCase()}`)}`;
+    const value = item.element?.getAttribute?.(attribute) || item.container?.getAttribute?.(attribute);
+    if (value) Object.assign(fields, HumbleComicLibrary.bibliographicFields({ [field]: value }));
+  }
+  return { ...item, ...fields, kind, lookupTitle: kind === 'audiobook' ? audiobookLookupTitle(item.title) : item.title };
 }
 
 function bundleItemKey(item) {
-  return galacticRequestKey(item.kind, item.title);
+  return HumbleComicLibrary.catalogItemKey(item);
 }
 
 function createBundleLibraryMatcher(items, baseKind) {
@@ -826,7 +854,7 @@ function createBundleLibraryMatcher(items, baseKind) {
       if ((item.kind ?? 'book') !== kind) continue;
       const title = kind === 'audiobook' ? audiobookLookupTitle(item.title) : item.title;
       const key = HumbleComicLibrary.titleKey(title);
-      if (key && !byKey.has(key)) byKey.set(key, item);
+      if (key) byKey.set(byKey.has(key) ? `${key}\u0000${byKey.size}` : key, { ...item, title });
     }
     mediaMatchers.set(kind, createLibraryMatcher(byKey, kind));
   }
@@ -880,6 +908,9 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     comparison.sorting = sorting;
   }
   const matchStartedAt = performance.now();
+  if (comparison) comparison.collectionMappings = collectionMappings;
+  const records = [...(libraryMatcher.mediaMatchers?.values() ?? [libraryMatcher])].flatMap(matcher => [...matcher.libraryByKey.values()]);
+  const localContents = HumbleOwnership.localEvidence(records.filter(record => (record.kind ?? 'book') === 'book'), collectionMappings);
   const counts = { owned: 0, elsewhere: 0, partial: 0, possible: 0, new: 0 };
   const titlesByState = { owned: [], elsewhere: [], partial: [], possible: [], new: [] };
   const matchesByTitleKey = new Map();
@@ -890,11 +921,15 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     const matcher = libraryMatcher.mediaMatchers?.get(item.kind) ?? libraryMatcher;
     const { libraryByKey } = matcher;
     const title = item.lookupTitle;
-    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
-    const volumeRange = exact ? null : findOwnedVolumeRange(title, libraryByKey);
-    const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, matcher);
-    const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, libraryByKey, collectionMappings);
-    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(title, matcher, item.kind);
+    const identity = HumbleOwnership.exactCandidate(item, [...libraryByKey.values()], isFromCurrentBundle);
+    const exact = identity.exact;
+    const compatible = new Map([...libraryByKey].filter(([, record]) => !HumbleOwnership.conflicts(item, record, true).length));
+    const rangeCandidates = new Map([...libraryByKey].filter(([, record]) => !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));
+    const volumeRange = exact ? null : findOwnedVolumeRange(title, rangeCandidates);
+    const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, createLibraryMatcher(compatible, item.kind));
+    const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings);
+    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : identity.possible.length
+      ? { items: identity.possible, reason: identity.reason } : findPossibleMatch(title, matcher, item.kind, item);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
@@ -904,7 +939,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
           : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
           : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
           : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason } : { state: 'new' };
-    resolvedItems.push({ item, match });
+    const target = HumbleOwnership.offerContents(item, collectionMappings);
+    resolvedItems.push({ item, match, target });
     // Large libraries can make an individual card comparison expensive. Yield
     // after a very small CPU slice so Humble can continue painting and loading
     // covers instead of waiting for every title to be checked.
@@ -923,16 +959,32 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   if (comparison?.job !== job) return;
   for (const resolved of resolvedItems) {
     const { kind, lookupTitle } = resolved.item;
-    const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(kind, lookupTitle, comparison);
-    const externalReviewMatches = resolved.match.state === 'new' ? galacticOwnershipReviewMatches(kind, lookupTitle, comparison) : [];
-    const externalPossibleMatches = resolved.match.state === 'new' ? galacticPossibleMatches(kind, lookupTitle, comparison) : [];
-    const match = externalMatches.length
+    const result = comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
+    const coverage = HumbleOwnership.coverageFor(resolved.target, localContents, result);
+    const externalMatches = resolved.match.state === 'owned' ? [] : ownedOutsideHumble(result)
+      .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);
+    const externalReviewMatches = needsOwnershipReviewOutsideHumble(result);
+    const externalPossibleMatches = [...possibleOutsideHumble(result), ...externalReviewMatches];
+    let match = externalMatches.length
       ? { state: 'elsewhere', externalMatches }
-      : externalReviewMatches.length
+      : coverage.complete && (resolved.target.complete || coverage.total === 1)
+        ? { state: coverage.covered.some(unit => unit.evidence.some(record => record.provider === 'humble')) ? 'owned' : 'elsewhere',
+            externalMatches: coverage.covered.flatMap(unit => unit.evidence).filter(record => record.provider !== 'humble'),
+            item: coverage.covered.flatMap(unit => unit.evidence).map(record => record.item).filter(Boolean), ownedReason: 'Full reviewed contents coverage with matching run and language.' }
+      : coverage.owned > 0 && resolved.match.state !== 'owned'
+        ? { state: 'partial', externalMatches: result?.partialMatches ?? [], range: { owned: coverage.owned, total: coverage.total, complete: false,
+            items: coverage.covered.flatMap(unit => unit.evidence).map(record => record.item).filter(Boolean) } }
+      : externalReviewMatches.length && !['owned', 'partial'].includes(resolved.match.state)
         ? { state: 'possible', externalPossibleMatches: externalReviewMatches, ownershipReview: true, possibleReason: 'This exact title is in Galactic Library, but ownership is unconfirmed or access is temporary.' }
-      : externalPossibleMatches.length
+      : externalPossibleMatches.length && !['owned', 'partial'].includes(resolved.match.state)
         ? { state: 'possible', externalPossibleMatches, possibleReason: kind === 'game' ? 'The game titles differ only by edition wording.' : 'Galactic Library returned a related title for review.' }
-        : resolved.match;
+        : coverage.possibleCovered.length && resolved.match.state === 'new'
+          ? { state: 'possible', possibleReason: 'Related contents found, but run or language is not sufficiently established.' }
+          : resolved.match;
+    if (resolved.match.state === 'owned') match = resolved.match;
+    match = { ...match, coverage, offered: resolved.item, localMatch: resolved.match, externalResult: result,
+      externalPossibleMatches, mappingConflicts: resolved.target.reason || '' };
+    resolved.match = match;
     matchesByTitleKey.set(bundleItemKey(resolved.item), match);
     counts[match.state] += 1;
     titlesByState[match.state].push({
@@ -940,6 +992,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       provenance: matchProvenance(match),
       purchaseCount: matchPurchaseCount(match),
       range: match.range ?? null
+      , match, offered: resolved.item
     });
     const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0 };
     tier.total += 1;
@@ -955,6 +1008,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   annotateAllCoverCopies(matchesByTitleKey, media);
   if (comparison) {
     comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
+    comparison.resolvedItems = resolvedItems;
   }
   applyBundleNewItemsOnlyFilter(Boolean(comparison?.showNewItemsOnly));
   const summaryKind = items.every((item) => item.kind === 'audiobook') ? 'audiobook'
@@ -1108,8 +1162,19 @@ function createLibraryMatcher(libraryByKey, itemKind) {
   return { libraryByKey, byToken, bookVariants, currentBundleBookVariants };
 }
 
-function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
-  const { libraryByKey, byToken } = libraryMatcher;
+function findPossibleMatch(title, libraryMatcher, itemKind = 'book', offered = { title, kind: itemKind }) {
+  const libraryByKey = new Map([...libraryMatcher.libraryByKey].filter(([, item]) => !HumbleOwnership.conflicts(offered, item).length));
+  const { byToken } = createLibraryMatcher(libraryByKey, itemKind);
+  const target = HumbleOwnership.editionParts(title, itemKind);
+  const related = [...libraryByKey.values()].filter(item => {
+    const candidate = HumbleOwnership.editionParts(item.title, itemKind);
+    const same = HumbleComicLibrary.normalizeTitle(title) === HumbleComicLibrary.normalizeTitle(item.title);
+    return same || (itemKind === 'game' || itemKind === 'book' || itemKind === 'audiobook')
+      && candidate.base === target.base && (candidate.edition || target.edition)
+      && (target.base.replace(/\s/gu, '').length >= (itemKind === 'game' ? 3 : 4) || HumbleOwnership.sharedIdentity(offered, item));
+  }).sort((a, b) => naturalTitleCompare(a.title, b.title));
+  if (related.length) return { items: related.length === 1 ? related[0] : related,
+    reason: related.map(item => `${item.title}: ${HumbleOwnership.conflicts(offered, item, true).join('; ') || 'Related title/edition; identity requires review'}`).join('\n') };
   const numberedBase = numberedTitleBase(title);
   if (numberedBase) {
     const candidate = libraryByKey.get(numberedBase);
@@ -1124,7 +1189,7 @@ function findPossibleMatch(title, libraryMatcher, itemKind = 'book') {
   }
   if (itemKind === 'game') {
     const editionBase = gameEditionBase(title);
-    const candidate = editionBase ? findGameEditionMatch(editionBase, libraryByKey) : null;
+    const candidate = findGameEditionMatch(editionBase ?? HumbleComicLibrary.normalizeTitle(title), libraryByKey);
     // Store editions and collections often differ only by DLC. Treat this as
     // a Possible match so the user can review it, never as ownership.
     if (candidate) return { items: candidate, reason: 'The game titles differ only by edition wording.' };
@@ -1223,10 +1288,10 @@ function findPossibleBookTitleRelation(title, libraryByKey) {
 function findOwnedBookVariant(title, libraryMatcher) {
   const target = bookVariantParts(title);
   const formatVariant = libraryMatcher.bookVariants.get(target.key);
-  // TP, HC, and Deluxe wording describe a presentation rather than a
+  // TP and HC wording describe a presentation rather than a
   // different book. These remain safe exact matches after stripping only
   // those delivery-format labels.
-  if (formatVariant) return { item: formatVariant, reason: 'Matched after removing a book-format suffix.' };
+  if (formatVariant && HumbleComicLibrary.normalizeTitle(title) !== HumbleComicLibrary.normalizeTitle(formatVariant.title)) return { item: formatVariant, reason: 'Matched after removing a book-format suffix.' };
   for (const { item, parts: candidate } of libraryMatcher.currentBundleBookVariants) {
     if (!bookVolumeVariantsAlign(target, candidate)) continue;
     // Humble sometimes names an entitlement with a volume subtitle while its
@@ -1275,7 +1340,7 @@ function parseIssueTitle(title) {
 
 function bookVariantParts(title) {
   const key = HumbleComicLibrary.titleKey(title)
-    .replace(/\b(?:tp|tpb|hc|hardcover|paperback|trade paperback|dlx(?: ed)?|deluxe(?: edition)?|digital edition)\b/giu, ' ')
+    .replace(/\s+(?:tp|tpb|hc|hardcover|paperback|trade paperback|digital edition)$/giu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
   // Entitlements and bundle cards often disagree about whether the volume
@@ -1315,18 +1380,13 @@ function numberedTitleBase(title) {
 }
 
 function gameEditionBase(title) {
-  const key = HumbleComicLibrary.titleKey(title);
-  const base = key
-    .replace(/\b(?:standard|super|deluxe|ultimate|complete|definitive|collectors?|anniversary|remastered|enhanced|gold|premium|edition)\b/giu, ' ')
-    .replace(/\bgame of the year\b|\bgoty\b/giu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim();
-  return base && base !== key ? base : null;
+  const parts = HumbleOwnership.editionParts(title, 'game');
+  return parts.edition ? parts.base : null;
 }
 
 function findGameEditionMatch(editionBase, libraryByKey) {
   for (const [key, item] of libraryByKey) {
-    const candidateBase = gameEditionBase(item.title) ?? key;
+    const candidateBase = gameEditionBase(item.title) ?? HumbleComicLibrary.normalizeTitle(item.title);
     if (candidateBase === editionBase) return item;
   }
   return null;
@@ -2759,7 +2819,8 @@ function extractLibraryItems(detail, order, purchaseKey) {
       source: 'humble',
       sourceBundle,
       purchaseKey,
-      purchasedAt
+      purchasedAt,
+      ...HumbleComicLibrary.bibliographicFields(product)
     }))
     .filter(({ title }) => Boolean(title));
   return [...directItems, ...extractThirdPartyKeyItems(detail, order, purchaseKey)];
@@ -2783,7 +2844,7 @@ function thirdPartyEntitlementKind(record, sourceBundle) {
 }
 
 function libraryItemKey(item) {
-  return `${item.kind ?? 'book'}:${HumbleComicLibrary.titleKey(item.title)}`;
+  return HumbleComicLibrary.catalogItemKey(item);
 }
 
 function createPurchaseSummary(detail, order, purchaseKey, items) {
