@@ -1240,20 +1240,21 @@ function findOwnedBookVariant(title, libraryMatcher) {
 }
 
 function findOwnedCollectionIssue(title, libraryByKey, collectionMappings) {
-  const issue = parseIssueTitle(title);
-  if (!issue) return null;
+  const requested = HumbleCollectionMappings.titleContents(title);
+  if (requested.length !== 1 || !requested[0].run) return null;
+  const target = requested[0];
   for (const mapping of collectionMappings) {
     const ownedCollection = libraryByKey.get(HumbleComicLibrary.titleKey(mapping.collectionTitle));
-    if (!ownedCollection) continue;
-    const containsIssue = mapping.contains?.some((entry) => (
-      HumbleComicLibrary.titleKey(entry.series) === issue.series
-      && Number(entry.year) === issue.year
-      && issue.number >= Number(entry.from)
-      && issue.number <= Number(entry.to)
-    ));
+    if (!ownedCollection || !HumbleCollectionMappings.mappingMatches(mapping, ownedCollection)) continue;
+    const containsIssue = HumbleCollectionMappings.expandContents(mapping).some(entry =>
+      entry.completeness === 'full'
+      && HumbleCollectionMappings.scopeKey(entry.series) === HumbleCollectionMappings.scopeKey(target.series)
+      && entry.run === target.run && entry.unitType === target.unitType
+      && HumbleCollectionMappings.numberKey(entry.number) === HumbleCollectionMappings.numberKey(target.number));
     if (containsIssue) {
       return {
         item: ownedCollection,
+        mapping,
         reason: `Included in ${displayTitle(mapping.collectionTitle)} (${mapping.sourceLabel ?? 'collection mapping'}).`
       };
     }

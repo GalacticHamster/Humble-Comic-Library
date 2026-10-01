@@ -109,7 +109,32 @@ In **Extension options**, use **Collection mappings** to import a JSON file like
 }
 ```
 
-The mapping is applied only if the exact `collectionTitle` is already in your imported library. A year and an inclusive issue range are required, which keeps similarly named runs from being silently conflated. Importing a mapping file replaces only previous custom mappings; the built-in verified mappings remain. Collection mappings are included in an exported backup and restored through **Restore backup**.
+The mapping is applied only when the named collection is in your imported library. Legacy title/year/range mappings remain supported. For edition-specific mappings, add `editionId` or `identifiers` (`isbn` or `asin`); the library record must carry the same identifier. An unknown edition does not satisfy an edition-specific rule.
+
+Rich mappings can include `sourceLabel`, `sourceId`, `sourceUrl` (HTTP/HTTPS without credentials; query parameters are discarded), `verifiedAt`, `verified`, `contentsComplete`, and `language`. Set `verified: false` for unreviewed mappings; they never prove ownership. Each contents entry requires `series` and a `year`, `run`, or `runId`, and can carry `seriesId`/`runId`. Use `unitType` (`issue`, `volume`, `annual`, `special`, or `component`) with either an integer `from`/`to` range or a `number` such as `"1/2"`, `"0.5"`, or a named special. `completeness: "excerpt"` records a partial reprint and never proves ownership of the full unit. For example:
+
+```json
+{
+  "mappings": [{
+    "id": "example-reviewed-edition",
+    "collectionTitle": "Example Collected Edition",
+    "editionId": "publisher-edition-2",
+    "sourceLabel": "Publisher contents page",
+    "sourceUrl": "https://publisher.example/edition-2",
+    "verifiedAt": "2026-10-01T12:00:00Z",
+    "verified": true,
+    "contentsComplete": true,
+    "language": "en",
+    "contains": [
+      {"series": "Example", "run": "2020", "unitType": "issue", "number": "1/2"},
+      {"series": "Example", "run": "2020", "unitType": "annual", "number": "1"},
+      {"series": "Example", "run": "2020", "unitType": "special", "number": "Holiday", "completeness": "excerpt"}
+    ]
+  }]
+}
+```
+
+Importing replaces previous custom mappings; built-in mappings remain. Mappings and imported bibliographic evidence are included in backups. Run IDs are retained locally; GL contents requests also need a readable run name/year to establish coverage.
 
 ## Create a release ZIP
 

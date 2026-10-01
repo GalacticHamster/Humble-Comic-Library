@@ -39,7 +39,8 @@
     if (!row || typeof row.title !== 'string' || !row.title.trim()) return null;
     const item = {
       title: row.title.trim(),
-      sourceBundle: String(row.sourceBundle ?? '').trim()
+      sourceBundle: String(row.sourceBundle ?? '').trim(),
+      ...bibliographicFields(row)
     };
     const kind = String(row.kind ?? '').trim().toLowerCase();
     // Older manual libraries have no kind and remain compatible as books.
@@ -51,6 +52,43 @@
 
   function uniqueStrings(values) {
     return [...new Set(values.filter(Boolean))];
+  }
+
+  function text(value, limit = 500) {
+    return typeof value === 'string' || typeof value === 'number'
+      ? String(value).normalize('NFKC').replace(/\s+/gu, ' ').trim().slice(0, limit) : '';
+  }
+
+  function names(value) {
+    return uniqueStrings((Array.isArray(value) ? value : [value])
+      .map(entry => text(typeof entry === 'object' ? entry?.name : entry))).slice(0, 50);
+  }
+
+  function validIsbn(value) {
+    const isbn = text(value).toUpperCase().replace(/[-\s]/gu, '');
+    if (/^\d{9}[\dX]$/u.test(isbn)) {
+      if ([...isbn].reduce((sum, digit, index) => sum + (digit === 'X' ? 10 : Number(digit)) * (10 - index), 0) % 11) return '';
+      const base = `978${isbn.slice(0, 9)}`;
+      return base + ((10 - [...base].reduce((sum, digit, index) => sum + Number(digit) * (index % 2 ? 3 : 1), 0) % 10) % 10);
+    }
+    if (!/^97[89]\d{10}$/u.test(isbn)) return '';
+    return [...isbn].reduce((sum, digit, index) => sum + Number(digit) * (index % 2 ? 3 : 1), 0) % 10 === 0 ? isbn : '';
+  }
+
+  // Catalog fields only. Purchase identifiers, keys and download URLs are never
+  // copied into bibliographic requests or mapping evidence.
+  function bibliographicFields(value) {
+    const raw = value?.metadata ?? value ?? {};
+    const fields = {};
+    const authors = names(raw.authors ?? raw.author);
+    const isbn = names(raw.isbn ?? raw.isbns ?? raw.isbn13 ?? raw.isbn10).map(validIsbn).filter(Boolean);
+    if (authors.length) fields.authors = authors;
+    if (isbn.length) fields.isbn = uniqueStrings(isbn);
+    for (const key of ['asin', 'workId', 'editionId', 'edition', 'language', 'series', 'seriesId', 'run', 'runId', 'volume', 'issue', 'unitType']) {
+      const entry = text(raw[key]);
+      if (entry) fields[key] = key === 'language' ? entry.toLowerCase() : entry;
+    }
+    return fields;
   }
 
   const BACKUP_VERSION = 7;
@@ -89,7 +127,7 @@
       if (!item) throw new Error(`${label} needs a title.`);
       return item;
     }
-    const item = backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string' }, label, ['title']);
+    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string' }, label, ['title']), ...bibliographicFields(value) };
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
     if (value.provenance !== undefined) {
       item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => backupRecord(record, PROVENANCE_FIELDS, path));
@@ -198,6 +236,7 @@
 
   global.HumbleComicLibrary = {
     normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId,
-    LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState
+    LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
+    text, names, validIsbn, bibliographicFields
   };
 }(globalThis));
