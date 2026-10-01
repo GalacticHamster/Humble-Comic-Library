@@ -4,6 +4,7 @@ const GALACTIC_LIBRARY_API_VERSION = 1;
 const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 let purchaseFocusTimer;
+let bundleSummaryMinimized = false;
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
@@ -1506,6 +1507,41 @@ function applyBundleNewItemsOnlyFilter(enabled) {
   document.querySelectorAll('.hcl-card-owned, .hcl-card-elsewhere').forEach((card) => card.classList.add('hcl-bundle-filtered'));
 }
 
+function appendBundleSummaryControls(summary) {
+  const controls = document.createElement('div');
+  controls.className = 'hcl-summary-controls';
+  const minimize = document.createElement('button');
+  minimize.type = 'button';
+  minimize.className = 'hcl-summary-minimize';
+  minimize.textContent = 'Minimize';
+  minimize.setAttribute('aria-label', 'Minimize Humble Library bundle summary');
+  const expand = document.createElement('button');
+  expand.type = 'button';
+  expand.className = 'hcl-summary-expand';
+  expand.textContent = 'Humble Library — Expand';
+  expand.setAttribute('aria-label', 'Expand Humble Library bundle summary');
+  const update = () => {
+    summary.classList.toggle('hcl-summary-minimized', bundleSummaryMinimized);
+    minimize.hidden = bundleSummaryMinimized;
+    expand.hidden = !bundleSummaryMinimized;
+    minimize.setAttribute('aria-expanded', String(!bundleSummaryMinimized));
+    expand.setAttribute('aria-expanded', String(!bundleSummaryMinimized));
+  };
+  minimize.addEventListener('click', () => {
+    bundleSummaryMinimized = true;
+    update();
+    expand.focus();
+  });
+  expand.addEventListener('click', () => {
+    bundleSummaryMinimized = false;
+    update();
+    minimize.focus();
+  });
+  controls.append(minimize, expand);
+  summary.prepend(controls);
+  update();
+}
+
 function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
@@ -1605,6 +1641,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   });
   summary.append(diagnostic);
   if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
+  appendBundleSummaryControls(summary);
   removeComparisonProgress();
   document.body.append(summary);
 }
@@ -1676,6 +1713,7 @@ function renderPurchasedBundleSummary(currentBundlePurchases) {
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   appendPurchasedBundleStatus(summary, currentBundlePurchases);
+  appendBundleSummaryControls(summary);
   document.body.append(summary);
 }
 

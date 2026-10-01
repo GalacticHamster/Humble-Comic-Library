@@ -61,6 +61,14 @@
   font: 600 0.875rem/1.35 Arial, sans-serif;
 }
 
+.hcl-summary-controls { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
+.hcl-summary-controls button { padding: 0.3rem 0.5rem; border: 1px solid #777; border-radius: 0.25rem; background: transparent; color: inherit; font: inherit; font-size: 0.75rem; cursor: pointer; }
+.hcl-summary-controls button[hidden] { display: none !important; }
+.hcl-summary-controls button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.hcl-summary.hcl-summary-minimized { width: auto; padding: 0.45rem 0.65rem; }
+.hcl-summary-minimized > :not(.hcl-summary-controls) { display: none !important; }
+.hcl-summary-minimized > .hcl-summary-controls { margin: 0; }
+
 .hcl-progress {
   position: fixed;
   right: 1rem;
