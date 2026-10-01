@@ -45,6 +45,13 @@
     lastImport.textContent = summary
       ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
       : 'No Humble import has run yet.';
+    if (summary?.fullRescan) {
+      lastImport.textContent += summary.reconciled
+        ? ' Current Humble snapshot reconciled; historical evidence archived.'
+        : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
+    }
+    const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [] });
+    count.textContent += ` History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (excluded from matching).`;
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');
       row.textContent = item.sourceBundle ? `${item.title} — ${item.sourceBundle}` : item.title;
@@ -184,7 +191,7 @@
     try {
       const parsed = JSON.parse(await file.text());
       const replacement = HumbleComicLibrary.manualTitleImportState(parsed);
-      if (!confirm('Replace your library with this manual title list? This clears purchase records, provenance, reminders, scan history, and custom mappings.')) return;
+      if (!confirm('Replace your library with this manual title list? This clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings.')) return;
       await chrome.storage.local.set(replacement);
       status.textContent = `Imported ${replacement.libraryItems.length} unique titles. Previous purchase data, reminders, scan history, and custom mappings cleared.`;
       await render();
@@ -219,7 +226,7 @@
     if (!file) return;
     try {
       const replacement = HumbleComicLibrary.restoreBackupState(JSON.parse(await file.text()));
-      if (!confirm('Restore this backup and replace all current library items, purchases, reminders, scan history, and custom mappings?')) return;
+      if (!confirm('Restore this backup and replace all current library items, purchases, reminders, scan history, the history archive, and custom mappings?')) return;
       await chrome.storage.local.set({ ...replacement, hclPurchaseFocus: null });
       restoreStatus.textContent = `Restored ${replacement.libraryItems.length} items, ${replacement.purchaseSummaries.length} purchases, and ${replacement.keyReminders.length} reminders. Previous library data replaced.`;
       await render();
@@ -277,7 +284,7 @@
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
-    if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, and custom collection mapping?')) return;
+    if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping?')) return;
     await chrome.storage.local.remove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();

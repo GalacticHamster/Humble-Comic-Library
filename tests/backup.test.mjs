@@ -72,8 +72,10 @@ function libraryState() {
     purchaseSummaries: [{ purchaseKey: 'order-one', sourceBundle: 'Example Bundle', purchasedAt: '2026-09-01', itemCount: 1, pricePaid: 5, currency: 'USD', pricePerItem: 5 }],
     keyReminders: [{ id: 'reminder-one', purchaseKey: 'order-one', title: 'Example Software', sourceBundle: 'Example Bundle', purchasedAt: '2026-09-01', keyType: 'Publisher', status: 'unrevealed', directRedeem: false, isExpired: false, expiresAt: null, daysUntilExpiry: -1, checkedAt: '2026-09-02' }],
     keyReminderScan: { complete: false, checkedAt: '2026-09-02', purchaseKeys: ['order-one'], baselinePurchaseKeys: ['order-one', 'order-two'], failedPurchaseKeys: ['order-two'] },
-    lastImport: { importedAt: '2026-09-02', scannedPurchases: 2, skippedKnown: 0, addedTitles: 1, addedGames: 0, addedSoftware: 1, addedAudiobooks: 0, datesBackfilled: 0, pricedPurchases: 1, skippedPurchases: 1 },
+    lastImport: { importedAt: '2026-09-02', scannedPurchases: 2, skippedKnown: 0, addedTitles: 1, addedGames: 0, addedSoftware: 1, addedAudiobooks: 0, datesBackfilled: 0, pricedPurchases: 1, skippedPurchases: 1, fullRescan: true, reconciled: false, failedPurchaseKeys: ['order-two'] },
     mediaImportVersion: 6,
+    historicalLibraryItems: [{ title: 'Retired book', kind: 'book', source: 'humble', purchaseKey: 'retired-order', provenance: [{ title: 'Retired book', purchaseKey: 'retired-order' }] }],
+    historicalPurchaseSummaries: [{ purchaseKey: 'retired-order', sourceBundle: 'Retired Bundle', itemCount: 1, pricePaid: null }],
     customCollectionMappings: [{ id: 'custom-one', collectionTitle: 'Example Collection', sourceLabel: 'Custom mapping', contains: [{ series: 'Example Series', year: 2000, from: 1, to: 4 }] }]
   };
 }
@@ -82,7 +84,7 @@ test('options export and restore round trip preserves complete library state and
   const expected = libraryState();
   const source = options(expected);
   const backup = await source.export();
-  assert.equal(backup.version, 6);
+  assert.equal(backup.version, 7);
   const target = options({
     ...libraryState(), keyReminders: [{ id: 'unrelated', purchaseKey: 'other', title: 'Other item' }],
     showDiagnostics: true, galacticLibraryExtensionId: 'local-connection', hclPurchaseFocus: { purchaseKey: 'other' }
@@ -111,6 +113,8 @@ test('legacy backups clear absent data, preserve available provenance, and reset
   assert.equal(target.stored.keyReminderScan, null);
   assert.equal(target.stored.lastImport, null);
   assert.equal(target.stored.mediaImportVersion, 1);
+  assert.deepEqual(target.stored.historicalLibraryItems, []);
+  assert.deepEqual(target.stored.historicalPurchaseSummaries, []);
 });
 
 test('manual title import is separate, deduplicates kinds, and clears old purchase and reminder state', async () => {
@@ -121,7 +125,7 @@ test('manual title import is separate, deduplicates kinds, and clears old purcha
   assert.deepEqual(target.stored.libraryItems, [
     { title: 'Example Title', sourceBundle: '' }, { title: 'Example Title', sourceBundle: '', kind: 'game' }
   ]);
-  for (const key of ['purchaseSummaries', 'keyReminders', 'customCollectionMappings']) assert.deepEqual(target.stored[key], []);
+  for (const key of ['purchaseSummaries', 'keyReminders', 'customCollectionMappings', 'historicalLibraryItems', 'historicalPurchaseSummaries']) assert.deepEqual(target.stored[key], []);
   assert.equal(target.stored.keyReminderScan, null);
   assert.equal(target.stored.lastImport, null);
   assert.equal(target.stored.mediaImportVersion, 1);
@@ -132,6 +136,20 @@ test('manual title import is separate, deduplicates kinds, and clears old purcha
   assert.match(target.elements.get('#import-status').textContent, /Use Restore backup/);
   await target.load('#restore-file', ['Manual title']);
   assert.deepEqual(target.stored, before);
+});
+
+test('version-6 backups remain restorable and clear any unrelated history archive', async () => {
+  const source = options(libraryState());
+  const legacy = await source.export();
+  legacy.version = 6;
+  delete legacy.historicalItems;
+  delete legacy.historicalPurchases;
+  const target = options(libraryState());
+  await target.load('#restore-file', legacy);
+  assert.deepEqual(target.stored.libraryItems, libraryState().libraryItems);
+  assert.deepEqual(target.stored.keyReminderScan, libraryState().keyReminderScan);
+  assert.deepEqual(target.stored.historicalLibraryItems, []);
+  assert.deepEqual(target.stored.historicalPurchaseSummaries, []);
 });
 
 test('invalid and cancelled restores leave existing data intact', async () => {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Defines full-rescan reconciliation: only complete successful scans replace current Humble items, purchase summaries, and reminders; manual titles remain protected, failed scans retain previous entries and schedule retries, and historical purchase evidence is archived separately in version-7 backups.
+
 - Fixes the key-reminder discovery failure handler so failed purchase fetches increment aggregate failure counts and allow the remaining report to complete.
 
 - Separates manual title-list import from backup restore. Version-6 backups preserve purchase provenance, purchases, reminders, import/scan state, and mappings; restores replace previous library state without retaining unrelated reminders.

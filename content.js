@@ -1953,7 +1953,7 @@ function addPurchaseImporter() {
       }
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan });
       const scope = fullRescan
-        ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}`
+        ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`
         : result.audioBackfill || result.softwareBackfill
           ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to add newly supported deliveries`
           : `Scanned ${result.scannedPurchases} new purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
@@ -1981,10 +1981,13 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   const {
     libraryItems = [],
     purchaseSummaries: existingPurchases = [],
+    historicalLibraryItems = [],
+    historicalPurchaseSummaries = [],
+    lastImport: priorImport = null,
     mediaImportVersion = 1,
     keyReminders: existingReminders = [],
     keyReminderScan: priorReminderScan = null
-  } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], mediaImportVersion: 1, keyReminders: [], keyReminderScan: null });
+  } = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], historicalLibraryItems: [], historicalPurchaseSummaries: [], lastImport: null, mediaImportVersion: 1, keyReminders: [], keyReminderScan: null });
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
   // Version 4 recognizes Humble's audio download platform, generic audio
   // category, and audio download formats. One complete backfill lets established installations
@@ -1996,10 +1999,14 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   // Reprocess existing entitlement-like records once so earlier entries can
   // be corrected from the live Humble metadata.
   const softwareBackfill = mediaImportVersion < 6;
-  const purchaseKey = (order) => order.gamekey ?? order.key ?? order.order_key;
+  const purchaseKey = (order) => order?.gamekey ?? order?.key ?? order?.order_key;
+  if (orderList.some((order) => typeof purchaseKey(order) !== 'string' || !purchaseKey(order).trim())) {
+    throw new Error('Humble returned a purchase without a valid identifier. No scan data was changed.');
+  }
+  const priorFailedPurchaseKeys = new Set(priorImport?.failedPurchaseKeys ?? []);
   const titlePurchaseKeys = new Set(orderList.filter((order) => {
     const key = purchaseKey(order);
-    return key && (fullRescan || audioBackfill || softwareBackfill || !previouslyScanned.has(key));
+    return key && (fullRescan || audioBackfill || softwareBackfill || priorFailedPurchaseKeys.has(key) || !previouslyScanned.has(key));
   }).map(purchaseKey));
   const allPurchaseKeys = new Set(orderList.map(purchaseKey).filter(Boolean));
   const newPurchaseKeys = new Set([...allPurchaseKeys].filter((key) => !previouslyScanned.has(key)));
@@ -2030,6 +2037,14 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     report(`Checking purchase ${index + 1} of ${purchasesToInspect.length}…`);
     try {
       const detail = await fetchOrderDetail(key);
+      if (!detail || typeof detail !== 'object' || Array.isArray(detail)
+        || !['subproducts', 'products', 'tpkd_dict', 'all_tpks', 'all_tpkds', 'downloads', 'product', 'human_name'].some((field) => Object.hasOwn(detail, field))) {
+        throw new Error('Unexpected purchase detail.');
+      }
+      if (['subproducts', 'products', 'all_tpks', 'all_tpkds'].some((field) => Object.hasOwn(detail, field) && !Array.isArray(detail[field]))
+        || ['all_tpks', 'all_tpkds'].some((field) => detail.tpkd_dict && Object.hasOwn(detail.tpkd_dict, field) && !Array.isArray(detail.tpkd_dict[field]))) {
+        throw new Error('Unexpected purchase product list.');
+      }
       if (importTitles) {
         const items = extractLibraryItems(detail, order, key);
         imported.push(...items);
@@ -2046,17 +2061,21 @@ async function importPurchases(report, { fullRescan = false } = {}) {
       if (refreshReminders) {
         reminderFailures += 1;
         failedReminderKeys.add(key);
+        successfullyChecked.delete(key);
       }
     }
     // Avoid piling up requests against Humble for accounts with long histories.
     await new Promise((resolve) => setTimeout(resolve, 175));
   }
 
-  // Rebuild entitlement-like records from source data. The one-time media
-  // backfills correct earlier classification while leaving books untouched.
-  const rebuildEntitlements = fullRescan || audioBackfill || softwareBackfill;
+  // Only a complete explicit rescan can prune the current Humble snapshot.
+  // Media backfills continue to correct entitlement classification separately.
+  const reconciled = fullRescan && failures.length === 0 && reminderFailures === 0;
+  const rebuildEntitlements = !fullRescan && (audioBackfill || softwareBackfill);
   const failedPurchaseKeys = new Set(failures);
-  const retainedItems = rebuildEntitlements
+  const retainedItems = reconciled
+    ? libraryItems.filter((item) => item.source !== 'humble').map(retainManualLibraryItem)
+    : rebuildEntitlements
     ? libraryItems.filter((item) => !['game', 'audiobook', 'software'].includes(item.kind)
       || item.source !== 'humble'
       // Never lose a previously imported entitlement merely because this
@@ -2069,6 +2088,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   let addedSoftware = 0;
   let addedAudiobooks = 0;
   let datesBackfilled = 0;
+  const priorItemsByKey = new Map(libraryItems.map((item) => [libraryItemKey(item), item]));
   for (const item of imported) {
     const key = libraryItemKey(item);
     if (!key) continue;
@@ -2083,10 +2103,12 @@ async function importPurchases(report, { fullRescan = false } = {}) {
       continue;
     }
     merged.set(key, withProvenance(item));
-    added += 1;
-    if (item.kind === 'game') addedGames += 1;
-    if (item.kind === 'software') addedSoftware += 1;
-    if (item.kind === 'audiobook') addedAudiobooks += 1;
+    if (!priorItemsByKey.has(key)) {
+      added += 1;
+      if (item.kind === 'game') addedGames += 1;
+      if (item.kind === 'software') addedSoftware += 1;
+      if (item.kind === 'audiobook') addedAudiobooks += 1;
+    }
   }
   const importSummary = {
     importedAt: new Date().toISOString(),
@@ -2098,11 +2120,19 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     addedAudiobooks,
     datesBackfilled,
     pricedPurchases: purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length,
-    skippedPurchases: failures.length
+    skippedPurchases: failures.length,
+    fullRescan,
+    reconciled,
+    failedPurchaseKeys: failures
   };
-  const allPurchases = new Map(existingPurchases.map((purchase) => [purchase.purchaseKey, purchase]));
+  const allPurchases = new Map((reconciled ? [] : existingPurchases).map((purchase) => [purchase.purchaseKey, purchase]));
   for (const purchase of purchaseSummaries) allPurchases.set(purchase.purchaseKey, purchase);
   const checkedAt = new Date().toISOString();
+  if (reconciled) {
+    for (const [id, record] of reminders) if (!allPurchaseKeys.has(record.purchaseKey)) reminders.delete(id);
+    for (const key of successfullyChecked) if (!allPurchaseKeys.has(key)) successfullyChecked.delete(key);
+    for (const key of failedReminderKeys) if (!allPurchaseKeys.has(key)) failedReminderKeys.delete(key);
+  }
   const reminderRecords = [...reminders.values()];
   const baselinePurchaseKeys = fullRescan
     ? [...allPurchaseKeys]
@@ -2113,8 +2143,8 @@ async function importPurchases(report, { fullRescan = false } = {}) {
         // purchaseKeys. Keep existing complete scans complete when upgrading.
         ? [...allPurchaseKeys]
         : [];
-  const baselineComplete = baselinePurchaseKeys.length > 0
-    && baselinePurchaseKeys.every((key) => successfullyChecked.has(key));
+  const baselineComplete = (reconciled || baselinePurchaseKeys.length > 0)
+    && baselinePurchaseKeys.every((key) => successfullyChecked.has(key) && !failedReminderKeys.has(key));
   const expiringSoon = reminderRecords.filter((record) => {
     const days = keyReminderDaysRemaining(record, checkedAt);
     return days !== null && days >= 0 && days <= 30;
@@ -2129,6 +2159,8 @@ async function importPurchases(report, { fullRescan = false } = {}) {
   await chrome.storage.local.set({
     libraryItems: [...merged.values()],
     purchaseSummaries: [...allPurchases.values()],
+    historicalLibraryItems: mergeHistoricalLibraryItems(historicalLibraryItems, libraryItems, imported),
+    historicalPurchaseSummaries: mergeHistoricalPurchases(historicalPurchaseSummaries, existingPurchases, purchaseSummaries),
     lastImport: importSummary,
     keyReminders: reminderRecords,
     keyReminderScan: keyReminders,
@@ -2147,6 +2179,7 @@ async function importPurchases(report, { fullRescan = false } = {}) {
     failures: failures.length,
     scannedPurchases: titlePurchaseKeys.size,
     skippedKnown: importSummary.skippedKnown,
+    reconciled,
     keyReminders: {
       complete: baselineComplete,
       scannedPurchases: reminderPurchaseKeys.size,
@@ -2600,6 +2633,41 @@ function directOrderProducts(detail) {
   const products = Array.isArray(detail?.subproducts) ? detail.subproducts
     : Array.isArray(detail?.products) ? detail.products : [];
   return products.length ? products : [detail];
+}
+
+function retainManualLibraryItem(item) {
+  // A manual title can also have Humble provenance from a later import. Keep
+  // the manual title, but rebuild its Humble evidence from the current scan.
+  const { purchaseKey, purchasedAt, provenance, ...manual } = item;
+  return { ...manual, provenance: itemProvenance(item).filter((record) => !record.purchaseKey) };
+}
+
+function mergeHistoricalLibraryItems(history, ...snapshots) {
+  const merged = new Map(history.map((item) => [libraryItemKey(item), item]));
+  for (const item of snapshots.flat()) {
+    const provenance = itemProvenance(item).filter((record) => item.source === 'humble' || record.purchaseKey);
+    if (!provenance.length) continue;
+    const evidence = { ...item, source: 'humble', provenance };
+    const key = libraryItemKey(evidence);
+    const existing = merged.get(key);
+    merged.set(key, existing ? mergeLibraryItem(existing, evidence) : evidence);
+  }
+  return [...merged.values()];
+}
+
+function mergeHistoricalPurchases(...snapshots) {
+  const seen = new Set();
+  return snapshots.flat().filter((purchase) => {
+    // Preserve changed metadata as historical evidence, without repeatedly
+    // appending identical purchase summaries on every scan.
+    const identity = JSON.stringify([
+      purchase.purchaseKey, purchase.sourceBundle, purchase.purchasedAt,
+      purchase.itemCount, purchase.pricePaid, purchase.currency, purchase.pricePerItem
+    ]);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
 }
 
 function extractLibraryItems(detail, order, purchaseKey) {

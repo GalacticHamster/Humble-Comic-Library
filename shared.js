@@ -53,10 +53,11 @@
     return [...new Set(values.filter(Boolean))];
   }
 
-  const BACKUP_VERSION = 6;
+  const BACKUP_VERSION = 7;
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
-    keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1
+    keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
+    historicalLibraryItems: [], historicalPurchaseSummaries: []
   };
 
   function backupRecord(value, fields, label, required = []) {
@@ -101,10 +102,13 @@
       || !Number.isInteger(value.version) || value.version < 1 || value.version > BACKUP_VERSION) {
       throw new Error('Choose a supported Humble Comic Library backup, not a manual title list.');
     }
-    if (value.version === BACKUP_VERSION) {
+    if (value.version >= 6) {
       for (const field of ['items', 'purchases', 'collectionMappings', 'keyReminders', 'keyReminderScan', 'lastImport', 'mediaImportVersion']) {
         if (!Object.hasOwn(value, field)) throw new Error(`Backup is missing ${field}.`);
       }
+    }
+    if (value.version >= 7 && (!Object.hasOwn(value, 'historicalItems') || !Object.hasOwn(value, 'historicalPurchases'))) {
+      throw new Error('Backup is missing historical purchase evidence.');
     }
     const libraryItems = backupArray(value.items, 'items', restoreBackupItem);
     const purchaseSummaries = backupArray(value.purchases === undefined ? [] : value.purchases, 'purchases', (record, path) => backupRecord(record, {
@@ -136,14 +140,25 @@
     const lastImport = value.lastImport == null ? null : backupRecord(value.lastImport, {
       importedAt: 'string', scannedPurchases: 'number', skippedKnown: 'number', addedTitles: 'number',
       addedGames: 'number', addedSoftware: 'number', addedAudiobooks: 'number', datesBackfilled: 'number',
-      pricedPurchases: 'number', skippedPurchases: 'number'
+      pricedPurchases: 'number', skippedPurchases: 'number', fullRescan: 'boolean', reconciled: 'boolean'
     }, 'lastImport');
+    if (lastImport && value.lastImport.failedPurchaseKeys !== undefined) {
+      lastImport.failedPurchaseKeys = backupArray(value.lastImport.failedPurchaseKeys, 'lastImport.failedPurchaseKeys', (key, path) => {
+        if (typeof key !== 'string' || !key.trim()) throw new Error(`${path} needs a purchase identifier.`);
+        return key;
+      });
+    }
     const mediaImportVersion = value.mediaImportVersion === undefined ? 1 : value.mediaImportVersion;
     if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 6) {
       throw new Error('Unsupported media import scan version.');
     }
     const customCollectionMappings = global.HumbleCollectionMappings.validateCustomMappings(value.collectionMappings === undefined ? [] : value.collectionMappings);
-    return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings };
+    const historicalLibraryItems = backupArray(value.historicalItems === undefined ? [] : value.historicalItems, 'historicalItems', restoreBackupItem);
+    const historicalPurchaseSummaries = backupArray(value.historicalPurchases === undefined ? [] : value.historicalPurchases, 'historicalPurchases', (record, path) => backupRecord(record, {
+      purchaseKey: 'string', sourceBundle: 'string', purchasedAt: 'string?', itemCount: 'number',
+      pricePaid: 'number?', currency: 'string?', pricePerItem: 'number?'
+    }, path, ['purchaseKey']));
+    return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries };
   }
 
   function createLibraryBackup(state, exportedAt = new Date().toISOString()) {
@@ -151,13 +166,14 @@
     return {
       version: BACKUP_VERSION, exportedAt, items: saved.libraryItems, purchases: saved.purchaseSummaries,
       collectionMappings: saved.customCollectionMappings, keyReminders: saved.keyReminders,
-      keyReminderScan: saved.keyReminderScan, lastImport: saved.lastImport, mediaImportVersion: saved.mediaImportVersion
+      keyReminderScan: saved.keyReminderScan, lastImport: saved.lastImport, mediaImportVersion: saved.mediaImportVersion,
+      historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries
     };
   }
 
   function manualTitleImportState(value) {
     if (!Array.isArray(value) && (!value || typeof value !== 'object'
-      || ['version', 'purchases', 'keyReminders', 'keyReminderScan', 'lastImport', 'mediaImportVersion', 'collectionMappings'].some((field) => Object.hasOwn(value, field)))) {
+      || ['version', 'purchases', 'keyReminders', 'keyReminderScan', 'lastImport', 'mediaImportVersion', 'collectionMappings', 'historicalItems', 'historicalPurchases'].some((field) => Object.hasOwn(value, field)))) {
       throw new Error('Use Restore backup for exported backups. Import titles accepts a manual title list.');
     }
     const rows = Array.isArray(value) ? value : value.items;
