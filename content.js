@@ -366,6 +366,11 @@ function ownedOutsideHumble(result) {
     .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
 }
 
+function needsOwnershipReviewOutsideHumble(result) {
+  return (Array.isArray(result?.matches) ? result.matches : [])
+    .filter((match) => match?.provider !== 'humble' && match?.ownership && match.ownership !== 'owned' && match.ownership !== 'claimed');
+}
+
 function possibleOutsideHumble(result) {
   return (Array.isArray(result?.possibleMatches) ? result.possibleMatches : [])
     .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
@@ -421,6 +426,10 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
 
 function galacticOwnedMatches(itemKind, title, comparison) {
   return ownedOutsideHumble(comparison?.galactic?.resultsByKey.get(galacticRequestKey(itemKind, title)));
+}
+
+function galacticOwnershipReviewMatches(itemKind, title, comparison) {
+  return needsOwnershipReviewOutsideHumble(comparison?.galactic?.resultsByKey.get(galacticRequestKey(itemKind, title)));
 }
 
 function galacticPossibleMatches(itemKind, title, comparison) {
@@ -841,9 +850,12 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   if (comparison?.job !== job) return;
   for (const resolved of resolvedItems) {
     const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(itemKind, resolved.item.title, comparison);
+    const externalReviewMatches = resolved.match.state === 'new' ? galacticOwnershipReviewMatches(itemKind, resolved.item.title, comparison) : [];
     const externalPossibleMatches = resolved.match.state === 'new' ? galacticPossibleMatches(itemKind, resolved.item.title, comparison) : [];
     const match = externalMatches.length
       ? { state: 'elsewhere', externalMatches }
+      : externalReviewMatches.length
+        ? { state: 'possible', externalPossibleMatches: externalReviewMatches, ownershipReview: true, possibleReason: 'This exact title is in Galactic Library, but ownership is unconfirmed or access is temporary.' }
       : externalPossibleMatches.length
         ? { state: 'possible', externalPossibleMatches, possibleReason: 'The game titles differ only by edition wording.' }
         : resolved.match;
@@ -1306,7 +1318,7 @@ function annotateBundleItem(bundleItem, match) {
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
-      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? 'Possible' : 'New';
+      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
   }
@@ -1334,7 +1346,7 @@ function matchProvenance(match) {
     return lines.join('\n');
   }
   if (match.state === 'possible' && Array.isArray(match.externalPossibleMatches)) {
-    const lines = [`Possible external match: ${match.possibleReason ?? 'similar library title.'}`];
+    const lines = [`${match.ownershipReview ? 'Ownership review' : 'Possible external match'}: ${match.possibleReason ?? 'similar library title.'}`];
     const seen = new Set();
     for (const record of match.externalPossibleMatches) {
       const label = `${displayProviderName(record.provider)}: ${displayTitle(record.title)}`;
