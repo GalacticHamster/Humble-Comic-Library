@@ -2383,7 +2383,6 @@ async function discoverKeyReminderMetadata(report) {
       }
     } catch {
       failures += 1;
-      successfullyScanned.delete(purchaseKey);
     }
     // Match the normal importer's conservative request rate.
     await new Promise((resolve) => setTimeout(resolve, 175));

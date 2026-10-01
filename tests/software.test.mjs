@@ -186,6 +186,50 @@ test('Software discovery covers non-secret third-party entitlement metadata', ()
   assert.doesNotMatch(JSON.stringify(records), /secret-value|key_val/u);
 });
 
+test('key-reminder discovery continues after fetch failures and reports safe aggregate counts', async () => {
+  // Use an isolated context so this read-only diagnostic cannot rely on the
+  // reminder scanner's globals or accidentally write scan state.
+  for (const failedKeys of [[], ['private-order-one', 'private-order-two'], ['private-order-one', 'private-order-two', 'private-order-three']]) {
+    const discovery = loadExtension();
+    const keys = ['private-order-one', 'private-order-two', 'private-order-three'];
+    const requests = [];
+    discovery.setTimeout = (callback) => { callback(); return 0; };
+    discovery.fetch = async (url) => {
+      if (url === '/api/v1/user/order?all=true') {
+        return { ok: true, json: async () => keys.map((gamekey) => ({ gamekey, product: { human_name: 'Private Bundle' } })) };
+      }
+      const key = decodeURIComponent(url.match(/\/order\/([^?]+)/u)[1]);
+      requests.push(key);
+      if (failedKeys.includes(key)) throw new Error(`Fetch failed for ${key}: secret-error-value`);
+      return { ok: true, status: 200, text: async () => JSON.stringify({
+        tpkd_dict: { all_tpks: [{ human_name: 'Private Product', key_type: 'steam', redeemed_key_val: 'secret-key-value' }] }
+      }) };
+    };
+    const result = plainDiscoveryResult(await vm.runInContext('discoverKeyReminderMetadata(() => {})', discovery));
+    const successes = keys.length - failedKeys.length;
+    assert.deepEqual(requests, keys, 'all purchases are attempted, including those after a failure');
+    assert.equal(result.scannedPurchases, keys.length);
+    assert.equal(result.failures, failedKeys.length);
+    assert.equal(result.report.purchasesScanned, keys.length);
+    assert.equal(result.report.purchasesFailed, failedKeys.length);
+    assert.equal(result.keyRecords, successes);
+    assert.equal(result.report.thirdPartyKeyRecords, successes);
+    assert.deepEqual(result.report.recordContainers, successes ? { 'tpkd_dict.all_tpks': successes } : {});
+    if (successes) {
+      assert.equal(result.report.fields.human_name.present, successes);
+      assert.equal(result.report.redactedKeyValueFields.redeemed_key_val.values.redactedNonEmpty, successes);
+    } else {
+      assert.deepEqual(result.report.fields, {});
+      assert.deepEqual(result.report.redactedKeyValueFields, {});
+    }
+    assert.doesNotMatch(JSON.stringify(result), /private-order|Private Bundle|Private Product|secret-error-value|secret-key-value/u);
+  }
+});
+
+function plainDiscoveryResult(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 test('only explicitly labelled Software bundles reclassify generic third-party entitlements', () => {
   assert.equal(run('thirdPartyEntitlementKind(null, "Humble Software Bundle: Development Tools")'), 'software');
   assert.equal(run('thirdPartyEntitlementKind(null, "Humble GameMaker Bundle")'), 'game');

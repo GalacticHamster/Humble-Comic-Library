@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixes the key-reminder discovery failure handler so failed purchase fetches increment aggregate failure counts and allow the remaining report to complete.
+
 - Separates manual title-list import from backup restore. Version-6 backups preserve purchase provenance, purchases, reminders, import/scan state, and mappings; restores replace previous library state without retaining unrelated reminders.
 
 - Adds a Diagnostics-only, privacy-preserving purchase-navigation report for adapting individual-order links to Humble's current Purchases markup.
