@@ -132,5 +132,55 @@
     return fields;
   }
 
-  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request };
+  function unitLabel(entry) {
+    return `${entry.series}${entry.run ? ` (${entry.run})` : ''} ${entry.unitType} ${entry.number}${entry.language ? ` [${entry.language}]` : ''}`;
+  }
+
+  function explanationLines(match) {
+    const offered = match.offered ?? {};
+    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.state}`, `Media: ${offered.kind || 'book'}`];
+    const describe = (label, value) => {
+      const data = H.bibliographicFields(value);
+      const fields = Object.entries(data).map(([name, entry]) => `${name}: ${Array.isArray(entry) ? entry.join(', ') : entry}`);
+      lines.push(`${label}: ${fields.join(' · ') || 'No catalog identifiers, authors, edition, or language supplied.'}`);
+    };
+    describe('Offered evidence', offered);
+    if (match.possibleReason) lines.push(match.possibleReason);
+    if (match.ownedReason) lines.push(match.ownedReason);
+    if (match.localMatch?.possibleReason && match.localMatch.possibleReason !== match.possibleReason) lines.push(`Local candidate: ${match.localMatch.possibleReason}`);
+    if (match.mappingConflicts) lines.push(`Review needed: ${match.mappingConflicts}`);
+    const local = match.localMatch ?? match;
+    const records = [local.item, ...(local.range?.items ?? []), ...(match.externalMatches ?? []), ...(match.externalPossibleMatches ?? []),
+      ...(match.externalResult?.partialMatches ?? []), ...(match.coverage?.covered ?? []).flatMap(entry => entry.evidence),
+      ...(match.coverage?.possibleCovered ?? []).flatMap(entry => entry.evidence)].flat(Infinity).filter(Boolean);
+    const seen = new Set();
+    for (const record of records) {
+      const item = record.item ?? record;
+      const identity = `${record.provider || 'humble'}:${record.itemRef || H.catalogItemKey(item)}`;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      lines.push(`Library item: ${item.title || 'Unnamed record'} · ${record.provider || 'humble'} · ${record.ownership || 'locally recorded as owned'}`);
+      const data = record.evidence ? { ...record.evidence, title: record.title } : item;
+      describe('Library evidence', data);
+      const differences = conflicts(offered, data, true);
+      if (differences.length) lines.push(`Differences: ${differences.join('; ')}`);
+      if (record.reason || record.relationship) lines.push(`Basis: ${record.reason || record.relationship}${record.relationship ? ` (${record.relationship})` : ''}`);
+      if (record.evidence?.source || record.evidence?.checkedAt || record.verifiedAt) lines.push(`Source: ${record.evidence?.source || 'GL review'} · checked ${record.evidence?.checkedAt || 'unknown'} · verified ${record.verifiedAt || 'unknown'}`);
+      for (const provenance of item.provenance ?? [item]) if (provenance.sourceBundle) lines.push(`Humble bundle: ${provenance.sourceBundle}${provenance.purchasedAt ? ` · purchased ${provenance.purchasedAt}` : ''}`);
+      if (record.mapping) lines.push(`Contents source: ${record.mapping.sourceLabel || 'Reviewed mapping'} · ${record.mapping.sourceUrl || 'No source URL'} · verified ${record.mapping.verifiedAt || 'date not supplied'}`);
+    }
+    const coverage = match.coverage;
+    if (coverage?.total) {
+      lines.push(`Contents: ${coverage.owned}/${coverage.total} full units confirmed covered.`);
+      lines.push(coverage.contentsComplete ? 'The reviewed contents list describes the whole offered product.' : 'The target list does not establish the entire offered edition; full unit coverage alone is not edition ownership.');
+      if (coverage.scopeUncertain) lines.push('Run/language or overlapping contents remain uncertain; uncertain units are not confirmed owned or confirmed new.');
+      for (const [label, entries] of [['Covered', coverage.covered], ['Possible coverage', coverage.possibleCovered], ['Not confirmed covered', coverage.missing]]) {
+        if (entries?.length) lines.push(`${label}: ${entries.slice(0, 100).map(unitLabel).join('; ')}${entries.length > 100 ? `; and ${entries.length - 100} more` : ''}`);
+      }
+    }
+    if (!seen.size) lines.push('No matching ownership evidence was found in the checked libraries. New means no confirmed match; it is not a purchase guarantee.');
+    return lines;
+  }
+
+  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines };
 }(globalThis));

@@ -18,7 +18,9 @@ if ($Target -eq 'Firefox') {
   $firefoxOverlay = Get-Content -LiteralPath $firefoxOverlayPath -Raw | ConvertFrom-Json
   foreach ($property in $firefoxOverlay.PSObject.Properties) {
     if ($manifest.PSObject.Properties.Name -contains $property.Name) {
-      throw "Firefox manifest overlay may only add browser-specific fields; '$($property.Name)' already exists in manifest.json."
+      if ($property.Name -ne 'background') { throw "Firefox manifest overlay may only add browser-specific fields; '$($property.Name)' already exists in manifest.json." }
+      $manifest.background = $property.Value
+      continue
     }
     $manifest | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value
   }
@@ -26,6 +28,7 @@ if ($Target -eq 'Firefox') {
 $releaseFiles = @(
   'manifest.json',
   'shared.js',
+  'background.js',
   'collection-mappings.js',
   'ownership.js',
   'content.js',

@@ -865,7 +865,7 @@ function createBundleLibraryMatcher(items, baseKind) {
 }
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
-  document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
+  document.querySelectorAll('.hcl-status-button, .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
     item.style.removeProperty('box-shadow');
@@ -991,8 +991,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       title: resolved.item.title,
       provenance: matchProvenance(match),
       purchaseCount: matchPurchaseCount(match),
-      range: match.range ?? null
-      , match, offered: resolved.item
+      range: match.range ?? null,
+      match, offered: resolved.item
     });
     const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0 };
     tier.total += 1;
@@ -1459,6 +1459,20 @@ function annotateBundleItem(bundleItem, match) {
       : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} Owned` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'hcl-status-button';
+    button.dataset.state = match.state;
+    button.textContent = badgeHost.dataset.hclBadge;
+    button.title = 'Show ownership evidence and differences';
+    button.setAttribute('aria-label', `${button.textContent}: explain ${bundleItem.title}`);
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      showMatchInspector({ ...match, offered: match.offered ?? bundleItem });
+    });
+    badgeHost.classList.add('hcl-interactive-badge');
+    badgeHost.append(button);
   }
   const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
@@ -1471,6 +1485,7 @@ function annotateBundleItem(bundleItem, match) {
 }
 
 function matchProvenance(match) {
+  if (match.offered) return HumbleOwnership.explanationLines(match).join('\n');
   if (match.state === 'elsewhere') {
     const lines = ['Owned through Galactic Library:'];
     const seen = new Set();
@@ -1483,7 +1498,7 @@ function matchProvenance(match) {
     }
     return lines.join('\n');
   }
-  if (match.state === 'possible' && Array.isArray(match.externalPossibleMatches)) {
+  if (match.state === 'possible' && match.externalPossibleMatches?.length) {
     const lines = [`${match.ownershipReview ? 'Ownership review' : 'Possible external match'}: ${match.possibleReason ?? 'similar library title.'}`];
     const seen = new Set();
     for (const record of match.externalPossibleMatches) {
@@ -1521,6 +1536,45 @@ function matchProvenance(match) {
 function matchLibraryItems(match) {
   const entries = match.range ? match.range.items : match.item ? [match.item] : [];
   return entries.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).filter(Boolean);
+}
+
+function showMatchInspector(match) {
+  document.querySelector('#hcl-match-inspector')?.remove();
+  const dialog = document.createElement('dialog');
+  dialog.id = 'hcl-match-inspector';
+  dialog.className = 'hcl-match-inspector';
+  dialog.setAttribute('aria-labelledby', 'hcl-inspector-title');
+  const heading = document.createElement('h2');
+  heading.id = 'hcl-inspector-title';
+  heading.textContent = match.offered?.title || 'Ownership evidence';
+  dialog.append(heading);
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'Close';
+  close.addEventListener('click', () => { dialog.close(); dialog.remove(); });
+  dialog.append(close);
+  const list = document.createElement('ul');
+  for (const line of HumbleOwnership.explanationLines(match)) {
+    const row = document.createElement('li');
+    row.textContent = line;
+    list.append(row);
+  }
+  dialog.append(list);
+  const review = document.createElement('button');
+  review.type = 'button';
+  review.textContent = 'Review in Galactic Library';
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  review.addEventListener('click', async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'HCL_OPEN_GALACTIC_REVIEW' });
+      status.textContent = response?.ok ? 'Opened Galactic Library. Use its ownership inspector or series coverage to review these titles.' : response?.error || 'Configure the Galactic Library link in Extension options.';
+    } catch (error) { status.textContent = `Could not open review: ${error.message}`; }
+  });
+  dialog.append(review, status);
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 function matchPurchaseCount(match) {
@@ -1698,7 +1752,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     galactic.textContent = comparison.galactic.error
       ? `Galactic Library is unavailable; showing local Humble results only. (${comparison.galactic.error})`
       : `Galactic Library: ${comparison.galactic.status}`;
-    galactic.title = 'Galactic Library receives only current bundle titles and media types. Exact confirmed ownership is labelled owned elsewhere; related titles or uncertain access require review.';
+    galactic.title = 'GL receives current bundle titles, media types, available catalog evidence, and explicit requested contents. Exact confirmed ownership and full reviewed contents are distinct from related editions or uncertain access.';
     summary.append(galactic);
   }
   appendBundleNewItemsOnlyFilter(summary, comparison);
@@ -1751,6 +1805,13 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.purchaseCount > 1 ? ` — purchased ${item.purchaseCount} times` : ''}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.provenance;
+      if (item.match) {
+        const explain = document.createElement('button');
+        explain.type = 'button';
+        explain.textContent = 'Explain';
+        explain.addEventListener('click', () => showMatchInspector(item.match));
+        row.append(' ', explain);
+      }
       list.append(row);
     }
     detail.append(list);

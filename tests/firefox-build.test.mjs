@@ -12,6 +12,7 @@ const packageScript = path.join(root, 'scripts', 'package-release.ps1');
 const runtimeFiles = [
   'manifest.json',
   'shared.js',
+  'background.js',
   'collection-mappings.js',
   'ownership.js',
   'content.js',

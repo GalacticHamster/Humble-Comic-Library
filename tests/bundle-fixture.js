@@ -1,0 +1,19 @@
+const fixtureUnit = number => ({ series: 'Manga', run: '2000', unitType: 'volume', number: String(number), language: 'en', completeness: 'full' });
+const fixtureMapping = (collectionTitle, to) => ({ id: collectionTitle, collectionTitle, verified: true, verifiedAt: '2026-10-01T12:00:00Z', contentsComplete: true, language: 'en', sourceLabel: 'Publisher', sourceUrl: 'https://publisher.example/contents', contains: [{ series: 'Manga', run: '2000', unitType: 'volume', from: 1, to }] });
+window.fixtureStored = { libraryItems: [{ title: 'Owned collection', kind: 'book', sourceBundle: 'Previous bundle' }], purchaseSummaries: [],
+  customCollectionMappings: [fixtureMapping('Owned collection', 1), fixtureMapping('Offered collection', 4), fixtureMapping('Overlapping collection', 4)],
+  galacticLibraryExtensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', wishlistItems: [{ title: 'Wishlist book', kind: 'book', weight: 3 }] };
+window.fixtureCalls = []; window.fixtureReviewCalls = [];
+window.chrome = { storage: { local: {
+  get: async defaults => ({ ...defaults, ...structuredClone(fixtureStored) }),
+  set: async value => Object.assign(fixtureStored, structuredClone(value))
+} }, runtime: { sendMessage: async (id, request) => {
+  if (typeof id === 'object') { fixtureReviewCalls.push(id); return { ok: true }; }
+  fixtureCalls.push(request);
+  return { ok: true, apiVersion: 1, results: request.items.map(item => {
+    const record = { provider: 'kindle', itemRef: 'opaque', title: 'GL collection', ownership: 'owned', relationship: 'contains', reason: 'Reviewed publisher contents', evidence: { source: 'manual-review', checkedAt: '2026-10-01', language: 'en' }, verifiedAt: '2026-10-01' };
+    return { requestId: item.requestId, matches: [], partialMatches: item.contents?.length ? [record] : [],
+      possibleMatches: item.title.startsWith('Dune') ? [{ ...record, title: 'Dune, 1st Edition', relationship: 'same-work', reason: 'Different editions', evidence: { isbn: ['9780140328721'], edition: '1st edition' } }] : [],
+      coverage: item.contents?.length ? { covered: [2, 4].map(number => ({ ...fixtureUnit(number), evidence: [record] })), possibleCovered: [] } : null };
+  }) };
+} } };

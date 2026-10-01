@@ -19,7 +19,7 @@ An unofficial browser extension that marks books, comics, games, or software you
 - On a bundle page, use **Show new items only** to hide confirmed-owned cards. Partially owned and possible matches stay visible for review, and the setting stays local to this browser.
 - See a small non-blocking `Checking your library…` indicator while Humble finishes rendering a bundle. Enable **Show bundle and catalogue diagnostics** in Extension Options when troubleshooting: the summary panel then reports local-library read time, detected item count, comparison time, and refresh count, while catalogue pages show sorting details.
 - On Humble catalogue pages, sort each category by soonest-ending offer and optionally hide previously purchased bundles, limit the view to bundles ending within seven days, or combine those filters. Filter choices stay local to this browser.
-- Hover an `Owned`, `Partially owned`, or `Possible` item badge to see the matching library title(s), Humble bundle, purchase date when available, and—for possible matches—why it was suggested.
+- Click an ownership badge, or **Explain** beside a summary title, to inspect the offered and owned titles, validated identifiers, author/edition/language differences, providers, source/review dates, and covered/missing units. Hover still gives a text explanation. **Review in Galactic Library** opens the configured Chrome extension's options page; in Firefox it explains how to open GL from its toolbar, because the current API does not expose its per-profile options URL. The inspector does not create review decisions automatically.
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
 - Export, restore, or clear browser-local library items, purchase summaries, provenance, key reminders, import/scan history, and custom collection mappings.
 
@@ -141,6 +141,8 @@ Rich mappings can include `sourceLabel`, `sourceId`, `sourceUrl` (HTTP/HTTPS wit
 Importing replaces previous custom mappings; built-in mappings remain. Mappings and imported bibliographic evidence are included in backups. Run IDs are retained locally; GL contents requests also need a readable run name/year to establish coverage.
 
 ## Create a release ZIP
+
+Chrome uses a background service worker for the review-opening action. The Firefox package substitutes background scripts, following [Mozilla's background manifest guidance](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background). This adds no permissions.
 
 Run one of the following from PowerShell at the repository root:
 

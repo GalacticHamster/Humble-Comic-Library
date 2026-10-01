@@ -217,3 +217,15 @@
 .hcl-import-actions button[data-import-mode="all"] { background: #275f88; }
 .hcl-purchase-focus { outline: 3px solid #f0a020 !important; outline-offset: 4px; box-shadow: 0 0 0 0.3rem rgb(240 160 32 / 25%) !important; }
 .hcl-purchase-focus-notice { position: fixed; right: 1rem; bottom: 1rem; z-index: 2147483647; max-width: 22rem; padding: 0.75rem 0.9rem; border-radius: 0.45rem; background: #171717; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 35%); color: #fff; font: 600 0.8rem/1.35 Arial, sans-serif; }
+
+.hcl-interactive-badge::after { display: none; }
+.hcl-status-button { position: absolute; z-index: 3; top: .4rem; left: .4rem; border: 0; border-radius: 1rem; padding: .3rem .6rem; background: #1769aa; color: #fff; font: 700 .75rem/1.2 Arial, sans-serif; cursor: pointer; }
+.hcl-status-button[data-state="owned"] { background: #0a7a42; }
+.hcl-status-button[data-state="elsewhere"] { background: #0f766e; }
+.hcl-status-button[data-state="possible"] { background: #b06d00; }
+.hcl-status-button[data-state="partial"] { background: #7c3fb0; }
+.hcl-status-button:focus-visible { outline: 3px solid #f0a020; outline-offset: 2px; }
+.hcl-match-inspector { box-sizing: border-box; width: min(48rem, 94vw); max-height: 85vh; overflow: auto; padding: 1rem; border: 1px solid #777; border-radius: .5rem; background: #171717; color: #fff; font: 400 .9rem/1.5 Arial, sans-serif; }
+.hcl-match-inspector::backdrop { background: rgb(0 0 0 / 55%); }
+.hcl-match-inspector li { margin-block: .45rem; overflow-wrap: anywhere; white-space: pre-line; }
+.hcl-match-inspector button, .hcl-title-list button { padding: .3rem .55rem; border: 1px solid #aaa; border-radius: .3rem; background: #333; color: #fff; cursor: pointer; font: inherit; }
