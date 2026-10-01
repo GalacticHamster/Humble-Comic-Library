@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separates manual title-list import from backup restore. Version-6 backups preserve purchase provenance, purchases, reminders, import/scan state, and mappings; restores replace previous library state without retaining unrelated reminders.
+
 - Adds a Diagnostics-only, privacy-preserving purchase-navigation report for adapting individual-order links to Humble's current Purchases markup.
 - Presents key reminders as an expiry-organized action queue with an **Open purchase** control, plus an explicit opt-in direct-order route for users who accept a purchase identifier in the Humble URL and browser history to avoid popup requirements.
 - Integrates key-reminder checks into purchase imports: new imports inspect new and pending purchases, while **Rescan every purchase** establishes the complete reminder baseline.

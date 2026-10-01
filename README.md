@@ -21,7 +21,7 @@ An unofficial browser extension that marks books, comics, games, or software you
 - On Humble catalogue pages, sort each category by soonest-ending offer and optionally hide previously purchased bundles, limit the view to bundles ending within seven days, or combine those filters. Filter choices stay local to this browser.
 - Hover an `Owned`, `Partially owned`, or `Possible` item badge to see the matching library title(s), Humble bundle, purchase date when available, and—for possible matches—why it was suggested.
 - Download a plain-text tier title list from the summary panel when you want a quick, portable record of the current offer. It reads Humble's embedded tier data; if that data has not been hydrated into the page DOM, it retrieves the current Humble page only. It does not change your selected tier or click any page controls.
-- Export or clear all browser-local library titles, purchase summaries, and import history.
+- Export, restore, or clear browser-local library items, purchase summaries, provenance, key reminders, import/scan history, and custom collection mappings.
 
 Nothing is sent anywhere except Humble. The extension has no network destination beyond Humble and never reads, stores, or asks you to paste a session cookie. It does store titles, bundle names, purchase dates, purchase identifiers, prices when supplied by Humble, and provenance in browser-local extension storage until you clear or export them. See [the privacy policy](PRIVACY.md) for the complete disclosure. Before a store release, publish that policy at a public HTTPS URL and enter the URL in the store's Privacy field.
 
@@ -56,7 +56,7 @@ For a Humble import in either browser, open **Extension options**, select **Open
 
    The key-reminder queue in **Extension options** groups pending entitlements by expiry state and shows their Humble bundle, purchase date, entitlement type, and reported expiry. With **Open direct Humble order links** off (the default), **Open purchase** uses Humble's normal purchase-card flow; allow popups and redirects for Humble if you want it to open the individual order. When you explicitly enable that option, **Open purchase** goes directly to Humble's individual order/download page in one tab. This places the purchase identifier in the Humble URL and browser history, but avoids the popup requirement. The extension never handles a redemption value. New imports check only newly discovered purchases plus purchases with an unresolved entitlement, so a newly revealed key disappears after the next refresh. If the extension has not completed a full reminder baseline, the list makes that clear; choose **Rescan every purchase** to check older purchases. The extension stores no redemption-key values.
 
-5. Or use the manual JSON importer:
+5. Or use **Import titles** for a manual JSON title list. This replaces the library and clears purchase records, provenance, reminders, scan history, and custom mappings:
 
 ```json
 [
@@ -65,6 +65,10 @@ For a Humble import in either browser, open **Extension options**, select **Open
   "B.P.R.D. Plague of Frogs Vol. 1"
 ]
 ```
+
+To recover an exported library, use the separate **Restore backup** control in Extension options. It replaces items (including all purchase provenance), purchase summaries, key reminders, reminder scan state (including baseline and retry purchase identifiers), import history, media-import version, and custom mappings together. Restoring never merges reminders from the previous installation into the backup. Validation completes before storage changes; confirm the replacement when prompted.
+
+New version-6 backups preserve all of this data across export/restore. Earlier versioned backups remain supported: any data absent from an older backup is reset to empty/default state, so older backups may require a full rescan to re-establish reminders or a media backfill. **Import titles** rejects exported backups to prevent accidentally discarding their purchase data. Browser preferences, the Galactic Library connection, and temporary purchase-navigation requests are not exported; preferences and the connection are preserved on restore, while any pending navigation request is cleared. Backups contain private purchase identifiers and should be kept private.
 
 6. Visit a Humble URL beginning `https://www.humblebundle.com/books/`, `https://www.humblebundle.com/games/`, or `https://www.humblebundle.com/software/` and refresh.
 
@@ -99,7 +103,7 @@ In **Extension options**, use **Collection mappings** to import a JSON file like
 }
 ```
 
-The mapping is applied only if the exact `collectionTitle` is already in your imported library. A year and an inclusive issue range are required, which keeps similarly named runs from being silently conflated. Importing a mapping file replaces only previous custom mappings; the built-in verified mappings remain. Collection mappings are included in an exported backup and restored when that backup is imported.
+The mapping is applied only if the exact `collectionTitle` is already in your imported library. A year and an inclusive issue range are required, which keeps similarly named runs from being silently conflated. Importing a mapping file replaces only previous custom mappings; the built-in verified mappings remain. Collection mappings are included in an exported backup and restored through **Restore backup**.
 
 ## Create a release ZIP
 

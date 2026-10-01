@@ -22,7 +22,7 @@
       </section>
       <section>
         <h2>Import titles</h2>
-        <p>Choose a JSON file containing either an array of title strings, or objects with <code>title</code> and optional <code>sourceBundle</code> fields.</p>
+        <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and clears purchase records, provenance, reminders, scan history, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
         <input id="import-file" type="file" accept="application/json,.json">
         <p id="import-status" role="status"></p>
       </section>
@@ -32,6 +32,12 @@
         <input id="collection-mapping-file" type="file" accept="application/json,.json">
         <p id="collection-mapping-status" role="status"></p>
         <p id="collection-mapping-count"></p>
+      </section>
+      <section>
+        <h2>Restore backup</h2>
+        <p>Choose an exported Humble Comic Library backup. Restore replaces all items, purchase records, provenance, key reminders, scan history, and custom mappings. Browser preferences and your Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
+        <input id="restore-file" type="file" accept="application/json,.json">
+        <p id="restore-status" role="status"></p>
       </section>
       <section>
         <h2>Galactic Library link</h2>

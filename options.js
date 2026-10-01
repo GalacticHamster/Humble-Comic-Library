@@ -1,6 +1,8 @@
 (function initOptions() {
   'use strict';
   const fileInput = document.querySelector('#import-file');
+  const backupFileInput = document.querySelector('#restore-file');
+  const restoreStatus = document.querySelector('#restore-status');
   const status = document.querySelector('#import-status');
   const count = document.querySelector('#library-count');
   const preview = document.querySelector('#library-preview');
@@ -181,22 +183,10 @@
     if (!file) return;
     try {
       const parsed = JSON.parse(await file.text());
-      const rows = Array.isArray(parsed) ? parsed : parsed.items;
-      if (!Array.isArray(rows)) throw new Error('Expected a JSON array or an object with an items array.');
-      const items = rows.map(HumbleComicLibrary.normalizeLibraryImportItem).filter(Boolean);
-      const unique = new Map(items.map((item) => [`${item.kind ?? 'book'}:${HumbleComicLibrary.titleKey(item.title)}`, item]));
-      const restoredMappings = parsed?.collectionMappings === undefined
-        ? undefined
-        : HumbleCollectionMappings.validateCustomMappings(parsed.collectionMappings);
-      await chrome.storage.local.set({
-        libraryItems: [...unique.values()],
-        ...(restoredMappings === undefined ? {} : { customCollectionMappings: restoredMappings })
-      });
-      // A manual library replaces Humble-derived entries, so retaining their
-      // purchase summaries would be misleading and would break later
-      // incremental Humble imports.
-      await chrome.storage.local.remove(['purchaseSummaries', 'lastImport']);
-      status.textContent = `Imported ${unique.size} unique titles.${restoredMappings === undefined ? '' : ` Restored ${restoredMappings.length} custom collection mapping${restoredMappings.length === 1 ? '' : 's'}.`}`;
+      const replacement = HumbleComicLibrary.manualTitleImportState(parsed);
+      if (!confirm('Replace your library with this manual title list? This clears purchase records, provenance, reminders, scan history, and custom mappings.')) return;
+      await chrome.storage.local.set(replacement);
+      status.textContent = `Imported ${replacement.libraryItems.length} unique titles. Previous purchase data, reminders, scan history, and custom mappings cleared.`;
       await render();
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
@@ -222,6 +212,22 @@
 
   showDiagnostics.addEventListener('change', async () => {
     await chrome.storage.local.set({ showDiagnostics: showDiagnostics.checked });
+  });
+
+  backupFileInput.addEventListener('change', async () => {
+    const [file] = backupFileInput.files;
+    if (!file) return;
+    try {
+      const replacement = HumbleComicLibrary.restoreBackupState(JSON.parse(await file.text()));
+      if (!confirm('Restore this backup and replace all current library items, purchases, reminders, scan history, and custom mappings?')) return;
+      await chrome.storage.local.set({ ...replacement, hclPurchaseFocus: null });
+      restoreStatus.textContent = `Restored ${replacement.libraryItems.length} items, ${replacement.purchaseSummaries.length} purchases, and ${replacement.keyReminders.length} reminders. Previous library data replaced.`;
+      await render();
+    } catch (error) {
+      restoreStatus.textContent = `Restore failed: ${error.message}`;
+    } finally {
+      backupFileInput.value = '';
+    }
   });
 
   openDirectPurchaseLinks.addEventListener('change', async () => {
@@ -262,8 +268,8 @@
   });
 
   document.querySelector('#export-library').addEventListener('click', async () => {
-    const { purchaseSummaries = [], customCollectionMappings = [], keyReminders = [], keyReminderScan = null } = await chrome.storage.local.get({ purchaseSummaries: [], customCollectionMappings: [], keyReminders: [], keyReminderScan: null });
-    const contents = JSON.stringify({ version: 5, exportedAt: new Date().toISOString(), items: await library(), purchases: purchaseSummaries, collectionMappings: customCollectionMappings, keyReminders, keyReminderScan }, null, 2);
+    const saved = await chrome.storage.local.get(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS);
+    const contents = JSON.stringify(HumbleComicLibrary.createLibraryBackup(saved), null, 2);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-comic-library-export.json' });
     link.click();
@@ -272,7 +278,7 @@
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
     if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, and custom collection mapping?')) return;
-    await chrome.storage.local.remove(['libraryItems', 'purchaseSummaries', 'keyReminders', 'keyReminderScan', 'lastImport', 'customCollectionMappings']);
+    await chrome.storage.local.remove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();
   });

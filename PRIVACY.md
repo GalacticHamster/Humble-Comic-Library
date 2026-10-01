@@ -1,6 +1,6 @@
 # Privacy Policy for Humble Comic Library
 
-Last updated: September 22, 2026
+Last updated: September 30, 2026
 
 Humble Comic Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
 
@@ -15,7 +15,7 @@ When the user chooses to import from Humble, the extension accesses the user's s
 - for Humble third-party entitlements that are not yet revealed, the title, source purchase, entitlement type, and Humble-reported expiry status used for local reminders; and
 - optional custom issue-to-collection mapping rules that the user imports.
 
-The extension can also read a JSON file that the user explicitly selects for manual import. When the user selects Export, it creates a JSON download containing the locally stored library and purchase summaries.
+The extension can also read a JSON file that the user explicitly selects for manual title import or backup restore. **Export backup** creates a JSON download containing the locally stored library items, purchase summaries, provenance, key reminders, import/scan history, and custom collection mappings. **Restore backup** replaces this saved library state; it does not retain unrelated reminders from the previous library. Manual title import replaces the library and clears purchase records, provenance, reminders, scan history, and custom mappings. Backup files include purchase identifiers and should be kept private. Browser preferences and the Galactic Library connection are not included in backups.
 
 When the user selects **Open purchase** from a key reminder with the default setting, the extension temporarily stores the already-local purchase identifier to focus the matching Humble order. It removes that focus request after it succeeds or after 15 minutes. This path does not construct a purchase-identifier URL or handle a redemption-key value, but Humble's own purchase-card flow may require the user to allow Humble popups.
 
@@ -37,7 +37,7 @@ If the user explicitly configures the optional Galactic Library companion link, 
 
 ## Retention and deletion
 
-Data remains in the browser until the user selects **Clear library** in the extension options or uninstalls the extension. **Clear library** removes locally stored titles, purchase summaries, import history, and custom collection mappings. Uninstalling the extension removes its browser-local extension storage according to the browser's normal uninstall behavior.
+Data remains in the browser until the user replaces it, selects **Clear library** in the extension options, or uninstalls the extension. **Clear library** removes locally stored titles, purchase summaries, provenance, key reminders, import/scan history, custom collection mappings, and pending purchase-navigation requests. Uninstalling the extension removes its browser-local extension storage according to the browser's normal uninstall behavior.
 
 ## Changes to this policy
 
