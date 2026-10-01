@@ -25,3 +25,7 @@ button { padding: 0.55rem 0.8rem; cursor: pointer; }
 .key-reminder-direct-option { display: block; margin-top: 0.85rem; font-weight: 700; }
 .key-reminder-direct-note { margin: 0.35rem 0 0; color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 0.9rem; }
 code { font-family: ui-monospace, monospace; }
+#wishlist-list { max-height: 20rem; overflow: auto; padding-left: 1.25rem; }
+#wishlist-list li { margin-block: .5rem; }
+#wishlist-list input, #wishlist-weight { width: 4.5rem; }
+#wishlist-title { width: min(100%, 24rem); }

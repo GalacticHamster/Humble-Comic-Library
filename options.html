@@ -44,7 +44,7 @@
         <p>Check current bundle games, books, and audiobooks against Galactic Library. Exact ownership, related editions, and reviewed collection contents are supported; ebooks and audio remain separate. Software lookup is not supported. Requests include current bundle titles, media types, available catalog evidence, and explicit contents lists. They exclude Humble records to avoid stale duplicates and never transfer either full library.</p>
         <p>Your Humble Comic Library extension ID: <code id="humble-extension-id">Loading…</code></p>
         <label for="galactic-library-extension-id">Galactic Library extension ID</label>
-        <input id="galactic-library-extension-id" type="text" inputmode="text" autocomplete="off" maxlength="32" spellcheck="false" placeholder="32-character extension ID">
+        <input id="galactic-library-extension-id" type="text" inputmode="text" autocomplete="off" maxlength="128" spellcheck="false" placeholder="Chrome extension ID or Firefox add-on ID">
         <div class="actions"><button id="save-galactic-library-link" type="button">Save link</button><button id="test-galactic-library-link" type="button">Test link</button><button id="clear-galactic-library-link" type="button">Remove link</button></div>
         <p id="galactic-library-link-status" role="status"></p>
       </section>
@@ -52,6 +52,18 @@
         <h2>Diagnostics</h2>
         <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
         <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>
+      </section>
+      <section>
+        <h2>Wishlist and priorities</h2>
+        <p>Add titles here or tick Wishlist beside a bundle summary item. Priority is your personal weight from 1 to 100, not a price estimate. Bundle plans exclude owned items and uncertain matches unless you include them.</p>
+        <label for="wishlist-title">Title</label><input id="wishlist-title" type="text" maxlength="500">
+        <label for="wishlist-kind">Media</label><select id="wishlist-kind"><option value="book">Book</option><option value="audiobook">Audiobook</option><option value="game">Game</option><option value="software">Software</option></select>
+        <label for="wishlist-weight">Priority</label><input id="wishlist-weight" type="number" min="1" max="100" step="1" value="1">
+        <button id="add-wishlist" type="button">Add to wishlist</button>
+        <ul id="wishlist-list"></ul>
+        <button id="export-wishlist" type="button">Export wishlist</button>
+        <label for="wishlist-file">Restore wishlist (replaces this list)</label><input id="wishlist-file" type="file" accept="application/json,.json">
+        <p id="wishlist-status" role="status"></p>
       </section>
       <section>
         <h2>Library</h2>

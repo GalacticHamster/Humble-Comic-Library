@@ -55,6 +55,10 @@ function options(initial = {}) {
     async export() {
       await elements.get('#export-library').listeners.click();
       return JSON.parse(await exportedBlob.text());
+    },
+    async exportWishlist() {
+      await elements.get('#export-wishlist').listeners.click();
+      return JSON.parse(await exportedBlob.text());
     }
   };
 }
@@ -79,6 +83,31 @@ function libraryState() {
     customCollectionMappings: [{ id: 'custom-one', collectionTitle: 'Example Collection', sourceLabel: 'Custom mapping', contains: [{ series: 'Example Series', year: 2000, from: 1, to: 4 }] }]
   };
 }
+
+test('wishlist options validate before writing, preserve bibliographic identity and export/restore separately', async () => {
+  const target = options();
+  await target.load('#wishlist-file', { wishlist: [{ title: 'Wishlist title', kind: 'book', weight: 3, authors: ['Writer'], purchaseKey: 'secret' }] });
+  assert.equal(target.stored.wishlistItems.length, 1);
+  assert.equal(target.stored.wishlistItems[0].purchaseKey, undefined);
+  const exported = await target.exportWishlist();
+  assert.deepEqual(exported.wishlist, target.stored.wishlistItems);
+  // The import is intentionally independent of the full-library backup path.
+  const before = structuredClone(target.stored);
+  await target.load('#wishlist-file', [{ title: 'Bad priority', weight: 0 }]);
+  assert.deepEqual(target.stored, before);
+  assert.match(target.elements.get('#wishlist-status').textContent, /restore failed/u);
+  target.context.document.querySelector('#wishlist-title').value = 'Added title';
+  target.context.document.querySelector('#wishlist-kind').value = 'game';
+  target.context.document.querySelector('#wishlist-weight').value = '5';
+  await target.elements.get('#add-wishlist').listeners.click();
+  assert.equal(target.stored.wishlistItems.at(-1).weight, 5);
+  const list = target.elements.get('#wishlist-list');
+  const priority = list.children.at(-1).children[0];
+  priority.value = '8'; await priority.listeners.change();
+  assert.equal(target.stored.wishlistItems.at(-1).weight, 8);
+  await target.elements.get('#wishlist-list').children.at(-1).children[2].listeners.click();
+  assert.equal(target.stored.wishlistItems.length, 1);
+});
 
 test('options export and restore round trip preserves complete library state and replaces unrelated reminders', async () => {
   const expected = libraryState();

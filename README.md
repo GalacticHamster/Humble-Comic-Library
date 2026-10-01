@@ -95,6 +95,14 @@ Audiobook detection uses explicit item metadata or format attributes, a trailing
 - On `https://www.humblebundle.com/bundles`, `/books`, `/games`, or `/software`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
 - In **Extension options**, enable **Show bundle and catalogue diagnostics** only when troubleshooting. It adds timing and sorting information without changing ownership results, and reveals the two local purchase-metadata discovery reports for diagnostics.
 
+## Bundle value and wishlist
+
+The bundle summary's **Bundle value and purchase goal** panel compares cumulative tiers for three goals: all confirmed-new items, new known issues/volumes, or wishlist items available in this bundle. It shows the lowest known priced tier satisfying the selected goal, unique new units, units added at each tier, cost per known new unit, and wishlist priority totals. Overlapping collections never inflate the unit count. Unknown prices cannot satisfy a priced recommendation; unknown run/language or possibly covered units receive no confirmed new-unit value.
+
+Use **Wishlist** beside a summary title to add/remove it. In Extension options, add titles by media type and edit their priority from 1 to 100. Priority measures your interest, not retail value. Wishlist records can preserve author/ISBN/edition evidence; ebooks and audio are separate. **Include uncertain matches in this plan** is an explicit planning choice and never changes an ownership badge. Partial items with known uncovered units can contribute contents value; the default product goal excludes partial and Possible matches.
+
+Wishlist preferences survive library restores and clearing the library. Save or restore them separately with **Export wishlist**/**Restore wishlist**. These controls validate before writing and transfer no purchase records. Plans apply only to the detected bundle tiers and checked library evidence; they do not purchase anything.
+
 ## Custom collection mappings
 
 In **Extension options**, use **Collection mappings** to import a JSON file like this:

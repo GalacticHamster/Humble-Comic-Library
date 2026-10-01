@@ -1087,7 +1087,7 @@ function collectCoverImageItems(media = bundleMediaContext()) {
     // Humble often renders the same cover in an un-tiered gallery and in the
     // paid tier where it belongs. Prefer the paid-tier copy so counts remain
     // correct and a book is counted only once.
-    if (!existing || (existing.tier.price === null && candidate.tier.price !== null)) byKey.set(key, candidate);
+    if (!existing || candidate.tier.price !== null && (existing.tier.price === null || candidate.tier.price < existing.tier.price)) byKey.set(key, candidate);
   }
   const items = [...byKey.values()];
   // A bundle detail page may include an un-tiered all-items gallery for
@@ -1792,7 +1792,8 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     }
     summary.append(tierList);
   }
-  appendBuyRecommendation(summary, tiers);
+  if (comparison?.resolvedItems) appendBundlePlan(summary, comparison);
+  else appendBuyRecommendation(summary, tiers);
   for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible']) {
     if (!titlesByState[state].length) continue;
     const detail = document.createElement('details');
@@ -1812,6 +1813,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
         explain.addEventListener('click', () => showMatchInspector(item.match));
         row.append(' ', explain);
       }
+      if (item.offered && comparison) appendWishlistControl(row, item.offered, comparison);
       list.append(row);
     }
     detail.append(list);
@@ -1996,6 +1998,75 @@ function ensurePurchaseImporter() {
     return;
   }
   addPurchaseImporter();
+}
+
+function appendWishlistControl(row, offered, comparison) {
+  const label = document.createElement('label');
+  label.className = 'hcl-wishlist-control';
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.disabled = offered.kind === 'unknown';
+  toggle.checked = (comparison.wishlistItems ?? []).some(item => HumbleOwnership.wishlistMatches(item, offered));
+  toggle.addEventListener('change', async () => {
+    try {
+      // Merge the latest list so another bundle tab's wishlist edits survive.
+      const saved = await chrome.storage.local.get({ wishlistItems: [] });
+      const wanted = HumbleComicLibrary.normalizeWishlist(saved.wishlistItems).filter(item => !HumbleOwnership.wishlistMatches(item, offered));
+      if (toggle.checked) wanted.push({ title: offered.title, kind: offered.kind === 'unknown' ? 'book' : offered.kind, weight: 1, ...HumbleComicLibrary.bibliographicFields(offered) });
+      await chrome.storage.local.set({ wishlistItems: wanted });
+      comparison.wishlistItems = wanted;
+      document.querySelector('#hcl-bundle-plan')?.dispatchEvent(new Event('hcl-plan-update'));
+    } catch (error) { toggle.checked = !toggle.checked; label.title = error.message; }
+  });
+  label.append(toggle, ' Wishlist');
+  row.append(' ', label);
+}
+
+function appendBundlePlan(summary, comparison) {
+  const panel = document.createElement('details');
+  panel.id = 'hcl-bundle-plan';
+  panel.className = 'hcl-bundle-plan';
+  panel.open = true;
+  const heading = document.createElement('summary');
+  heading.textContent = 'Bundle value and purchase goal';
+  panel.append(heading);
+  const label = document.createElement('label');
+  label.textContent = 'Goal ';
+  const goal = document.createElement('select');
+  goal.id = 'hcl-plan-goal';
+  for (const [value, text] of [['items', 'All confirmed-new items'], ['contents', 'New known issues/volumes'], ['wishlist', 'Wishlist items in this bundle']]) {
+    const option = document.createElement('option'); option.value = value; option.textContent = text; goal.append(option);
+  }
+  goal.value = comparison.planGoal || 'items';
+  label.append(goal); panel.append(label);
+  const uncertainLabel = document.createElement('label');
+  const uncertain = document.createElement('input'); uncertain.type = 'checkbox'; uncertain.id = 'hcl-plan-uncertain'; uncertain.checked = Boolean(comparison.planIncludeUncertain);
+  uncertainLabel.append(uncertain, ' Include uncertain matches in this plan');
+  panel.append(uncertainLabel);
+  const output = document.createElement('div'); output.className = 'hcl-plan-output'; output.setAttribute('aria-live', 'polite'); panel.append(output);
+  const update = () => {
+    comparison.planGoal = goal.value; comparison.planIncludeUncertain = uncertain.checked;
+    output.replaceChildren();
+    let plan;
+    try { plan = HumbleOwnership.planBundle(comparison.resolvedItems, comparison.wishlistItems ?? [], goal.value, uncertain.checked); }
+    catch (error) { output.textContent = `Could not calculate this plan: ${error.message}`; return; }
+    const recommendation = document.createElement('p'); recommendation.className = 'hcl-buy-recommendation';
+    recommendation.textContent = plan.lowest ? `Lowest tier for this goal: $${plan.lowest.price.toFixed(2)}`
+      : plan.goalCount ? 'No known priced tier satisfies every target in this goal.' : 'No eligible targets for this goal in the bundle.';
+    output.append(recommendation);
+    const list = document.createElement('ul');
+    for (const tier of plan.tiers) {
+      const row = document.createElement('li');
+      row.textContent = `$${tier.price.toFixed(2)}: ${tier.confirmedNewItems} confirmed-new items · ${tier.newUnits} new known units (${tier.addedUnits} added at this tier) · wishlist priority ${tier.wishlistValue} across ${tier.wishlistCount} items${tier.uncertainItems ? ` · ${tier.uncertainItems} uncertain selections` : ''}${tier.costPerNewUnit !== null ? ` · $${tier.costPerNewUnit.toFixed(2)} per known new unit` : ''}`;
+      list.append(row);
+    }
+    output.append(list);
+    const note = document.createElement('p');
+    note.textContent = `Overlapping contents count once. Wishlist priority is your weight, not a monetary appraisal. Run/language-uncertain units have no confirmed new-unit value.${plan.excludedUncertain && !uncertain.checked ? ` ${plan.excludedUncertain} uncertain matches are excluded from the plan.` : ''} Set wishlist priorities in Extension options.`;
+    output.append(note);
+  };
+  goal.addEventListener('change', update); uncertain.addEventListener('change', update); panel.addEventListener('hcl-plan-update', update);
+  update(); summary.append(panel);
 }
 
 function schedulePurchaseFocus() {

@@ -29,6 +29,21 @@
     document.querySelector('.hcl-summary-expand').click();
     check(!document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized'), 'Summary still expands');
     check(fixtureCalls.every(call => call.items.every(item => item.excludeProviders.includes('humble'))), 'GL requests consistently exclude stale Humble records');
+    const goal = document.querySelector('#hcl-plan-goal');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Product goal selects the lowest tier containing all confirmed-new items');
+    goal.value = 'contents'; goal.dispatchEvent(new Event('change'));
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $5.00'), 'Overlapping higher-tier collections do not raise the contents goal price');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('1 new known units (0 added at this tier)'), 'Unit value is deduplicated across cumulative tiers');
+    goal.value = 'wishlist'; goal.dispatchEvent(new Event('change'));
+    check(document.querySelector('.hcl-plan-output').textContent.includes('wishlist priority 3 across 1 items'), 'Wishlist goal displays personal weighted value');
+    const wishRow = [...document.querySelectorAll('.hcl-title-list li')].find(row => row.textContent.startsWith('New story'));
+    const toggle = wishRow.querySelector('.hcl-wishlist-control input');
+    toggle.checked = true; toggle.dispatchEvent(new Event('change'));
+    await waitFor(() => fixtureStored.wishlistItems.length === 2);
+    check(fixtureStored.wishlistItems.some(item => item.title === 'New story'), 'Bundle wishlist edits persist without losing existing wishes');
+    const uncertain = document.querySelector('#hcl-plan-uncertain'); uncertain.checked = true; uncertain.dispatchEvent(new Event('change'));
+    check(document.querySelector('.hcl-plan-output').textContent.includes('uncertain selections'), 'Uncertain selections enter plans only through an explicit control');
+    check([...document.querySelectorAll('.hcl-status-button')].some(button => button.dataset.state === 'possible'), 'Planning leaves Possible ownership unchanged');
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

@@ -53,6 +53,8 @@
   bottom: 1rem;
   z-index: 2147483647;
   max-width: 22rem;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
   padding: 0.8rem 1rem;
   border-radius: 0.5rem;
   background: #171717;
@@ -229,3 +231,10 @@
 .hcl-match-inspector::backdrop { background: rgb(0 0 0 / 55%); }
 .hcl-match-inspector li { margin-block: .45rem; overflow-wrap: anywhere; white-space: pre-line; }
 .hcl-match-inspector button, .hcl-title-list button { padding: .3rem .55rem; border: 1px solid #aaa; border-radius: .3rem; background: #333; color: #fff; cursor: pointer; font: inherit; }
+.hcl-bundle-plan { margin-block: .7rem; font-size: .8rem; }
+.hcl-bundle-plan summary { cursor: pointer; }
+.hcl-bundle-plan label { display: block; margin-block: .45rem; }
+.hcl-bundle-plan select { width: 100%; color: #fff; background: #333; padding: .3rem; }
+.hcl-bundle-plan ul { padding-left: 1.2rem; }
+.hcl-bundle-plan li { margin-block: .45rem; }
+.hcl-wishlist-control { white-space: nowrap; font-weight: normal; }

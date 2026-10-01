@@ -97,6 +97,20 @@
     return `${item.kind ?? 'book'}:${normalizeTitle(item.title)}${Object.keys(identity).length ? `:${JSON.stringify(identity)}` : ''}`;
   }
 
+  function normalizeWishlist(value) {
+    if (!Array.isArray(value) || value.length > 5000) throw new Error('Wishlist must contain at most 5,000 items.');
+    const rows = value.map(row => {
+      const item = normalizeLibraryImportItem(row);
+      if (!item || item.title.length > 500) throw new Error('Each wishlist entry needs a title of at most 500 characters.');
+      const kind = typeof row === 'string' ? 'book' : row.kind ?? 'book';
+      if (!LIBRARY_ITEM_KINDS.has(kind)) throw new Error('Unsupported wishlist media type.');
+      const weight = typeof row === 'string' ? 1 : row.weight ?? 1;
+      if (!Number.isInteger(weight) || weight < 1 || weight > 100) throw new Error('Wishlist priority must be an integer from 1 to 100.');
+      return { title: item.title, kind, weight, ...bibliographicFields(item) };
+    });
+    return [...new Map(rows.map(item => [catalogItemKey(item), item])).values()];
+  }
+
   const BACKUP_VERSION = 7;
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
@@ -241,7 +255,7 @@
   }
 
   global.HumbleComicLibrary = {
-    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey,
+    normalizeTitle, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist,
     LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };

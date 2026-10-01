@@ -182,5 +182,59 @@
     return lines;
   }
 
-  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines };
+  function wishlistMatches(wanted, item) {
+    if ((wanted.kind ?? 'book') !== item.kind || H.normalizeTitle(wanted.title) !== H.normalizeTitle(item.title) || conflicts(wanted, item, true).length) return false;
+    const left = H.bibliographicFields(wanted); const right = H.bibliographicFields(item);
+    if (left.isbn?.length && !left.isbn.some(isbn => right.isbn?.includes(isbn))) return false;
+    for (const field of ['asin', 'editionId', 'language', 'run']) if (left[field] && key(left[field]) !== key(right[field])) return false;
+    if (left.authors?.length && !left.authors.some(author => right.authors?.map(key).includes(key(author)))) return false;
+    return true;
+  }
+
+  function newUnits(match) {
+    if (['owned', 'elsewhere'].includes(match.state)) return [];
+    const uncertain = new Set((match.coverage?.possibleCovered ?? []).map(C.contentKey));
+    return (match.coverage?.missing ?? []).filter(entry => entry.run && entry.language && !uncertain.has(C.contentKey(entry)));
+  }
+
+  function planBundle(resolved, wishlist = [], goal = 'items', includeUncertain = false) {
+    const wants = H.normalizeWishlist(wishlist);
+    const rows = resolved.map(({ item, match }) => ({ item, match, id: H.catalogItemKey(item), units: newUnits(match) }));
+    const eligible = rows.filter(row => !['owned', 'elsewhere'].includes(row.match.state)
+      && (row.match.state === 'new' || row.match.state === 'partial' && row.units.length > 0 || includeUncertain));
+    const goals = new Map();
+    if (goal === 'contents') {
+      for (const row of eligible) for (const unit of row.units) goals.set(`unit:${C.contentKey(unit)}`, new Set([`unit:${C.contentKey(unit)}`]));
+    } else if (goal === 'wishlist') {
+      for (const wanted of wants) {
+        const candidates = eligible.filter(row => wishlistMatches(wanted, row.item));
+        if (candidates.length) goals.set(`wish:${H.catalogItemKey(wanted)}`, new Set(candidates.map(row => `item:${row.id}`)));
+      }
+    } else {
+      for (const row of eligible) if (row.match.state === 'new' || includeUncertain && ['possible', 'partial'].includes(row.match.state)) goals.set(`item:${row.id}`, new Set([`item:${row.id}`]));
+    }
+    const prices = [...new Set(rows.map(row => row.item.tier?.price).filter(price => Number.isFinite(price) && price >= 0))].sort((a, b) => a - b);
+    let previousUnits = 0; let previousPrice = 0;
+    const tiers = prices.map(price => {
+      const available = rows.filter(row => Number.isFinite(row.item.tier?.price) && row.item.tier.price <= price);
+      const usable = eligible.filter(row => available.includes(row));
+      const tokens = new Set(usable.flatMap(row => [`item:${row.id}`, ...row.units.map(unit => `unit:${C.contentKey(unit)}`)]));
+      const achieved = [...goals.values()].filter(alternatives => [...alternatives].some(token => tokens.has(token))).length;
+      const unitKeys = new Set(usable.flatMap(row => row.units.map(C.contentKey)));
+      const wishlistAtTier = wants.filter(wanted => usable.some(row => wishlistMatches(wanted, row.item)));
+      const confirmedNewItems = new Set(available.filter(row => row.match.state === 'new').map(row => row.id)).size;
+      const uncertainItems = new Set(usable.filter(row => row.match.state === 'possible' || row.match.state === 'partial' && !row.units.length).map(row => row.id)).size;
+      const addedUnits = unitKeys.size - previousUnits;
+      const marginalCost = price - previousPrice;
+      previousUnits = unitKeys.size; previousPrice = price;
+      return { price, confirmedNewItems, newUnits: unitKeys.size, addedUnits, wishlistCount: wishlistAtTier.length,
+        wishlistValue: wishlistAtTier.reduce((sum, wanted) => sum + wanted.weight, 0), uncertainItems,
+        costPerNewUnit: unitKeys.size ? price / unitKeys.size : null, marginalCostPerUnit: addedUnits ? marginalCost / addedUnits : null,
+        achieved, satisfiesGoal: goals.size > 0 && achieved === goals.size };
+    });
+    return { goal, goalCount: goals.size, tiers, lowest: tiers.find(tier => tier.satisfiesGoal) ?? null,
+      excludedUncertain: rows.filter(row => row.match.state === 'possible' || row.match.state === 'partial' && !row.units.length).length };
+  }
+
+  global.HumbleOwnership = { permanent, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle };
 }(globalThis));

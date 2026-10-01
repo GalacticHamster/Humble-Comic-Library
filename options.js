@@ -17,6 +17,60 @@
   const humbleExtensionId = document.querySelector('#humble-extension-id');
   const galacticLibraryExtensionId = document.querySelector('#galactic-library-extension-id');
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
+  const wishlistStatus = document.querySelector('#wishlist-status');
+
+  async function editWishlist(transform) {
+    try {
+      const saved = await chrome.storage.local.get({ wishlistItems: [] });
+      const wishlistItems = HumbleComicLibrary.normalizeWishlist(transform(HumbleComicLibrary.normalizeWishlist(saved.wishlistItems)));
+      await chrome.storage.local.set({ wishlistItems });
+      renderWishlist(wishlistItems);
+      wishlistStatus.textContent = `Saved ${wishlistItems.length} wishlist items.`;
+    } catch (error) { wishlistStatus.textContent = `Wishlist update failed: ${error.message}`; }
+  }
+
+  function renderWishlist(value) {
+    const list = document.querySelector('#wishlist-list');
+    let items;
+    try { items = HumbleComicLibrary.normalizeWishlist(value); }
+    catch (error) { list.replaceChildren(); wishlistStatus.textContent = `Could not read wishlist: ${error.message}`; return; }
+    list.replaceChildren(...items.map(item => {
+      const row = document.createElement('li');
+      row.textContent = `${item.title} (${item.kind}) `;
+      const priority = document.createElement('input');
+      priority.type = 'number'; priority.min = '1'; priority.max = '100'; priority.step = '1'; priority.value = String(item.weight);
+      priority.title = `Priority for ${item.title}`;
+      priority.addEventListener('change', () => editWishlist(current => current.map(record => HumbleComicLibrary.catalogItemKey(record) === HumbleComicLibrary.catalogItemKey(item) ? { ...record, weight: Number(priority.value) } : record)));
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Remove';
+      remove.addEventListener('click', () => editWishlist(current => current.filter(record => HumbleComicLibrary.catalogItemKey(record) !== HumbleComicLibrary.catalogItemKey(item))));
+      row.append(priority, ' ', remove); return row;
+    }));
+  }
+
+  document.querySelector('#add-wishlist').addEventListener('click', () => editWishlist(current => [...current, {
+    title: document.querySelector('#wishlist-title').value,
+    kind: document.querySelector('#wishlist-kind').value,
+    weight: Number(document.querySelector('#wishlist-weight').value)
+  }]));
+  document.querySelector('#wishlist-file').addEventListener('change', async () => {
+    const input = document.querySelector('#wishlist-file'); const [file] = input.files;
+    if (!file) return;
+    try {
+      const value = JSON.parse(await file.text());
+      const wishlistItems = HumbleComicLibrary.normalizeWishlist(Array.isArray(value) ? value : value.wishlist);
+      await chrome.storage.local.set({ wishlistItems }); renderWishlist(wishlistItems);
+      wishlistStatus.textContent = `Restored ${wishlistItems.length} wishlist items.`;
+    } catch (error) { wishlistStatus.textContent = `Wishlist restore failed: ${error.message}`; }
+    finally { input.value = ''; }
+  });
+  document.querySelector('#export-wishlist').addEventListener('click', async () => {
+    try {
+      const saved = await chrome.storage.local.get({ wishlistItems: [] });
+      const wishlist = HumbleComicLibrary.normalizeWishlist(saved.wishlistItems);
+      const url = URL.createObjectURL(new Blob([JSON.stringify({ wishlist }, null, 2)], { type: 'application/json' }));
+      Object.assign(document.createElement('a'), { href: url, download: 'humble-wishlist.json' }).click(); URL.revokeObjectURL(url);
+    } catch (error) { wishlistStatus.textContent = `Wishlist export failed: ${error.message}`; }
+  });
 
   function isExtensionId(value) {
     return HumbleComicLibrary.isExtensionId(value);
@@ -36,6 +90,7 @@
   async function render() {
     const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, openDirectPurchaseLinks: directPurchaseLinksEnabled = false, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, openDirectPurchaseLinks: false, galacticLibraryExtensionId: '' });
     const items = await library();
+    renderWishlist((await chrome.storage.local.get({ wishlistItems: [] })).wishlistItems);
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const games = items.filter((item) => item.kind === 'game').length;
     const software = items.filter((item) => item.kind === 'software').length;
