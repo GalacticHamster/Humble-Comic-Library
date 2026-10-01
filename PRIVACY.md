@@ -35,7 +35,7 @@ This data is used only to provide the extension's library import, matching, prov
 
 The extension has no developer-operated server, analytics, advertising, affiliate links, or third-party data recipient. It makes requests only to Humble Bundle, using the user's existing signed-in browser session, to provide the import and current-listing comparison features.
 
-If the user explicitly configures the optional Galactic Library companion link, Humble Comic Library sends only the titles visible in the current Humble Books or Games bundle to that other locally installed extension. Galactic Library returns only exact ownership matches from its non-Humble providers. Neither extension transfers a full library, session credential, redemption key, or data to a remote server. The link can be removed by clearing the configured extension ID or uninstalling either extension.
+If the user explicitly configures the optional Galactic Library companion link, Humble Comic Library sends only the titles and media types of items in the current Humble Books or Games bundle (including audiobooks under Books) to that other locally installed extension. Ebooks and audiobooks are checked separately; Software items are not sent. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. Neither extension transfers a full library, session credential, redemption key, or data to a remote server. The link can be removed by clearing the configured extension ID or uninstalling either extension.
 
 ## Retention and deletion
 

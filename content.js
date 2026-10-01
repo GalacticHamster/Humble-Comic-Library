@@ -2,6 +2,9 @@ const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
 const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
+// Media types accepted by Galactic Library's version-1 MATCH_ITEMS contract.
+// Software is deliberately excluded until that API explicitly supports it.
+const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook']);
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 let purchaseFocusTimer;
 let bundleSummaryMinimized = false;
@@ -52,7 +55,7 @@ let bundleSummaryMinimized = false;
   const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '' });
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
-  const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && !item.kind));
+  const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
@@ -63,17 +66,7 @@ let bundleSummaryMinimized = false;
     return;
   }
 
-  const byKey = new Map();
-  for (const item of libraryItems) {
-    const key = HumbleComicLibrary.titleKey(item.title);
-    if (!key) continue;
-    const existing = byKey.get(key) ?? [];
-    existing.push(item);
-    byKey.set(key, existing);
-  }
-
-  const libraryByKey = new Map([...byKey].map(([key, items]) => [key, items[0]]));
-  const libraryMatcher = createLibraryMatcher(libraryByKey, itemKind);
+  const libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind);
   const collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
   const refresh = (reason = 'update') => {
@@ -383,10 +376,13 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
   const requested = new Map();
   for (const { item, match } of items) {
     if (match.state === 'owned') continue;
-    const requestId = galacticRequestKey(itemKind, item.title);
+    const mediaType = item.kind ?? itemKind;
+    if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)) continue;
+    const title = item.lookupTitle ?? item.title;
+    const requestId = galacticRequestKey(mediaType, title);
     if (lookup.resultsByKey.has(requestId) || lookup.inFlightKeys.has(requestId)) continue;
     lookup.inFlightKeys.add(requestId);
-    requested.set(requestId, { requestId, mediaType: itemKind, title: item.title });
+    requested.set(requestId, { requestId, mediaType, title });
   }
   if (!requested.size) {
     // A DOM refresh can begin while the first request is still running. Wait
@@ -764,8 +760,83 @@ function naturalTitleCompare(left, right) {
   return HCL_NATURAL_TITLE_COLLATOR.compare(displayTitle(left), displayTitle(right));
 }
 
+function audiobookLookupTitle(title) {
+  // Remove only an explicit trailing delivery label, not words in a work's
+  // title (e.g. "The Audiobook Production Guide") or narration/edition details.
+  return String(title).replace(/\s*(?:\(audio[ -]?book\)|\[audio[ -]?book\]|[-\u2013\u2014:]\s*audio[ -]?book)\s*$/iu, '').trim();
+}
+
+function bundleMediaContext(baseKind = location.pathname.startsWith('/games/') ? 'game' : location.pathname.startsWith('/software/') ? 'software' : 'book') {
+  const kindsByTitle = new Map();
+  let defaultKind = baseKind;
+  if (baseKind !== 'book') return { defaultKind, kindsByTitle };
+  // Audiobook bundles use Humble's /books/ route. Do not infer media from a
+  // random description, soundtrack, or an ebook about producing audiobooks.
+  const heading = document.querySelector('h1')?.textContent ?? '';
+  const listing = `${location.pathname} ${heading}`;
+  const mixed = /\b(?:e?books?|comics?)[\s-]*(?:and|&|\+)[\s-]*audio[ -]?books?\b|\baudio[ -]?books?[\s-]*(?:and|&|\+)[\s-]*(?:e?books?|comics?)\b/iu.test(listing);
+  if (!mixed && (/(?:^|[-/])audiobooks(?:[-/]|$)/iu.test(location.pathname)
+    || /\baudio[ -]?books?\s+bundle\b/iu.test(heading))) defaultKind = 'audiobook';
+  try {
+    const data = JSON.parse(document.querySelector('#webpack-bundle-page-data')?.textContent ?? '{}').bundleData;
+    if (!mixed && /^(?:audio[ _-]?book|audio)$/iu.test(data?.content_type ?? data?.product_type ?? '')) defaultKind = 'audiobook';
+    for (const product of Object.values(data?.tier_item_data ?? {})) {
+      const key = HumbleComicLibrary.titleKey(product?.human_name);
+      if (!key) continue;
+      const kind = hasAudiobookDownload(product) ? 'audiobook'
+        : hasBookDownload(product) || /^(?:book|ebook)$/iu.test(product?.content_type ?? product?.product_type ?? '') ? 'book' : null;
+      if (!kind) continue;
+      const kinds = kindsByTitle.get(key) ?? new Set();
+      kinds.add(kind);
+      kindsByTitle.set(key, kinds);
+    }
+  } catch {
+    // Missing/unhydrated or malformed metadata must not stop ordinary matching.
+  }
+  return { defaultKind, kindsByTitle };
+}
+
+function describeBundleItem(item, media) {
+  let kind = media.defaultKind;
+  if (kind === 'book' || kind === 'audiobook') {
+    // A local explicit format/type can distinguish identically named ebook and
+    // audio cards in a mixed bundle; otherwise use unambiguous item metadata.
+    const nodes = [item.element, item.container];
+    const hints = nodes.flatMap((node) => ['data-content-type', 'data-product-type', 'data-format']
+      .map((attribute) => node?.getAttribute?.(attribute) ?? ''));
+    const hint = hints.find((value) => /^(?:audio[ _-]?book|audio|mp3|m4a|m4b|aac|flac|ogg|opus|wav|book|ebook|pdf|epub|cbz|cbr|mobi)$/iu.test(value));
+    const metadataKinds = media.kindsByTitle.get(HumbleComicLibrary.titleKey(item.title));
+    if (hint) kind = /^(?:book|ebook|pdf|epub|cbz|cbr|mobi)$/iu.test(hint) ? 'book' : 'audiobook';
+    else if (metadataKinds?.size === 1) kind = [...metadataKinds][0];
+    else if (audiobookLookupTitle(item.title) !== String(item.title).trim()) kind = 'audiobook';
+    else if (metadataKinds?.size > 1) kind = 'unknown'; // no ownership claim for ambiguous media
+  }
+  return { ...item, kind, lookupTitle: kind === 'audiobook' ? audiobookLookupTitle(item.title) : item.title };
+}
+
+function bundleItemKey(item) {
+  return galacticRequestKey(item.kind, item.title);
+}
+
+function createBundleLibraryMatcher(items, baseKind) {
+  const mediaMatchers = new Map();
+  for (const kind of baseKind === 'book' ? ['book', 'audiobook'] : [baseKind]) {
+    const byKey = new Map();
+    for (const item of items) {
+      if ((item.kind ?? 'book') !== kind) continue;
+      const title = kind === 'audiobook' ? audiobookLookupTitle(item.title) : item.title;
+      const key = HumbleComicLibrary.titleKey(title);
+      if (key && !byKey.has(key)) byKey.set(key, item);
+    }
+    mediaMatchers.set(kind, createLibraryMatcher(byKey, kind));
+  }
+  const matcher = mediaMatchers.get(baseKind);
+  mediaMatchers.set('unknown', createLibraryMatcher(new Map(), 'unknown'));
+  matcher.mediaMatchers = mediaMatchers;
+  return matcher;
+}
+
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
-  const { libraryByKey } = libraryMatcher;
   document.querySelectorAll('.hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -789,7 +860,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   });
   document.querySelector('#hcl-summary')?.remove();
 
-  const items = collectBundleItems();
+  const media = bundleMediaContext(itemKind);
+  const items = collectBundleItems(media);
   if (!items.length) {
     if (comparison) comparison.emptyChecks += 1;
     const waitedLongEnough = comparison && (comparison.emptyChecks >= 3 || performance.now() - comparison.startedAt >= 6000);
@@ -815,11 +887,14 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   const resolvedItems = [];
   let sliceStartedAt = performance.now();
   for (const [index, item] of items.entries()) {
-    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(item.title));
-    const volumeRange = exact ? null : findOwnedVolumeRange(item.title, libraryByKey);
-    const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(item.title, libraryMatcher);
-    const collectionIssue = exact || volumeRange || bookVariant || itemKind !== 'book' ? null : findOwnedCollectionIssue(item.title, libraryByKey, collectionMappings);
-    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(item.title, libraryMatcher, itemKind);
+    const matcher = libraryMatcher.mediaMatchers?.get(item.kind) ?? libraryMatcher;
+    const { libraryByKey } = matcher;
+    const title = item.lookupTitle;
+    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
+    const volumeRange = exact ? null : findOwnedVolumeRange(title, libraryByKey);
+    const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, matcher);
+    const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, libraryByKey, collectionMappings);
+    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(title, matcher, item.kind);
     const match = exact
       ? { state: 'owned', item: exact }
       : volumeRange?.complete
@@ -844,23 +919,21 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       }
     }
   }
-  // Galactic Library currently exposes game and book media types. Keep the
-  // Humble-local Software comparison self-contained until that API advertises
-  // a compatible software media type.
-  if (itemKind === 'book' || itemKind === 'game') await queryGalacticLibrary(resolvedItems, itemKind, comparison, job);
+  await queryGalacticLibrary(resolvedItems, itemKind, comparison, job);
   if (comparison?.job !== job) return;
   for (const resolved of resolvedItems) {
-    const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(itemKind, resolved.item.title, comparison);
-    const externalReviewMatches = resolved.match.state === 'new' ? galacticOwnershipReviewMatches(itemKind, resolved.item.title, comparison) : [];
-    const externalPossibleMatches = resolved.match.state === 'new' ? galacticPossibleMatches(itemKind, resolved.item.title, comparison) : [];
+    const { kind, lookupTitle } = resolved.item;
+    const externalMatches = resolved.match.state === 'owned' ? [] : galacticOwnedMatches(kind, lookupTitle, comparison);
+    const externalReviewMatches = resolved.match.state === 'new' ? galacticOwnershipReviewMatches(kind, lookupTitle, comparison) : [];
+    const externalPossibleMatches = resolved.match.state === 'new' ? galacticPossibleMatches(kind, lookupTitle, comparison) : [];
     const match = externalMatches.length
       ? { state: 'elsewhere', externalMatches }
       : externalReviewMatches.length
         ? { state: 'possible', externalPossibleMatches: externalReviewMatches, ownershipReview: true, possibleReason: 'This exact title is in Galactic Library, but ownership is unconfirmed or access is temporary.' }
       : externalPossibleMatches.length
-        ? { state: 'possible', externalPossibleMatches, possibleReason: 'The game titles differ only by edition wording.' }
+        ? { state: 'possible', externalPossibleMatches, possibleReason: kind === 'game' ? 'The game titles differ only by edition wording.' : 'Galactic Library returned a related title for review.' }
         : resolved.match;
-    matchesByTitleKey.set(HumbleComicLibrary.titleKey(resolved.item.title), match);
+    matchesByTitleKey.set(bundleItemKey(resolved.item), match);
     counts[match.state] += 1;
     titlesByState[match.state].push({
       title: resolved.item.title,
@@ -879,29 +952,31 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
-  annotateAllCoverCopies(matchesByTitleKey);
+  annotateAllCoverCopies(matchesByTitleKey, media);
   if (comparison) {
     comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
   }
   applyBundleNewItemsOnlyFilter(Boolean(comparison?.showNewItemsOnly));
-  renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases, comparison);
+  const summaryKind = items.every((item) => item.kind === 'audiobook') ? 'audiobook'
+    : itemKind === 'book' && items.some((item) => item.kind === 'audiobook') ? 'mixed-books' : itemKind;
+  renderComparisonSummary(counts, tiers, titlesByState, summaryKind, currentBundlePurchases, comparison);
 }
 
 function yieldToBrowser() {
   return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
-function annotateAllCoverCopies(matchesByTitleKey) {
+function annotateAllCoverCopies(matchesByTitleKey, media) {
   for (const image of document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')) {
-    const key = HumbleComicLibrary.titleKey(image.alt);
-    const match = matchesByTitleKey.get(key);
+    const item = describeBundleItem({ title: image.alt, element: image, container: productContainer(image) }, media);
+    const match = matchesByTitleKey.get(bundleItemKey(item));
     if (!match) continue;
-    annotateBundleItem({ title: image.alt, element: image, container: productContainer(image) }, match);
+    annotateBundleItem(item, match);
   }
 }
 
-function collectBundleItems() {
-  const coverItems = collectCoverImageItems();
+function collectBundleItems(media = bundleMediaContext()) {
+  const coverItems = collectCoverImageItems(media);
   // On current Humble bundle pages the cover image alt text is the item title.
   // It is much less ambiguous than nearby headings, which can include author,
   // promotion, or cumulative-tier text. Keep the heading strategy solely as a
@@ -928,9 +1003,10 @@ function collectBundleItems() {
   for (const element of candidates) {
     const title = likelyItemTitle(element);
     if (!title) continue;
-    const key = HumbleComicLibrary.titleKey(title);
+    const item = describeBundleItem({ title, element, container: productContainer(element), tier: findTier(element) }, media);
+    const key = bundleItemKey(item);
     if (!key || byKey.has(key)) continue;
-    byKey.set(key, { title, element, container: productContainer(element), tier: findTier(element) });
+    byKey.set(key, item);
   }
   const items = [...byKey.values()];
   // A bundle detail page may include an un-tiered all-items gallery for
@@ -940,19 +1016,19 @@ function collectBundleItems() {
   return tieredItems.length ? tieredItems : items;
 }
 
-function collectCoverImageItems() {
+function collectCoverImageItems(media = bundleMediaContext()) {
   const byKey = new Map();
   const images = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
   for (const image of images) {
     const title = String(image.alt ?? '').replace(/\s+/gu, ' ').trim();
     if (!likelyItemTitle({ textContent: title })) continue;
-    const key = HumbleComicLibrary.titleKey(title);
-    if (!key) continue;
+    if (!HumbleComicLibrary.titleKey(title)) continue;
     const container = productContainer(image);
     // Ignore a campaign/brand image that happens to live in a generic product
     // wrapper. Book covers have a non-empty alt and a reasonably local card.
     if (!container || container === document.body) continue;
-    const candidate = { title, element: image, container, tier: findTier(image) };
+    const candidate = describeBundleItem({ title, element: image, container, tier: findTier(image) }, media);
+    const key = bundleItemKey(candidate);
     const existing = byKey.get(key);
     // Humble often renders the same cover in an un-tiered gallery and in the
     // paid tier where it belongs. Prefer the paid-tier copy so counts remain
@@ -1547,7 +1623,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
-  const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : 'books';
+  const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : itemKind === 'audiobook' ? 'audiobooks' : itemKind === 'mixed-books' ? 'books and audiobooks' : 'books';
   headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
@@ -1556,12 +1632,12 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   legend.className = 'hcl-legend';
   legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
   summary.append(legend);
-  if ((itemKind === 'book' || itemKind === 'game') && comparison?.galactic?.enabled) {
+  if ((GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
     galactic.textContent = comparison.galactic.error
       ? `Galactic Library is unavailable; showing local Humble results only. (${comparison.galactic.error})`
       : `Galactic Library: ${comparison.galactic.status}`;
-    galactic.title = 'Galactic Library receives only the current bundle titles and returns exact owned matches from its connected providers.';
+    galactic.title = 'Galactic Library receives only current bundle titles and media types. Exact confirmed ownership is labelled owned elsewhere; related titles or uncertain access require review.';
     summary.append(galactic);
   }
   appendBundleNewItemsOnlyFilter(summary, comparison);

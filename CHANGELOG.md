@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Detects audiobook listings and individual audiobook items on Humble Books pages for media-separated local and Galactic Library comparisons. Exact confirmed external ownership is labelled Owned elsewhere; temporary access remains a review candidate. Software companion lookup remains disabled until the API explicitly supports it.
+
 - Defines full-rescan reconciliation: only complete successful scans replace current Humble items, purchase summaries, and reminders; manual titles remain protected, failed scans retain previous entries and schedule retries, and historical purchase evidence is archived separately in version-7 backups.
 
 - Fixes the key-reminder discovery failure handler so failed purchase fetches increment aggregate failure counts and allow the remaining report to complete.
