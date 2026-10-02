@@ -6,7 +6,7 @@ import vm from 'node:vm';
 // Mirrored policy fixture in HB/FAN; exercise shipped classification, never a
 // reconstructed matcher. HB keeps the real storefront merge/count path here.
 const fanatical = fs.existsSync(new URL('../src/shared.js', import.meta.url));
-function fixture(records, media, offered, central = null) {
+function fixture(records, media, offered, central = null, historical = []) {
   const context = { URL, Blob, Promise, setTimeout, clearTimeout, console, performance: { now: () => 0 },
     document: { title: '', querySelector: () => null, querySelectorAll: () => [] }, location: { pathname: '/' } };
   context.globalThis = context;
@@ -14,6 +14,7 @@ function fixture(records, media, offered, central = null) {
   for (const file of fanatical ? ['src/shared.js'] : ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js'])
     vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), context, { filename: file });
   context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
+  context.historical = historical.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
   context.offered = { ...offered, [fanatical ? 'mediaType' : 'kind']: media, lookupTitle: offered.title, tier: { label: '$5 tier', price: 5 } };
   context.centralResult = central instanceof Error ? { matches: [], lookupIncomplete: true } : central;
   if (!fanatical) {
@@ -31,8 +32,8 @@ function fixture(records, media, offered, central = null) {
   return {
     context,
     async classify() {
-      const match = fanatical ? vm.runInContext('FanaticalLibrary.resolveProduct(offered, records, FanaticalLibrary.localContents(records), () => centralResult)', context)
-        : (await vm.runInContext("renderBundleComparison(createBundleLibraryMatcher(records, offered.kind), offered.kind, [], [], comparison, 1)", context),
+      const match = fanatical ? vm.runInContext('FanaticalLibrary.resolveProduct(offered, records, FanaticalLibrary.localContents(records), () => centralResult, 0, historical)', context)
+        : (await vm.runInContext("renderBundleComparison(createBundleLibraryMatcher(records, offered.kind, historical), offered.kind, [], [], comparison, 1)", context),
           context.comparison.resolvedItems[0].match);
       const candidates = [...(Array.isArray(match.item) ? match.item : match.item ? [match.item] : []), ...(match.candidates ?? []),
         ...(match.externalPossibleMatches ?? [])];
@@ -40,6 +41,37 @@ function fixture(records, media, offered, central = null) {
     }
   };
 }
+
+test('missing historical purchases warn with their titles and never prove ownership or coverage', async () => {
+  for (const [offered, previous] of [['Offered Book', 'Offered Book'], ['Offered Book', 'Offered Book: A Useful Subtitle'],
+    ['Saga Vol. 1', 'Saga Vol. 1']]) {
+    const f = fixture([], 'book', { title: offered }, null, [{ title: previous, sourceBundle: 'Previous purchase', source: 'humble' }]);
+    const { match, candidates } = await f.classify();
+    assert.equal(match.state, 'possible', offered);
+    assert.equal(match.ownershipReview, true);
+    assert.ok(candidates.some(item => item.title === previous && item.historical && item.ownership === 'unknown'));
+    assert.equal(match.coverage?.owned ?? 0, 0);
+    const lines = fanatical ? f.context.FanaticalLibrary.explanationLines(match) : f.context.HumbleOwnership.explanationLines(match);
+    assert.match(lines.join('\n'), /not observed/i);
+    assert.match(lines.join('\n'), /Previous purchase/);
+    if (!fanatical) {
+      assert.equal(f.context.summary.counts.owned, 0);
+      assert.equal(f.context.summary.counts.new, 0);
+      assert.equal(f.context.HumbleOwnership.planBundle(f.context.comparison.resolvedItems).goalCount, 0);
+    }
+  }
+});
+
+test('historical warnings survive lookup failures, but verified current ownership takes precedence', async () => {
+  const history = [{ title: 'Offered Book' }];
+  assert.equal((await fixture([], 'book', { title: 'Offered Book' }, new Error('Unavailable'), history).classify()).match.state, 'possible');
+  assert.equal((await fixture([{ title: 'Offered Book' }], 'book', { title: 'Offered Book' }, null, history).classify()).match.state, 'owned');
+  assert.equal((await fixture([], 'book', { title: 'Offered Book' }, {
+    matches: [{ provider: 'kindle', title: 'Offered Book', ownership: 'owned', relationship: 'same-edition' }]
+  }, history).classify()).match.state, 'elsewhere');
+  assert.equal((await fixture([], 'book', { title: 'Offered Book', authors: ['A'] }, null,
+    [{ title: 'Offered Book', authors: ['B'] }]).classify()).match.state, 'new');
+});
 
 const cases = JSON.parse(fs.readFileSync(new URL('./matching-policy-cases.json', import.meta.url), 'utf8'));
 for (const row of cases) test(row.label + ' follows policy in both comparison directions', async () => {

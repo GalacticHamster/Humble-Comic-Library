@@ -187,7 +187,7 @@
     if (match.lookupIncomplete) lines.push('Central lookup incomplete. An unavailable or omitted result is not proof of absence.');
     if (match.contentsLookupIncomplete) lines.push('Central contents coverage unavailable; additional units cannot be confirmed.');
     const local = match.localMatch ?? match;
-    const records = [local.item, ...(local.range?.items ?? []), ...(match.externalMatches ?? []), ...(match.externalPossibleMatches ?? []),
+    const records = [local.item, ...(local.historicalItems ?? []), ...(local.range?.items ?? []), ...(match.externalMatches ?? []), ...(match.externalPossibleMatches ?? []),
       ...(match.externalResult?.partialMatches ?? []), ...(match.coverage?.covered ?? []).flatMap(entry => entry.evidence),
       ...(match.coverage?.possibleCovered ?? []).flatMap(entry => entry.evidence)].flat(Infinity).filter(Boolean);
     const seen = new Set();
@@ -196,6 +196,7 @@
       const identity = `${record.provider || 'humble'}:${record.itemRef || H.catalogItemKey(item)}`;
       if (seen.has(identity)) continue;
       seen.add(identity);
+      if (item.historical) lines.push("Historical purchase: previously recorded in this profile; not observed in the current snapshot. Current access needs review.");
       lines.push(`Library item: ${item.title || 'Unnamed record'} · ${record.provider || 'humble'} · ${record.ownership || (purchased(item) ? 'locally recorded as owned' : 'purchase recorded; key needs review')}`);
       const data = record.evidence ? { ...record.evidence, title: record.title } : item;
       describe('Library evidence', data);

@@ -52,7 +52,7 @@ let bundleSummaryMinimized = false;
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] });
+  const storage = await chrome.storage.local.get({ libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] });
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
@@ -61,7 +61,7 @@ let bundleSummaryMinimized = false;
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
   const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
-  const libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind);
+  const libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, storage.historicalLibraryItems);
   const collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
   const refresh = (reason = 'update') => {
@@ -870,7 +870,12 @@ function bundleItemKey(item) {
   return HumbleComicLibrary.catalogItemKey(item);
 }
 
-function createBundleLibraryMatcher(items, baseKind) {
+function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
+  // Storage supplies only the active profile's archive. Other profile archives
+  // are never candidate inputs. History stays out of current contents evidence.
+  const currentKeys = new Set(items.map(item => HumbleComicLibrary.catalogItemKey(item)));
+  const missing = historicalItems.filter(item => !currentKeys.has(HumbleComicLibrary.catalogItemKey(item)));
+  const history = missing.length ? createBundleLibraryMatcher(missing, baseKind) : null;
   const mediaMatchers = new Map();
   for (const kind of baseKind === 'book' ? ['book', 'audiobook'] : [baseKind]) {
     const byKey = new Map();
@@ -880,7 +885,9 @@ function createBundleLibraryMatcher(items, baseKind) {
       const key = HumbleComicLibrary.titleKey(title);
       if (key) byKey.set(byKey.has(key) ? `${key}\u0000${byKey.size}` : key, { ...item, title });
     }
-    mediaMatchers.set(kind, createLibraryMatcher(byKey, kind));
+    const matcher = createLibraryMatcher(byKey, kind);
+    matcher.historicalMatcher = history?.mediaMatchers.get(kind) ?? null;
+    mediaMatchers.set(kind, matcher);
   }
   const matcher = mediaMatchers.get(baseKind);
   mediaMatchers.set('unknown', createLibraryMatcher(new Map(), 'unknown'));
@@ -1047,7 +1054,7 @@ function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
   const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item);
   const possible = exact || volumeRange || bookVariant || collectionIssue ? null : identity.possible.length
     ? { items: identity.possible, reason: identity.reason } : findPossibleMatch(title, matcher, item.kind, item);
-  return exact ? { state: 'owned', item: exact }
+  const match = exact ? { state: 'owned', item: exact }
     : volumeRange ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
     : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
     : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
@@ -1055,6 +1062,16 @@ function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
       ...(identity.possible.some(record => !HumbleOwnership.purchased(record)) ? { ownershipReview: true,
         possibleReason: 'A Humble purchase exists, but its key is expired or unavailable. Check destination-library ownership.' } : {}) }
     : { state: 'new' };
+  if (match.state === 'owned' || !matcher.historicalMatcher) return match;
+  const previous = classifyLocalBundleItem(item, matcher.historicalMatcher, collectionMappings);
+  if (previous.state === 'new') return match;
+  const historicalItems = [...new Set([previous.item, previous.range?.items ?? []].flat(Infinity).filter(Boolean))]
+    .map(record => ({ ...record, historical: true, ownership: 'unknown' }));
+  if (!historicalItems.length) return match;
+  const reason = 'Previously recorded in this Humble profile, but not observed in the current snapshot. Current ownership needs review.';
+  if (match.state === 'partial') return { ...match, historicalItems };
+  return { ...match, state: 'possible', ownershipReview: true, historicalItems,
+    item: [match.item ?? [], historicalItems].flat(Infinity), possibleReason: [match.possibleReason, reason].filter(Boolean).join(' ') };
 }
 
 function yieldToBrowser() {
