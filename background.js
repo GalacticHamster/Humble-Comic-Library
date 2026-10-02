@@ -26,7 +26,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     const targetProfile=typeof message.targetProfileLabel==='string'?message.targetProfileLabel.trim():'';if(!targetProfile||targetProfile.length>100)throw new Error('Enter the current GL Humble profile label.');
     const snapshot=await libraryStore.execute('shareSnapshot',[message.profileLabel]);const feed=await HumbleEntitlements.project(snapshot.state,snapshot.scope.salt);
     const result=await HumbleEntitlements.send(chrome.runtime,id,targetProfile,feed,()=>libraryStore.execute('verifyShareSnapshot',[snapshot.scope,id]));return {ok:true,count:result.count,coverage:feed.coverage};
-  })().then(respond,()=>respond({ok:false,error:'Reminder sharing did not complete. Check both profile labels, GL permission/version and connection; previous central reminders were retained.'}));return true;
+  })().then(respond,()=>respond({ok:false,error:'Reminder request was not confirmed. Check both profile labels, GL permission/version and connection, then check the reminders in Galactic Library.'}));return true;
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'HCL_OPEN_GALACTIC_REVIEW' || sender.id !== chrome.runtime.id) return false;
