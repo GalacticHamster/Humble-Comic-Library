@@ -3,8 +3,8 @@ const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
 const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
 // Media types accepted by Galactic Library's version-1 MATCH_ITEMS contract.
-// Software is deliberately excluded until that API explicitly supports it.
-const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook']);
+// Software requests require an advertised capability; older GL stays local.
+const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'software']);
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 let purchaseFocusTimer;
 let bundleSummaryMinimized = false;
@@ -335,6 +335,7 @@ function createGalacticLookup(extensionId) {
     usedRequestKeys: new Set(),
     failuresByKey: new Map(),
     reviewedContentsAvailable: false,
+    softwareCapability: null,softwareSupported:false,
     inFlightKeys: new Set(),
     inFlight: null,
     error: null,
@@ -374,11 +375,18 @@ function possibleOutsideHumble(result) {
 async function queryGalacticLibrary(items, itemKind, comparison, job) {
   const lookup = comparison?.galactic;
   if (!lookup?.enabled) return;
+  if(items.some(({item,match})=>(item.kind??itemKind)==='software'&&match.state!=='owned')){
+    lookup.softwareCapability??=waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId,{type:'GET_STATUS'})).then(response=>{
+      lookup.softwareSupported=response?.ok===true&&response.apiVersion===GALACTIC_LIBRARY_API_VERSION&&Array.isArray(response.capabilities?.mediaTypes)&&response.capabilities.mediaTypes.includes('software');
+      if(!lookup.softwareSupported)lookup.status='Software is not advertised by Galactic Library; using local software evidence.';
+    }).catch(()=>{lookup.status='Software capability check unavailable; using local software evidence.';});
+    await lookup.softwareCapability;
+  }
   const requested = new Map();
   for (const { item, match, target } of items) {
     if (match.state === 'owned' && !target?.entries.length) continue;
     const mediaType = item.kind ?? itemKind;
-    if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)) continue;
+    if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)||mediaType==='software'&&!lookup.softwareSupported) continue;
     const fields = HumbleOwnership.request({ ...item, kind: mediaType }, comparison.collectionMappings ?? [], target);
     const fingerprint = JSON.stringify(fields);
     let requestId = lookup.requestKeys.get(fingerprint);

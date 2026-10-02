@@ -21,8 +21,9 @@ function load({ pathname = '/books/example-books', heading = '', bundleData = {}
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
   context.location.pathname = pathname;
-  context.calls = [];
+  context.calls = [];context.capabilityCalls=[];context.mediaCapabilities=['book','game','audiobook'];
   context.chrome = { runtime: { sendMessage: async (id, request) => {
+    if(request.type==='GET_STATUS'){context.capabilityCalls.push(request);return {ok:true,apiVersion:1,capabilities:{mediaTypes:context.mediaCapabilities}};}
     context.calls.push(request);
     return { ok: true, apiVersion: 1, results: request.items.map(({ requestId, title }) => ({ requestId, matches: [{ title, provider: 'audible', ownership: 'owned' }] })) };
   } } };
@@ -152,7 +153,7 @@ test('temporary audio access is review only and incompatible/unavailable respons
   }
 });
 
-test('game/book requests remain supported while software/unknown never reach the API', async () => {
+test('game/book requests remain supported while unadvertised software and unknown media never reach MATCH_ITEMS', async () => {
   const context = load();
   context.requestItems = ['game', 'book', 'audiobook', 'software', 'unknown'].map((kind) => ({ item: { kind, title: 'Shared Work' }, match: { state: 'new' } }));
   run(context, "comparison = {job:1,galactic:createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')}");
@@ -164,7 +165,7 @@ test('game/book requests remain supported while software/unknown never reach the
   assert.equal(context.calls.length, 1, 'cache is keyed by media type and avoids repeated requests');
 });
 
-test('software render stays entirely local even when companion link is configured', async () => {
+test('software render stays local when the companion does not advertise support', async () => {
   const context = load({ pathname: '/software/tools', cards: [{ title: 'Tool' }] });
   const result = await render(context, [], 'software');
   assert.equal(context.calls.length, 0);
@@ -279,4 +280,17 @@ test('a complete title-derived range still needs edition/contents review; lossy 
   const related = await render(article, [{ title: 'Room' }]);
   assert.equal(related.counts.owned, 0);
   assert.equal(related.counts.possible, 1);
+});
+
+
+test('advertised software support enables central comparison, preserves media isolation and caches the capability check',async()=>{
+  const context=load({pathname:'/software/tools',cards:[{title:'Creative Tool'}]});context.mediaCapabilities.push('software');
+  const result=await render(context,[],'software');assert.equal(result.counts.elsewhere,1);assert.equal(context.calls[0].items[0].mediaType,'software');assert.equal(context.capabilityCalls.length,1);
+  await run(context,"queryGalacticLibrary([{item:{title:'Other Tool',kind:'software'},match:{state:'new'}}],'software',comparison,1)");assert.equal(context.capabilityCalls.length,1);assert.equal(context.calls[1].items[0].mediaType,'software');
+});
+
+test('a failed or incompatible software capability check never invents central ownership or sends an unsupported match',async()=>{
+  for(const response of [null,{ok:false},{ok:true,apiVersion:2,capabilities:{mediaTypes:['software']}}]){
+    const context=load({pathname:'/software/tools',cards:[{title:'Tool'}]});context.chrome.runtime.sendMessage=async(id,request)=>{assert.equal(request.type,'GET_STATUS');return response;};const result=await render(context,[],'software');assert.equal(result.counts.elsewhere,0);assert.equal(result.counts.new,1);
+  }
 });
