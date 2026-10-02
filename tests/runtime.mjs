@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import {spawn,execFileSync} from 'node:child_process';
+import {readFile,mkdtemp,mkdir,writeFile,rm,access} from 'node:fs/promises';
+import {resolve,dirname,join,sep} from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {tmpdir} from 'node:os';
+import {setTimeout as pause} from 'node:timers/promises';
+import {chromePipe,firefoxMarionette,freePort} from './native-protocol.mjs';
+
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),firefox=process.argv.includes('--firefox');
+const candidates=firefox?[process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...(process.platform==='win32'?(()=>{try{const location=execFileSync('powershell.exe',['-NoProfile','-Command','(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'],{windowsHide:true,encoding:'utf8'}).trim();return location?[join(location,'VFS/ProgramFiles/Firefox Package Root/firefox.exe')]:[];}catch{return [];}})():[])]:[process.env.CHROME_BIN,'C:/Program Files/Google/Chrome/Application/chrome.exe','/usr/bin/chromium'];
+let binary;for(const candidate of candidates.filter(Boolean))try{await access(candidate);binary=candidate;break;}catch{}
+if(!binary)throw new Error(`Set ${firefox?'FIREFOX_BIN':'CHROME_BIN'} to run installed-extension checks.`);
+const temporary=await mkdtemp(join(tmpdir(),'hcl-runtime-test-')),profile=join(temporary,'profile'),stage=join(temporary,'runtime');await mkdir(profile);await mkdir(stage);let child,driver,exited;
+try{
+  execFileSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',join(root,'scripts/package-release.ps1'),'-Target',firefox?'Firefox':'Chrome','-OutputDirectory',stage],{windowsHide:true,stdio:'pipe'});
+  const manifest=JSON.parse(await readFile(join(root,'manifest.json'),'utf8')),archive=join(stage,`Humble-Comic-Library-${manifest.version}${firefox?'-firefox':''}.zip`);
+  const checksSource=await readFile(join(root,'tests/runtime-checks.js'),'utf8');
+  if(firefox){
+    const port=await freePort();await writeFile(join(profile,'user.js'),`user_pref("marionette.port", ${port});\nuser_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("browser.startup.homepage", "about:blank");\nuser_pref("toolkit.telemetry.enabled", false);\nuser_pref("datareporting.healthreport.uploadEnabled", false);\nuser_pref("extensions.update.enabled", false);\nuser_pref("network.captive-portal-service.enabled", false);\n`);
+    child=spawn(binary,['--headless','--no-remote','--profile',profile,'--marionette','--remote-allow-system-access','about:blank'],{windowsHide:true,stdio:['ignore','pipe','pipe']});exited=new Promise(resolve=>child.once('exit',resolve));child.on('error',()=>{});driver=await firefoxMarionette(port);
+    await driver.send('WebDriver:NewSession',{capabilities:{alwaysMatch:{browserName:'firefox'}}});const installed=await driver.send('Addon:Install',{path:archive,temporary:true});const id=installed.value??installed;
+    await driver.send('Marionette:SetContext',{value:'chrome'});const url=await driver.send('WebDriver:ExecuteScript',{script:'return WebExtensionPolicy.getByID(arguments[0]).getURL("options.html");',args:[id],newSandbox:true});await driver.send('Marionette:SetContext',{value:'content'});await driver.send('WebDriver:Navigate',{url:url.value??url});
+    const result=await driver.send('WebDriver:ExecuteAsyncScript',{script:checksSource+'; installedRuntimeChecks().then(arguments[arguments.length-1],error=>arguments[arguments.length-1]({error:error.message+String.fromCharCode(10)+error.stack}));',args:[],newSandbox:false});const value=result.value??result;assert.equal(value.error,undefined,value.error);for(const check of value.checks)console.log('PASS installed Firefox: '+check);console.log(`${value.checks.length} installed Firefox checks passed.`);
+  }else{
+    const command=`Expand-Archive -LiteralPath $env:HCL_RUNTIME_ZIP -DestinationPath $env:HCL_RUNTIME_STAGE -Force`;execFileSync('powershell.exe',['-NoProfile','-Command',command],{windowsHide:true,stdio:'pipe',env:{...process.env,HCL_RUNTIME_ZIP:archive,HCL_RUNTIME_STAGE:stage}});
+    child=spawn(binary,['--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking',`--user-data-dir=${profile}`,'--remote-debugging-pipe','--enable-unsafe-extension-debugging','about:blank'],{windowsHide:true,stdio:['ignore','pipe','pipe','pipe','pipe']});exited=new Promise(resolve=>child.once('exit',resolve));driver=chromePipe(child);
+    const installed=await driver.send('Extensions.loadUnpacked',{path:stage});const target=await driver.send('Target.createTarget',{url:`chrome-extension://${installed.id}/options.html`});const session=await driver.send('Target.attachToTarget',{targetId:target.targetId,flatten:true});
+    for(let attempt=0;attempt<150;attempt++){
+      try{const ready=await driver.send('Runtime.evaluate',{expression:"document.readyState==='complete'&&!!globalThis.HumbleComicLibrary&&document.querySelector('#library-count')?.textContent.includes('stored locally')",returnByValue:true},session.sessionId);if(ready.result.value)break;}catch(error){if(!/context was destroyed/iu.test(error.message))throw error;}await pause(20);
+    }
+    const result=await driver.send('Runtime.evaluate',{expression:checksSource+'; installedRuntimeChecks()',awaitPromise:true,returnByValue:true},session.sessionId);assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));for(const check of result.result.value.checks)console.log('PASS installed Chrome: '+check);console.log(`${result.result.value.checks.length} installed Chrome checks passed.`);
+    if(process.argv.includes('--central')){
+      const centralRoot=resolve(root,'../GalacticLibrary'),{createRelease}=await import(pathToFileURL(join(centralRoot,'scripts/release.mjs'))),central=await createRelease(centralRoot),centralStage=join(temporary,'central');
+      for(const [name,bytes]of central.files){const target=join(centralStage,name);await mkdir(dirname(target),{recursive:true});await writeFile(target,bytes);}
+      const loaded=await driver.send('Extensions.loadUnpacked',{path:centralStage}),page=await driver.send('Target.createTarget',{url:'chrome-extension://'+loaded.id+'/options.html'}),attached=await driver.send('Target.attachToTarget',{targetId:page.targetId,flatten:true});
+      const evaluate=async(expression,sessionId)=>{const response=await driver.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},sessionId);assert.equal(response.exceptionDetails,undefined,JSON.stringify(response.exceptionDetails));return response.result.value;};
+      for(let attempt=0;attempt<150;attempt++){try{if(await evaluate("document.readyState==='complete'",attached.sessionId))break;}catch{}await pause(20);}
+      await evaluate('(async()=>{const S=await import("./src/lib/storage.js");await S.saveAllowedExternalClientIds(['+JSON.stringify(installed.id)+']);await S.mergeProviderItems("humble",[{providerItemId:"native",title:"Native GL purchase",mediaType:"game",ownership:"owned"}],{profileLabel:"central-synthetic"});return true;})()',attached.sessionId);
+      await evaluate('(async()=>{await HumbleComicLibrary.storageSet({galacticLibraryExtensionId:'+JSON.stringify(loaded.id)+'});document.querySelector("#share-gl-profile").value="central-synthetic";document.querySelector("#confirm-reminder-sharing").checked=true;document.querySelector("#share-entitlements").click();for(let n=0;n<300;n++){const text=document.querySelector("#entitlement-share-status").textContent;if(text.startsWith("Shared 1 entitlements"))return true;if(!document.querySelector("#share-entitlements").disabled)throw Error(text);await new Promise(done=>setTimeout(done,20));}throw Error("Share did not complete");})()',session.sessionId);
+      const received=await evaluate('(async()=>{const S=await import("./src/lib/storage.js"),R=await import("./src/lib/reminders.js"),database=await S.getDatabase();return {feed:database.companionFeeds['+JSON.stringify(installed.id)+'],nativeOwned:database.providerItems["humble:native"].ownership,reminders:R.libraryReminders(database).filter(row=>row.sourceClientId)};})()',attached.sessionId);
+      assert.equal(received.feed.entries.length,1);assert.equal(received.feed.profileLabel,'central-synthetic');assert.equal(received.nativeOwned,'owned');assert.equal(received.reminders.length,2);assert.doesNotMatch(JSON.stringify(received),/PRIVATE SYNTHETIC|purchaseKey|entitlementId/u);assert.equal(received.feed.entries[0].activationStatus,'unknown');console.log('PASS installed Chrome: real HB options sends private reminders through the allow-listed GL worker without changing native ownership');
+      await evaluate('(async()=>{const response=await chrome.runtime.sendMessage({type:"HCL_REMOVE_SHARED_ENTITLEMENTS",confirmed:true});if(!response.ok)throw Error(response.error);return true;})()',session.sessionId);
+      assert.equal(await evaluate('(async()=>{const S=await import("./src/lib/storage.js");return Object.keys((await S.getDatabase()).companionFeeds).length;})()',attached.sessionId),0);console.log('PASS installed Chrome: HB retracts only its shared GL feed');
+    }
+
+  }
+}finally{
+  driver?.close?.();if(child){child.kill();await Promise.race([exited,pause(3000)]);}
+  const target=resolve(temporary),base=resolve(tmpdir());if(!target.startsWith(base+sep)||!target.slice(base.length+1).startsWith('hcl-runtime-test-'))throw new Error('Unsafe runtime test cleanup.');await rm(target,{recursive:true,force:true,maxRetries:5,retryDelay:200});
+}

@@ -9,18 +9,21 @@ import { fileURLToPath } from 'node:url';
 
 // Synthetic libraries only; no installed extensions, account sessions or remote requests.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const candidates = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].filter(Boolean);
+const firefox = process.argv.includes('--firefox');
+const storeFirefox = firefox && process.platform === 'win32' ? await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', '(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'], {windowsHide:true}).then(({stdout})=>stdout.trim() ? [join(stdout.trim(),'VFS/ProgramFiles/Firefox Package Root/firefox.exe')] : [],()=>[]) : [];
+const candidates = (firefox ? [process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...storeFirefox] : [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium']).filter(Boolean);
 let browser;
 for (const candidate of candidates) { try { await access(candidate); browser = candidate; break; } catch {} }
-if (!browser) throw new Error('Set CHROME_BIN to a Chrome/Chromium executable.');
+if (!browser) throw new Error(`Set ${firefox?'FIREFOX_BIN':'CHROME_BIN'} to a browser executable.`);
 const profile = await mkdtemp(join(tmpdir(), 'hcl-browser-test-'));
-let result;
+let result, complete;
+const finished = new Promise(resolve=>{complete=resolve;});
 const server = createServer(async (request, response) => {
   try {
     let pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/test-result' && request.method === 'POST') {
       let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 100000) throw new Error('Excessive result.'); }
-      result = JSON.parse(body); response.end('ok'); return;
+      result = JSON.parse(body); response.end('ok'); complete(); return;
     }
     if (pathname === '/books/test') pathname = '/tests/bundle-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
@@ -31,9 +34,13 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 try {
-  await promisify(execFile)(browser, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`, '--virtual-time-budget=10000', '--dump-dom', `http://127.0.0.1:${server.address().port}/books/test`], { windowsHide: true, timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
+  let child;
+  const url=`http://127.0.0.1:${server.address().port}/books/test`;
+  const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
+  const exited=new Promise(resolve=>{child=execFile(browser,args,{windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
+  let timeout;try{await Promise.race([finished,exited,new Promise(resolve=>{timeout=setTimeout(resolve,25000);})]);}finally{clearTimeout(timeout);child.kill();await exited;}
   assert.ok(result, 'The browser did not finish the fixture.');
-  for (const check of result.checks) console.log(`PASS browser: ${check}`);
+  for (const check of result.checks) console.log(`PASS ${firefox?'Firefox':'Chrome'} browser: ${check}`);
   assert.equal(result.error, undefined, result.error);
   console.log(`${result.checks.length} browser checks passed.`);
 } finally {

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Detects audiobook listings and individual audiobook items on Humble Books pages for media-separated local and Galactic Library comparisons. Exact confirmed external ownership is labelled Owned elsewhere; temporary access remains a review candidate. Software companion lookup remains disabled until the API explicitly supports it.
+- Adds manual, account-scoped entitlement reminder sharing with Galactic Library using opaque references and narrow status/date DTOs; complete staged uploads preserve previous reminders on failure and never claim destination activation.
+- Adds installed-extension checks in Chrome and Firefox plus storefront fixtures in both browsers and a real Chrome HB-to-GL exchange. Includes the Firefox restore dependency and rejects destructive incomplete full-scan commits in the background writer.
+
+- Detects audiobook listings and individual audiobook items on Humble Books pages for media-separated local and Galactic Library comparisons. Exact confirmed external ownership is labelled Owned elsewhere; temporary access remains a review candidate. Software companion lookup now requires the API to explicitly advertise support.
 
 - Defines full-rescan reconciliation: only complete successful scans replace current Humble items, purchase summaries, and reminders; manual titles remain protected, failed scans retain previous entries and schedule retries, and historical purchase evidence is archived separately in version-7 backups.
 
@@ -13,7 +16,7 @@
 - Adds a Diagnostics-only, privacy-preserving purchase-navigation report for adapting individual-order links to Humble's current Purchases markup.
 - Presents key reminders as an expiry-organized action queue with an **Open purchase** control, plus an explicit opt-in direct-order route for users who accept a purchase identifier in the Humble URL and browser history to avoid popup requirements.
 - Integrates key-reminder checks into purchase imports: new imports inspect new and pending purchases, while **Rescan every purchase** establishes the complete reminder baseline.
-- Adds a separately packaged Firefox desktop Manifest V3 build while retaining the existing Chrome manifest and package unchanged. Firefox runtime behavior still requires manual browser testing before AMO submission.
+- Adds a separately packaged Firefox desktop Manifest V3 build while retaining the existing Chrome manifest and package unchanged. Automated installed-runtime and storefront checks now cover Firefox; signed-release and live-account smoke testing remain part of AMO preparation.
 - Adds first-class Humble Software support for purchases, bundle pages, and the Software catalogue.
 - Preserves `software` item kinds through local backup import/export and reports them in the options-page library summary.
 - Treats exact Software titles as owned and explicit version variants as Possible rather than Owned.
