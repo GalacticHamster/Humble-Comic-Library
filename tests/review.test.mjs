@@ -4,15 +4,25 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 function background(id,externalResponse) {
-  let listener;
+  let listener,external;
   const tabs = [];
-  const context = { setTimeout,clearTimeout,chrome: { runtime: { id: 'self', sendMessage:async(target,message)=>{if(!externalResponse)throw Error('unavailable');return externalResponse(target,message);}, onMessage: { addListener: fn => { listener = fn; } } },
+  const opened=[];
+  const context = { setTimeout,clearTimeout,chrome: { runtime: { id: 'self',openOptionsPage:async()=>opened.push(true),onMessageExternal:{addListener:fn=>{external=fn;}}, sendMessage:async(target,message)=>{if(!externalResponse)throw Error('unavailable');return externalResponse(target,message);}, onMessage: { addListener: fn => { listener = fn; } } },
     storage: { local: { get: async () => ({ galacticLibraryExtensionId: id }) } }, tabs: { create: async value => tabs.push(value) } } };
   context.globalThis = context;
   vm.createContext(context);
   for (const file of ['shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
-  return { tabs, listener, request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { if (!listener(message, sender, resolve)) resolve(null); }) };
+  return { tabs, listener,opened,externalRequest:(message,sender)=>new Promise(resolve=>{if(!external(message,sender,resolve))resolve(null);}),request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { if (!listener(message, sender, resolve)) resolve(null); }) };
 }
+
+test('source review authorizes only the saved central companion and opens its own options',async()=>{
+  const id='galactic-library@galactichamster.com',worker=background(id);
+  assert.equal((await worker.externalRequest({type:'OPEN_REVIEW',apiVersion:1},{id:'foreign@example.org'})).ok,false);
+  assert.equal((await worker.externalRequest({type:'OPEN_REVIEW',apiVersion:2},{id})).ok,false);
+  assert.equal(worker.opened.length,0);
+  assert.equal((await worker.externalRequest({type:'OPEN_REVIEW',apiVersion:1,url:'https://evil.test'},{id})).ok,true);
+  assert.equal(worker.opened.length,1);assert.equal(worker.tabs.length,0);
+});
 
 test('review navigation uses only the saved extension ID and accepts only internal callers', async () => {
   const worker = background('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');

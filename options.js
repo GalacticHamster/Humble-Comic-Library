@@ -75,7 +75,7 @@
   }
 
   async function testGalacticLibraryLink(id = galacticLibraryExtensionId.value.trim()) {
-    if (!isExtensionId(id)) throw new Error('Enter a valid 32-character Galactic Library extension ID.');
+    if (!isExtensionId(id)) throw new Error('Enter a valid Chrome extension ID or Firefox add-on ID for Galactic Library.');
     const response = await chrome.runtime.sendMessage(id, { type: 'PING' });
     if (!response?.ok || response.apiVersion !== 1) throw new Error(response?.error ?? 'Galactic Library did not return a compatible response.');
     return response;
@@ -304,7 +304,7 @@
   document.querySelector('#save-galactic-library-link').addEventListener('click', async () => {
     const id = galacticLibraryExtensionId.value.trim();
     if (!isExtensionId(id)) {
-      galacticLibraryLinkStatus.textContent = 'Enter a valid 32-character Galactic Library extension ID.';
+      galacticLibraryLinkStatus.textContent = 'Enter a valid Chrome extension ID or Firefox add-on ID for Galactic Library.';
       return;
     }
     await HumbleComicLibrary.storageSet({ galacticLibraryExtensionId: id });

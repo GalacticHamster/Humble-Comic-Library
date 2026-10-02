@@ -1,6 +1,15 @@
 /* Opening review uses Chrome's trusted options route, not a page-supplied URL. */
 if (typeof importScripts === 'function') importScripts('shared.js','collection-mappings.js','entitlement-share.js');
 const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local);
+chrome.runtime.onMessageExternal?.addListener((message,sender,respond)=>{
+  if(message?.type!=='OPEN_REVIEW')return false;
+  (async()=>{
+    const {galacticLibraryExtensionId:id=''}=await chrome.storage.local.get({galacticLibraryExtensionId:''});
+    if(!HumbleComicLibrary.isExtensionId(id)||sender.id!==id)return {ok:false,error:'Companion is not allowed.'};
+    if(message.apiVersion!==1)return {ok:false,error:'Unsupported companion API version.'};
+    await chrome.runtime.openOptionsPage();return {ok:true,apiVersion:1};
+  })().then(respond,()=>respond({ok:false,error:'Could not open source review.'}));return true;
+});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.type!=='HCL_STORE')return false;
   const own=sender.id===chrome.runtime.id;
