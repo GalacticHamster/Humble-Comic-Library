@@ -88,6 +88,24 @@
     check(!document.querySelector('.hcl-card-unchecked, .hcl-cover-unchecked, .hcl-unchecked-item'), 'A successful retry removes stale unchecked classes');
     check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'), 'A successful retry replaces Not checked badges');
     check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
+    const historical = [{ title: 'New story', kind: 'book', source: 'humble', sourceBundle: 'Earlier Humble bundle', purchasedAt: '2026-09-01' }];
+    const historyMatcher = createBundleLibraryMatcher(fixtureStored.libraryItems, 'book', historical);
+    const localComparison = { job: 1, galactic: createGalacticLookup(''), wishlistItems: fixtureStored.wishlistItems };
+    await renderBundleComparison(historyMatcher, 'book', [], fixtureStored.customCollectionMappings, localComparison, 1);
+    const previous = [...document.querySelectorAll('.hcl-status-button')].find(button => button.textContent === 'Check ownership');
+    check(Boolean(previous), 'A missing local historical purchase renders Check ownership');
+    previous.click();
+    const historyDialog = document.querySelector('#hcl-match-inspector');
+    check(historyDialog.textContent.includes('New story') && historyDialog.textContent.includes('Earlier Humble bundle') && historyDialog.textContent.includes('not observed'), 'Historical inspector names the previous title, source and uncertain current access');
+    document.querySelector('#hcl-match-inspector button').click();
+    const historicalMatch = localComparison.resolvedItems.find(row => row.item.title === 'New story').match;
+    check(historicalMatch.state === 'possible' && historicalMatch.coverage.owned === 0, 'Historical evidence proves neither Owned nor contents coverage');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('2 confirmed-new items'), 'Historical warnings stay out of confirmed-new purchase goals');
+    await chrome.storage.local.set({ historicalLibraryItems: historical, galacticLibraryExtensionId: '' });
+    await waitFor(() => [...document.querySelectorAll('.hcl-status-button')].some(button => button.textContent === 'Check ownership'));
+    await chrome.storage.local.set({ historicalLibraryItems: [], humbleProfileLabel: 'other profile' });
+    await waitFor(() => ![...document.querySelectorAll('.hcl-status-button')].some(button => button.textContent === 'Check ownership'));
+    check(localComparison.resolvedItems.some(row => row.match.state === 'possible') && ![...document.querySelectorAll('.hcl-status-button')].some(button => button.textContent === 'Check ownership'), 'Clearing or switching active history removes stale candidates on the open page');
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

@@ -14,7 +14,7 @@ function fixture(records, media, offered, central = null, historical = []) {
   for (const file of fanatical ? ['src/shared.js'] : ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js'])
     vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), context, { filename: file });
   context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
-  context.historical = historical.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
+  context.historical = historical.map(record => ({ ...record, ...(fanatical && record.sourceBundle ? {bundle:{title:record.sourceBundle}} : {}), [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
   context.offered = { ...offered, [fanatical ? 'mediaType' : 'kind']: media, lookupTitle: offered.title, tier: { label: '$5 tier', price: 5 } };
   context.centralResult = central instanceof Error ? { matches: [], lookupIncomplete: true } : central;
   if (!fanatical) {
@@ -68,7 +68,7 @@ test('historical warnings survive lookup failures, but verified current ownershi
   assert.equal((await fixture([{ title: 'Offered Book' }], 'book', { title: 'Offered Book' }, null, history).classify()).match.state, 'owned');
   assert.equal((await fixture([], 'book', { title: 'Offered Book' }, {
     matches: [{ provider: 'kindle', title: 'Offered Book', ownership: 'owned', relationship: 'same-edition' }]
-  }, history).classify()).match.state, 'elsewhere');
+  }, history).classify()).match.state, fanatical ? 'owned-elsewhere' : 'elsewhere');
   assert.equal((await fixture([], 'book', { title: 'Offered Book', authors: ['A'] }, null,
     [{ title: 'Offered Book', authors: ['B'] }]).classify()).match.state, 'new');
 });

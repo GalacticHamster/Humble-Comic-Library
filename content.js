@@ -52,17 +52,18 @@ let bundleSummaryMinimized = false;
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storage = await chrome.storage.local.get({ libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] });
+  const storageDefaults = { libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] };
+  const storage = await chrome.storage.local.get(storageDefaults);
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
-  const libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook')));
+  let libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
-  const currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
-  const libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, storage.historicalLibraryItems);
-  const collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
+  let currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
+  let libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, storage.historicalLibraryItems);
+  let collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
   const refresh = (reason = 'update') => {
     clearTimeout(refreshTimer);
@@ -76,6 +77,23 @@ let bundleSummaryMinimized = false;
     refreshTimer = setTimeout(() => runWhenIdle(() => renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job), 500), reason === 'initial' ? 0 : 120);
   };
   refresh('initial');
+  let libraryRevision = 0;
+  chrome.storage.onChanged?.addListener((changes, area) => {
+    if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
+    const revision = ++libraryRevision;
+    ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
+    (async () => {
+      const latest = await chrome.storage.local.get(storageDefaults);
+      if (revision !== libraryRevision) return;
+      libraryItems = latest.libraryItems.filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook'));
+      libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
+      currentBundlePurchases = findCurrentBundlePurchases(latest.purchaseSummaries);
+      collectionMappings = [...HumbleCollectionMappings.builtIn, ...latest.customCollectionMappings];
+      comparison.libraryCount = libraryItems.length;
+      comparison.galactic = createGalacticLookup(latest.galacticLibraryExtensionId);
+      refresh('library updated');
+    })().catch(showComparisonFailure);
+  });
   window.addEventListener('resize', () => refresh('resize'), { passive: true });
   new MutationObserver((records) => {
     // Humble renders covers lazily. Look only at the added/changed local

@@ -4,9 +4,14 @@ window.fixtureStored = { libraryItems: [{ title: 'Owned collection', kind: 'book
   customCollectionMappings: [fixtureMapping('Owned collection', 1), fixtureMapping('Offered collection', 4), fixtureMapping('Overlapping collection', 4)],
   galacticLibraryExtensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', wishlistItems: [{ title: 'Wishlist book', kind: 'book', weight: 3 }] };
 window.fixtureCalls = []; window.fixtureReviewCalls = [];
-window.chrome = { storage: { local: {
+const fixtureStorageListeners = [];
+window.chrome = { storage: { onChanged: { addListener: listener => fixtureStorageListeners.push(listener) }, local: {
   get: async defaults => ({ ...defaults, ...structuredClone(fixtureStored) }),
-  set: async value => Object.assign(fixtureStored, structuredClone(value))
+  set: async value => {
+    Object.assign(fixtureStored, structuredClone(value));
+    const changes = Object.fromEntries(Object.entries(value).map(([key, newValue]) => [key, { newValue }]));
+    fixtureStorageListeners.forEach(listener => listener(changes, 'local'));
+  }
 } }, runtime: { sendMessage: async (id, request) => {
   if(id?.type==='HCL_STORE'){
     window.fixtureStore??=HumbleComicLibrary.createSyncStore(chrome.storage.local);
