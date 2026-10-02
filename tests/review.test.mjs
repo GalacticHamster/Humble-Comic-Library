@@ -3,14 +3,14 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function background(id) {
+function background(id,externalResponse) {
   let listener;
   const tabs = [];
-  const context = { chrome: { runtime: { id: 'self', onMessage: { addListener: fn => { listener = fn; } } },
+  const context = { setTimeout,clearTimeout,chrome: { runtime: { id: 'self', sendMessage:async(target,message)=>{if(!externalResponse)throw Error('unavailable');return externalResponse(target,message);}, onMessage: { addListener: fn => { listener = fn; } } },
     storage: { local: { get: async () => ({ galacticLibraryExtensionId: id }) } }, tabs: { create: async value => tabs.push(value) } } };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js', 'background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
   return { tabs, listener, request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { if (!listener(message, sender, resolve)) resolve(null); }) };
 }
 
@@ -42,3 +42,5 @@ test('explanations show actual owned titles, edition conflicts, content evidence
   for (const text of ['Dune, 1st Edition', 'Different validated ISBNs', 'Different edition', 'Known Bundle', '2026-10-01', 'Manga (2020) volume 2', 'uncertain']) assert.ok(result.includes(text), text);
   assert.equal(result.includes('PRIVATE'), false);
 });
+
+test('Firefox central review calls the paired receiver with a versioned action and no caller URL',async()=>{const messages=[],id='galactic-library@galactichamster.com',worker=background(id,async(target,message)=>{messages.push({target,message});return {ok:true,apiVersion:1};});assert.equal((await worker.request({type:'HCL_OPEN_GALACTIC_REVIEW',url:'https://evil.test'})).ok,true);assert.equal(worker.tabs.length,0);assert.deepEqual(JSON.parse(JSON.stringify(messages)),[{target:id,message:{type:'OPEN_REVIEW',apiVersion:1}}]);});

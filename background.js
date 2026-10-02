@@ -34,9 +34,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const { galacticLibraryExtensionId: rawId = '' } = await chrome.storage.local.get({ galacticLibraryExtensionId: '' });
     const id = String(rawId).trim();
     if (!HumbleComicLibrary.isExtensionId(id)) return { ok: false, error: 'Configure the Galactic Library link in Extension options first.' };
-    // Firefox's stable add-on ID does not reveal its per-profile moz-extension
-    // UUID. The current GL API does not expose an options URL or review action.
-    if (!/^[a-p]{32}$/u.test(id)) return { ok: false, error: 'In Firefox, open Galactic Library from its toolbar menu, then use the ownership inspector or series coverage. Its stable add-on ID cannot provide a direct review URL.' };
+    if (!/^[a-p]{32}$/u.test(id)) {
+      try{const response=await HumbleEntitlements.request(chrome.runtime,id,{type:'OPEN_REVIEW',apiVersion:1});if(response?.ok&&response.apiVersion===1)return {ok:true};}catch{}
+      return {ok:false,error:'In Firefox, open Galactic Library from its toolbar menu. Check the pairing and update Galactic Library to enable central review.'};
+    }
     // Chromium's extensions manager owns this options route. Navigating to a
     // different extension's private HTML directly can fail the resource checks.
     await chrome.tabs.create({ url: `chrome://extensions/?options=${id}` });

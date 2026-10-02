@@ -274,7 +274,7 @@
     // AMO uses email-style Gecko IDs. Require a non-empty local part and a
     // dotted DNS-like domain rather than accepting arbitrary text.
     const geckoId = /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/iu;
-    return chromeId.test(id) || geckoId.test(id);
+    return chromeId.test(id) || geckoId.test(id) || /^\{[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\}$/iu.test(id);
   }
 
 
