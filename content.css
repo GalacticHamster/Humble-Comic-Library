@@ -139,6 +139,7 @@
 .hcl-legend-new { background: #1769aa; }
 .hcl-legend-partial { background: #7c3fb0; }
 .hcl-legend-possible { background: #b06d00; }
+.hcl-legend-unchecked { background: #666666; }
 .hcl-bundle-filter { display: block; margin-top: 0.55rem; cursor: pointer; font-size: 0.8rem; }
 .hcl-bundle-filter input { vertical-align: middle; }
 .hcl-bundle-filtered { display: none !important; }
@@ -226,6 +227,7 @@
 .hcl-status-button[data-state="elsewhere"] { background: #0f766e; }
 .hcl-status-button[data-state="possible"] { background: #b06d00; }
 .hcl-status-button[data-state="partial"] { background: #7c3fb0; }
+.hcl-status-button[data-state="unchecked"] { background: #666666; }
 .hcl-status-button:focus-visible { outline: 3px solid #f0a020; outline-offset: 2px; }
 .hcl-match-inspector { box-sizing: border-box; width: min(48rem, 94vw); max-height: 85vh; overflow: auto; padding: 1rem; border: 1px solid #777; border-radius: .5rem; background: #171717; color: #fff; font: 400 .9rem/1.5 Arial, sans-serif; }
 .hcl-match-inspector::backdrop { background: rgb(0 0 0 / 55%); }

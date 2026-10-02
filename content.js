@@ -369,7 +369,7 @@ function needsOwnershipReviewOutsideHumble(result) {
 
 function possibleOutsideHumble(result) {
   return (Array.isArray(result?.possibleMatches) ? result.possibleMatches : [])
-    .filter((match) => match?.provider !== 'humble' && (match?.ownership === 'owned' || match?.ownership === 'claimed'));
+    .filter((match) => match?.provider && match.provider !== 'humble');
 }
 
 async function queryGalacticLibrary(items, itemKind, comparison, job) {
@@ -379,7 +379,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
     lookup.softwareCapability??=waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId,{type:'GET_STATUS'})).then(response=>{
       lookup.softwareSupported=response?.ok===true&&response.apiVersion===GALACTIC_LIBRARY_API_VERSION&&Array.isArray(response.capabilities?.mediaTypes)&&response.capabilities.mediaTypes.includes('software');
       if(!lookup.softwareSupported)lookup.status='Software is not advertised by Galactic Library; using local software evidence.';
-    }).catch(()=>{lookup.status='Software capability check unavailable; using local software evidence.';});
+    }).catch(()=>{lookup.softwareCapabilityFailed=true;lookup.status='Software capability check unavailable; using local software evidence.';});
     await lookup.softwareCapability;
   }
   const requested = new Map();
@@ -431,7 +431,10 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
         throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
       }
       const results = new Map(response.results.map(result => [result?.requestId, result]));
-      if (entries.some(entry => !Array.isArray(results.get(entry.requestId)?.matches))) throw new Error('Galactic Library returned incomplete matching results.');
+      if (response.results.length !== entries.length || results.size !== entries.length
+        || entries.some(entry => !['matches', 'possibleMatches', 'partialMatches'].every(field =>
+          (field !== 'matches' && results.get(entry.requestId)?.[field] === undefined) || Array.isArray(results.get(entry.requestId)?.[field]))))
+        throw new Error('Galactic Library returned incomplete matching results.');
       for (const entry of entries) {
         const result = results.get(entry.requestId);
         lookup.resultsByKey.set(entry.requestId, result);
@@ -887,20 +890,21 @@ function createBundleLibraryMatcher(items, baseKind) {
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
   document.querySelectorAll('.hcl-status-button, .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
-  document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
+  document.querySelectorAll('.hcl-owned-item, .hcl-unchecked-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
     item.style.removeProperty('box-shadow');
     item.style.removeProperty('background-color');
     item.querySelectorAll('h1, h2, h3, h4, h5, p, a, span').forEach((text) => text.style.removeProperty('color'));
   });
-  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((cover) => {
+  document.querySelectorAll('.hcl-cover-owned, .hcl-cover-unchecked, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((cover) => {
     cover.style.removeProperty('outline');
     cover.style.removeProperty('outline-offset');
     cover.style.removeProperty('box-shadow');
   });
-  document.querySelectorAll('.hcl-owned-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-elsewhere, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
+  document.querySelectorAll('.hcl-owned-item, .hcl-unchecked-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-unchecked, .hcl-card-elsewhere, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-unchecked, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
     item.classList.remove('hcl-owned-item', 'hcl-elsewhere-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-partial-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-elsewhere', 'hcl-card-new', 'hcl-card-possible', 'hcl-card-partial', 'hcl-cover-owned', 'hcl-cover-elsewhere', 'hcl-cover-new', 'hcl-cover-possible', 'hcl-cover-partial');
     delete item.dataset.hclBadge;
+    item.classList.remove('hcl-unchecked-item', 'hcl-card-unchecked', 'hcl-cover-unchecked');
   });
   document.querySelectorAll('.hcl-title-colored').forEach((item) => {
     item.classList.remove('hcl-title-colored');
@@ -932,8 +936,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   if (comparison) comparison.collectionMappings = collectionMappings;
   const records = [...(libraryMatcher.mediaMatchers?.values() ?? [libraryMatcher])].flatMap(matcher => [...matcher.libraryByKey.values()]);
   const localContents = HumbleOwnership.localEvidence(records.filter(record => (record.kind ?? 'book') === 'book'), collectionMappings);
-  const counts = { owned: 0, elsewhere: 0, partial: 0, possible: 0, new: 0 };
-  const titlesByState = { owned: [], elsewhere: [], partial: [], possible: [], new: [] };
+  const counts = { owned: 0, elsewhere: 0, partial: 0, possible: 0, new: 0, unchecked: 0 };
+  const titlesByState = { owned: [], elsewhere: [], partial: [], possible: [], new: [], unchecked: [] };
   const matchesByTitleKey = new Map();
   const tiers = new Map();
   const resolvedItems = [];
@@ -968,6 +972,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);
     const externalReviewMatches = needsOwnershipReviewOutsideHumble(result);
     const externalPossibleMatches = [...possibleOutsideHumble(result), ...externalReviewMatches];
+    const uncertainOwnership = externalPossibleMatches.some(record => !HumbleOwnership.permanent(record));
     let match = externalMatches.length
       ? { state: 'elsewhere', externalMatches }
       : coverage.complete && (resolved.target.complete || coverage.total === 1)
@@ -980,13 +985,22 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       : externalReviewMatches.length && !['owned', 'partial'].includes(resolved.match.state)
         ? { state: 'possible', externalPossibleMatches: externalReviewMatches, ownershipReview: true, possibleReason: 'This exact title is in Galactic Library, but ownership is unconfirmed or access is temporary.' }
       : externalPossibleMatches.length && !['owned', 'partial'].includes(resolved.match.state)
-        ? { state: 'possible', externalPossibleMatches, possibleReason: kind === 'game' ? 'The game titles differ only by edition wording.' : 'Galactic Library returned a related title for review.' }
+        ? { state: 'possible', externalPossibleMatches, ownershipReview: uncertainOwnership,
+            possibleReason: uncertainOwnership ? 'Related library items found, but ownership is unconfirmed or access is temporary.'
+              : 'Galactic Library returned related library items for review.' }
         : coverage.possibleCovered.length && resolved.match.state === 'new'
           ? { state: 'possible', possibleReason: 'Related contents found, but run or language is not sufficiently established.' }
           : resolved.match;
     if (resolved.match.state === 'owned') match = resolved.match;
+    const lookup = comparison?.galactic;
+    const lookupIncomplete = Boolean(lookup?.enabled && resolved.match.state !== 'owned'
+      && ((resolved.item.galacticKey && !result) || (kind === 'software' && lookup.softwareCapabilityFailed)));
+    const contentsLookupIncomplete = Boolean(lookup?.enabled && resolved.target.entries.length
+      && (kind !== 'software' || lookup.softwareSupported) && !result?.coverage);
+    if (lookupIncomplete && match.state === 'new') match = { state: 'unchecked',
+      possibleReason: 'Central lookup incomplete; this item has not been checked against the full library.' };
     match = { ...match, coverage, offered: resolved.item, localMatch: resolved.match, externalResult: result,
-      externalPossibleMatches, mappingConflicts: resolved.target.reason || '' };
+      externalPossibleMatches, lookupIncomplete, contentsLookupIncomplete, mappingConflicts: resolved.target.reason || '' };
     resolved.match = match;
     matchesByTitleKey.set(bundleItemKey(resolved.item), match);
     counts[match.state] += 1;
@@ -997,12 +1011,13 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       range: match.range ?? null,
       match, offered: resolved.item
     });
-    const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0 };
+    const tier = tiers.get(resolved.item.tier.label) ?? { ...resolved.item.tier, total: 0, owned: 0, elsewhere: 0, partial: 0, possible: 0, unchecked: 0 };
     tier.total += 1;
     if (match.state === 'owned') tier.owned += 1;
     if (match.state === 'elsewhere') tier.elsewhere += 1;
     if (match.state === 'partial') tier.partial += 1;
     if (match.state === 'possible') tier.possible += 1;
+    if (match.state === 'unchecked') tier.unchecked += 1;
     tiers.set(resolved.item.tier.label, tier);
   }
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
@@ -1012,7 +1027,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   if (comparison) {
     comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
     comparison.resolvedItems = resolvedItems;
-    comparison.seriesCoverage = HumbleOwnership.seriesCoverage(seriesQueries, localContents, comparison.galactic?.resultsByKey);
+    comparison.seriesCoverage = HumbleOwnership.seriesCoverage(seriesQueries, localContents, comparison.galactic?.resultsByKey, Boolean(comparison.galactic?.enabled));
   }
   applyBundleNewItemsOnlyFilter(Boolean(comparison?.showNewItemsOnly));
   const summaryKind = items.every((item) => item.kind === 'audiobook') ? 'audiobook'
@@ -1546,6 +1561,7 @@ function annotateBundleItem(bundleItem, match) {
   const isElsewhere = match.state === 'elsewhere';
   const isPossible = match.state === 'possible';
   const isPartial = match.state === 'partial';
+  const isUnchecked = match.state === 'unchecked';
   // The image wrapper scales on Humble hover, which turns a label attached to
   // it into a giant pill. Anchor the status to the stable item card instead.
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
@@ -1558,7 +1574,7 @@ function annotateBundleItem(bundleItem, match) {
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchasedKey ? `Purchased${purchaseCount>1?` ×${purchaseCount}`:''}` : purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
-      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} ${match.coverage?.owned === match.range.owned ? 'Owned' : 'titles found'}` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : 'New';
+      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} ${match.coverage?.owned === match.range.owned ? 'Owned' : 'titles found'}` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Not checked' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
     const button = document.createElement('button');
@@ -1576,7 +1592,7 @@ function annotateBundleItem(bundleItem, match) {
     badgeHost.classList.add('hcl-interactive-badge');
     badgeHost.append(button);
   }
-  const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : 'new';
+  const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : isUnchecked ? 'unchecked' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
   bundleItem.element.classList.add(`hcl-cover-${stateClass}`);
   const card = findSingleCoverCard(bundleItem.element);
@@ -1756,7 +1772,7 @@ function colorExactCardTitle(card, title, state) {
 }
 
 function statusColor(state) {
-  return state === 'owned' ? '#0a7a42' : state === 'elsewhere' ? '#0f766e' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : '#b06d00';
+  return state === 'owned' ? '#0a7a42' : state === 'elsewhere' ? '#0f766e' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : state === 'unchecked' ? '#666666' : '#b06d00';
 }
 
 const SOFTWARE_VERSION_SUFFIX = /^(.*?)\s*(?:[,;:\-\u2013\u2014]\s*)?(?:(?:v(?:ersion)?\.?\s*)(\d+(?:\.\d+){0,3})|((?:19|20)\d{2}))\s*$/iu;
@@ -1843,11 +1859,12 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : itemKind === 'audiobook' ? 'audiobooks' : itemKind === 'mixed-books' ? 'books and audiobooks' : 'books';
   headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
+  if (counts.unchecked) headline.append(' · ' + counts.unchecked + ' not checked');
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
   appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
-  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span>';
+  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span><span class="hcl-legend-unchecked">Not checked</span>';
   summary.append(legend);
   if ((GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
@@ -1876,6 +1893,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     let cumulativeElsewhere = 0;
     let cumulativePartial = 0;
     let cumulativePossible = 0;
+    let cumulativeUnchecked = 0;
     for (const tier of orderedTiers) {
       // Humble's price levels are cumulative: the $15 level includes $5 items,
       // and so on. Each visual group contains the items first unlocked at that
@@ -1885,7 +1903,8 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       cumulativeElsewhere += tier.elsewhere;
       cumulativePartial += tier.partial;
       cumulativePossible += tier.possible;
-      const newItems = confirmedNewItemCount({ total: cumulativeTotal, owned: cumulativeOwned, elsewhere: cumulativeElsewhere, partial: cumulativePartial, possible: cumulativePossible });
+      cumulativeUnchecked += tier.unchecked ?? 0;
+      const newItems = confirmedNewItemCount({ total: cumulativeTotal, owned: cumulativeOwned, elsewhere: cumulativeElsewhere, partial: cumulativePartial, possible: cumulativePossible, unchecked: cumulativeUnchecked });
       const row = document.createElement('li');
       const priceText = tier.price === null ? tier.label : `${tier.label}: `;
       const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
@@ -1897,12 +1916,12 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   if (comparison?.resolvedItems) appendBundlePlan(summary, comparison);
   else appendBuyRecommendation(summary, tiers);
   if (comparison?.seriesCoverage?.length) appendSeriesCoverage(summary, comparison);
-  for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible']) {
-    if (!titlesByState[state].length) continue;
+  for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible', 'unchecked']) {
+    if (!titlesByState[state]?.length) continue;
     const detail = document.createElement('details');
     detail.className = 'hcl-title-list';
     const heading = document.createElement('summary');
-    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : 'Possible matches'} (${titlesByState[state].length})`;
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : state === 'unchecked' ? 'Not checked' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
@@ -2184,6 +2203,11 @@ function appendSeriesCoverage(summary, comparison) {
     const title = document.createElement('summary');
     title.textContent = `${group.series} · ${group.run || 'unknown run'} · ${group.language || 'unknown language'} · ${group.unitType}: ${group.covered}/${group.entries.length} covered`;
     section.append(title);
+    if (group.lookupIncomplete) {
+      const unavailable = document.createElement('p');
+      unavailable.textContent = 'Central coverage is unavailable for this series; uncovered units are not confirmed gaps.';
+      section.append(unavailable);
+    }
     const status = document.createElement('p');
     status.textContent = `${group.gaps.length ? `Gaps: ${group.gaps.slice(0, 60).map(entry => entry.number).join(', ')}${group.gaps.length > 60 ? ` and ${group.gaps.length - 60} more` : ''}. ` : ''}${group.uncertain.length ? `${group.uncertain.length} units need run/language or ownership review. ` : ''}${group.enumerationLimited ? 'Large spans show only explicitly listed units. ' : ''}` || 'All units within this target span are confirmed covered.';
     section.append(status);
@@ -3252,8 +3276,8 @@ function hasSoftwareAssetDelivery(product) {
     || /"(?:format|filetype|extension)"\s*:\s*"(?:gmz|gmx|yyz|yymp|yymps|gmez)"/iu.test(serialized);
 }
 
-function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0 }) {
-  return total - owned - elsewhere - partial - possible;
+function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0, unchecked = 0 }) {
+  return total - owned - elsewhere - partial - possible - unchecked;
 }
 
 function hasSoftwareEntitlement(product) {

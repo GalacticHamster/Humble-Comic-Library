@@ -1,5 +1,12 @@
 [
   {
+    "label": "Explicit Roman volume numbering",
+    "offered": "Saga Volume II",
+    "owned": "Saga Vol. 2",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
     "label": "Book punctuation",
     "offered": "Hello, World!: A Programmer's Guide",
     "owned": "Hello World A Programmers Guide",

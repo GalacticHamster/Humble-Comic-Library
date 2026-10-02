@@ -67,6 +67,27 @@
     check(host.querySelector('.hcl-status-button').textContent==='Check ownership','Expired purchase evidence displays Check ownership');
     host.querySelector('.hcl-status-button').click();
     check(document.querySelector('#hcl-match-inspector').textContent.includes('key status: expired'),'Ownership review retains the expired purchase title and key evidence');
+    document.querySelector('#hcl-match-inspector button').click();
+    host.remove();
+    const originalSend = chrome.runtime.sendMessage;
+    const comparison = { job: 1, galactic: createGalacticLookup(fixtureStored.galacticLibraryExtensionId), wishlistItems: fixtureStored.wishlistItems };
+    const matcher = createBundleLibraryMatcher(fixtureStored.libraryItems, 'book');
+    chrome.runtime.sendMessage = async () => { throw new Error('Synthetic companion failure'); };
+    await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
+    const unchecked = document.querySelector('.hcl-status-button[data-state="unchecked"]');
+    check(unchecked?.textContent === 'Not checked', 'A failed central lookup renders a distinct Not checked badge');
+    check(getComputedStyle(unchecked).backgroundColor === 'rgb(102, 102, 102)', 'Not checked has a neutral status color');
+    check(document.querySelector('#hcl-summary strong').textContent.includes('not checked'), 'Unchecked items are counted separately in the summary');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('0 confirmed-new items'), 'Failed lookups do not inflate confirmed-new purchase value');
+    check(comparison.seriesCoverage.every(group => group.lookupIncomplete && group.gaps.length === 0), 'Failed series lookups do not invent confirmed gaps');
+    unchecked.click();
+    check(document.querySelector('#hcl-match-inspector').textContent.includes('not proof of absence'), 'Unchecked inspector explains the uncertainty');
+    document.querySelector('#hcl-match-inspector button').click();
+    chrome.runtime.sendMessage = originalSend;
+    await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
+    check(!document.querySelector('.hcl-card-unchecked, .hcl-cover-unchecked, .hcl-unchecked-item'), 'A successful retry removes stale unchecked classes');
+    check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'), 'A successful retry replaces Not checked badges');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

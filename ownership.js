@@ -184,6 +184,8 @@
     if (match.ownedReason) lines.push(match.ownedReason);
     if (match.localMatch?.possibleReason && match.localMatch.possibleReason !== match.possibleReason) lines.push(`Local candidate: ${match.localMatch.possibleReason}`);
     if (match.mappingConflicts) lines.push(`Review needed: ${match.mappingConflicts}`);
+    if (match.lookupIncomplete) lines.push('Central lookup incomplete. An unavailable or omitted result is not proof of absence.');
+    if (match.contentsLookupIncomplete) lines.push('Central contents coverage unavailable; additional units cannot be confirmed.');
     const local = match.localMatch ?? match;
     const records = [local.item, ...(local.range?.items ?? []), ...(match.externalMatches ?? []), ...(match.externalPossibleMatches ?? []),
       ...(match.externalResult?.partialMatches ?? []), ...(match.coverage?.covered ?? []).flatMap(entry => entry.evidence),
@@ -234,7 +236,7 @@
   }
 
   function newUnits(match) {
-    if (['owned', 'elsewhere'].includes(match.state)) return [];
+    if (['owned', 'elsewhere', 'unchecked'].includes(match.state) || match.lookupIncomplete || match.contentsLookupIncomplete) return [];
     const uncertain = new Set((match.coverage?.possibleCovered ?? []).map(C.contentKey));
     return (match.coverage?.missing ?? []).filter(entry => entry.run && entry.language && !uncertain.has(C.contentKey(entry)));
   }
@@ -243,7 +245,7 @@
     const wants = H.normalizeWishlist(wishlist);
     const rows = resolved.map(({ item, match }) => ({ item, match, id: H.catalogItemKey(item), units: newUnits(match) }));
     const eligible = rows.filter(row => !['owned', 'elsewhere'].includes(row.match.state)
-      && (row.match.state === 'new' || row.match.state === 'partial' && row.units.length > 0 || includeUncertain));
+      && (row.match.state === 'new' || row.match.state === 'partial' && row.units.length > 0 || includeUncertain && ['possible', 'partial'].includes(row.match.state)));
     const goals = new Map();
     if (goal === 'contents') {
       for (const row of eligible) for (const unit of row.units) goals.set(`unit:${C.contentKey(unit)}`, new Set([`unit:${C.contentKey(unit)}`]));
@@ -310,14 +312,16 @@
     });
   }
 
-  function seriesCoverage(queries, local, resultsByKey = new Map()) {
+  function seriesCoverage(queries, local, resultsByKey = new Map(), centralEnabled = false) {
     return queries.map(query => {
-      const coverage = coverageFor(query.target, local, resultsByKey.get(query.item.galacticKey));
+      const result = resultsByKey.get(query.item.galacticKey);
+      const lookupIncomplete = centralEnabled && !result?.coverage;
+      const coverage = coverageFor(query.target, local, result);
       const covered = new Map(coverage.covered.map(entry => [C.contentKey(entry), entry]));
       const possible = new Map(coverage.possibleCovered.map(entry => [C.contentKey(entry), entry]));
       const first = query.target.entries[0];
       const entries = query.target.entries.map(entry => ({ ...entry,
-        state: covered.has(C.contentKey(entry)) ? 'covered' : possible.has(C.contentKey(entry)) || !entry.run || !entry.language ? 'uncertain' : 'gap',
+        state: covered.has(C.contentKey(entry)) ? 'covered' : lookupIncomplete || possible.has(C.contentKey(entry)) || !entry.run || !entry.language ? 'uncertain' : 'gap',
         evidence: covered.get(C.contentKey(entry))?.evidence ?? possible.get(C.contentKey(entry))?.evidence ?? []
       })).sort((a, b) => {
         const left = Number(C.numberKey(a.number)); const right = Number(C.numberKey(b.number));
@@ -325,7 +329,7 @@
       });
       return { series: first.series, run: first.run, language: first.language, unitType: first.unitType,
         entries, covered: coverage.owned, gaps: entries.filter(entry => entry.state === 'gap'), uncertain: entries.filter(entry => entry.state === 'uncertain'),
-        enumerationLimited: query.enumerationLimited };
+        enumerationLimited: query.enumerationLimited, lookupIncomplete };
     }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || a.run.localeCompare(b.run));
   }
 

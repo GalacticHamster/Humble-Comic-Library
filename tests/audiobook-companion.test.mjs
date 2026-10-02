@@ -149,7 +149,8 @@ test('temporary audio access is review only and incompatible/unavailable respons
     const result = await render(context);
     assert.equal(result.counts.elsewhere, 0);
     assert.equal(result.counts.possible, response?.ownership ? 1 : 0);
-    assert.equal(result.counts.new, response?.ownership ? 0 : 1);
+    assert.equal(result.counts.new, 0);
+    assert.equal(result.counts.unchecked, response?.ownership ? 0 : 1);
   }
 });
 

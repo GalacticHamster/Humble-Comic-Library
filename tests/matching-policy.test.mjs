@@ -15,6 +15,7 @@ function fixture(records, media, offered, central = null) {
     vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), context, { filename: file });
   context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
   context.offered = { ...offered, [fanatical ? 'mediaType' : 'kind']: media, lookupTitle: offered.title, tier: { label: '$5 tier', price: 5 } };
+  context.centralResult = central instanceof Error ? { matches: [], lookupIncomplete: true } : central;
   if (!fanatical) {
     context.central = central;
     context.chrome = { runtime: { sendMessage: async (_id, message) => {
@@ -30,7 +31,7 @@ function fixture(records, media, offered, central = null) {
   return {
     context,
     async classify() {
-      const match = fanatical ? vm.runInContext('FanaticalLibrary.resolveProduct(offered, records, FanaticalLibrary.localContents(records), () => null)', context)
+      const match = fanatical ? vm.runInContext('FanaticalLibrary.resolveProduct(offered, records, FanaticalLibrary.localContents(records), () => centralResult)', context)
         : (await vm.runInContext("renderBundleComparison(createBundleLibraryMatcher(records, offered.kind), offered.kind, [], [], comparison, 1)", context),
           context.comparison.resolvedItems[0].match);
       const candidates = [...(Array.isArray(match.item) ? match.item : match.item ? [match.item] : []), ...(match.candidates ?? []),
@@ -85,4 +86,78 @@ test('multiple plausible subtitle candidates remain inspectable in either librar
 function globalLines(match) {
   const context = fixture([], 'book', { title: 'Unused' }).context;
   return context.FanaticalLibrary.explanationLines(match).join('\n');
+}
+
+test('central Possible preserves the actual candidate even when ownership is uncertain or temporary', async () => {
+  for (const ownership of ['owned', 'claimed', 'unknown', 'subscription', 'borrowed', 'rental']) {
+    const record = { provider: 'kindle', title: 'The Related Library Edition', ownership, relationship: 'same-work' };
+    const { match, candidates } = await fixture([], 'book', { title: 'Offered Book' }, { possibleMatches: [record] }).classify();
+    assert.equal(match.state, 'possible', ownership);
+    assert.ok(candidates.some(candidate => candidate.title === record.title));
+    assert.equal(Boolean(match.ownershipReview), !['owned', 'claimed'].includes(ownership));
+  }
+});
+
+test('failed central lookup remains Not checked; local ownership and Possible evidence survive', async () => {
+  for (const [records, expected] of [[[], 'unchecked'], [[{ title: 'Offered Book' }], 'owned'],
+    [[{ title: 'Offered Book: A Useful Subtitle' }], 'possible']]) {
+    const f = fixture(records, 'book', { title: 'Offered Book' }, new Error('Unavailable'));
+    const { match } = await f.classify();
+    assert.equal(match.state, expected);
+    if (!fanatical) {
+      assert.equal(f.context.summary.counts.new, 0);
+      assert.equal(f.context.summary.counts.unchecked, expected === 'unchecked' ? 1 : 0);
+      assert.equal(f.context.HumbleOwnership.planBundle(f.context.comparison.resolvedItems).goalCount, 0);
+    }
+  }
+});
+
+if (!fanatical) {
+  test('omitted, duplicate and malformed central results cannot become confirmed absence', async () => {
+    for (const response of [
+      () => ({ ok: true, apiVersion: 1, results: [] }),
+      request => ({ ok: true, apiVersion: 1, results: [0, 1].map(() => ({ requestId: request.items[0].requestId, matches: [] })) }),
+      request => ({ ok: true, apiVersion: 1, results: request.items.map(item => ({ requestId: item.requestId, matches: [], possibleMatches: 'unreadable' })) })
+    ]) {
+      const f = fixture([], 'book', { title: 'Unchecked Book' }, {});
+      f.context.chrome.runtime.sendMessage = async (_id, request) => response(request);
+      const { match } = await f.classify();
+      assert.equal(match.state, 'unchecked');
+      assert.equal(f.context.summary.counts.new, 0);
+      assert.equal(vm.runInContext('confirmedNewItemCount(summary.tiers[0])', f.context), 0);
+      assert.equal(f.context.comparison.galactic.resultsByKey.size, 0);
+    }
+  });
+
+  test('a successful retry clears Not checked and caches a completed no-match', async () => {
+    const f = fixture([], 'book', { title: 'Retry Book' }, new Error('Unavailable'));
+    assert.equal((await f.classify()).match.state, 'unchecked');
+    let calls = 0;
+    f.context.chrome.runtime.sendMessage = async (_id, request) => {
+      calls++;
+      return { ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [] })) };
+    };
+    assert.equal((await f.classify()).match.state, 'new');
+    assert.equal(f.context.summary.counts.unchecked, 0);
+    assert.equal(f.context.comparison.galactic.failuresByKey.size, 0);
+    assert.equal((await f.classify()).match.state, 'new');
+    assert.equal(calls, 1);
+  });
+
+  test('missing central contents coverage cannot inflate confirmed-new unit or wishlist value', async () => {
+    const f = fixture([], 'book', { title: 'Manga Vol. 1', run: '2020', language: 'en' }, {});
+    const { match } = await f.classify();
+    assert.equal(match.contentsLookupIncomplete, true);
+    assert.ok(f.context.comparison.seriesCoverage.every(group => group.lookupIncomplete && group.gaps.length === 0));
+    const O = f.context.HumbleOwnership;
+    const rows = f.context.comparison.resolvedItems;
+    assert.equal(O.planBundle(rows, [], 'contents').goalCount, 0);
+    const missing = { ...rows[0], match: { ...match, state: 'unchecked', lookupIncomplete: true } };
+    for (const includeUncertain of [false, true]) {
+      const plan = O.planBundle([missing], [{ title: missing.item.title, kind: 'book', weight: 100 }], 'wishlist', includeUncertain);
+      assert.equal(plan.goalCount, 0);
+      assert.equal(plan.tiers[0].wishlistValue, 0);
+      assert.equal(plan.tiers[0].newUnits, 0);
+    }
+  });
 }
