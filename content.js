@@ -940,26 +940,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   let sliceStartedAt = performance.now();
   for (const [index, item] of items.entries()) {
     const matcher = libraryMatcher.mediaMatchers?.get(item.kind) ?? libraryMatcher;
-    const { libraryByKey } = matcher;
-    const title = item.lookupTitle;
-    const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher), isFromCurrentBundle);
-    const exact = identity.exact;
-    const fallbackRecords = exact ? [] : ownershipFallbackCandidates(item, matcher, collectionMappings);
-    const compatible = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).length));
-    const rangeCandidates = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));
-    const volumeRange = exact ? null : findOwnedVolumeRange(title, rangeCandidates);
-    const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, createLibraryMatcher(compatible, item.kind), item);
-    const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item);
-    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : identity.possible.length
-      ? { items: identity.possible, reason: identity.reason } : findPossibleMatch(title, matcher, item.kind, item);
-    const match = exact
-      ? { state: 'owned', item: exact }
-      : volumeRange
-          ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
-          : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
-          : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
-          : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason,
-            ...(identity.possible.some(record => !HumbleOwnership.purchased(record)) ? {ownershipReview:true,possibleReason:'A Humble purchase exists, but its key is expired or unavailable. Check destination-library ownership.'} : {}) } : { state: 'new' };
+    const match = classifyLocalBundleItem(item, matcher, collectionMappings);
     const target = HumbleOwnership.offerContents(item, collectionMappings);
     resolvedItems.push({ item, match, target });
     // Large libraries can make an individual card comparison expensive. Yield
@@ -1037,6 +1018,28 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   const summaryKind = items.every((item) => item.kind === 'audiobook') ? 'audiobook'
     : itemKind === 'book' && items.some((item) => item.kind === 'audiobook') ? 'mixed-books' : itemKind;
   renderComparisonSummary(counts, tiers, titlesByState, summaryKind, currentBundlePurchases, comparison);
+}
+
+function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
+  const title = item.lookupTitle ?? item.title;
+  const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher), isFromCurrentBundle);
+  const exact = identity.exact;
+  const fallbackRecords = exact ? [] : ownershipFallbackCandidates(item, matcher, collectionMappings);
+  const compatible = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).length));
+  const rangeCandidates = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));
+  const volumeRange = exact ? null : findOwnedVolumeRange(title, rangeCandidates);
+  const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, createLibraryMatcher(compatible, item.kind), item);
+  const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item);
+  const possible = exact || volumeRange || bookVariant || collectionIssue ? null : identity.possible.length
+    ? { items: identity.possible, reason: identity.reason } : findPossibleMatch(title, matcher, item.kind, item);
+  return exact ? { state: 'owned', item: exact }
+    : volumeRange ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
+    : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
+    : collectionIssue ? { state: 'owned', item: collectionIssue.item, ownedReason: collectionIssue.reason }
+    : possible ? { state: 'possible', item: possible.items, possibleReason: possible.reason,
+      ...(identity.possible.some(record => !HumbleOwnership.purchased(record)) ? { ownershipReview: true,
+        possibleReason: 'A Humble purchase exists, but its key is expired or unavailable. Check destination-library ownership.' } : {}) }
+    : { state: 'new' };
 }
 
 function yieldToBrowser() {
@@ -1174,10 +1177,14 @@ function createLibraryMatcher(libraryByKey, itemKind) {
   const byEditionIdentifier = new Map();
   const byCandidateBase = new Map();
   const byPrimaryTitle = new Map();
+  const byPresentationTitle = new Map();
+  const byPossibleTitle = new Map();
   const add = (index, key, item) => { if (!key) return; const entries = index.get(key) ?? []; entries.push(item); index.set(key, entries); };
   const currentBundleBookVariants = [];
   for (const [, item] of libraryByKey) {
     add(byIdentityTitle, HumbleComicLibrary.titleKey(item.title), item);
+    add(byPresentationTitle, HumbleComicLibrary.presentationTitle(item.title, itemKind), item);
+    for (const key of HumbleComicLibrary.candidateTitleKeys(item.title, itemKind)) add(byPossibleTitle, key, item);
     add(byCandidateBase, HumbleOwnership.editionParts(item.title, itemKind).base, item);
     const fields = HumbleComicLibrary.bibliographicFields(item);
     for (const isbn of fields.isbn ?? []) add(byEditionIdentifier, `isbn:${isbn}`, item);
@@ -1195,7 +1202,7 @@ function createLibraryMatcher(libraryByKey, itemKind) {
       if (isFromCurrentBundle(item)) currentBundleBookVariants.push({ item, parts });
     }
   }
-  return { libraryByKey, byToken, bookVariants, bookVariantCandidates, currentBundleBookVariants, byIdentityTitle, byEditionIdentifier, byCandidateBase, byPrimaryTitle };
+  return { libraryByKey, byToken, bookVariants, bookVariantCandidates, currentBundleBookVariants, byIdentityTitle, byEditionIdentifier, byCandidateBase, byPrimaryTitle, byPresentationTitle, byPossibleTitle };
 }
 
 function candidateLibrary(records) {
@@ -1209,6 +1216,7 @@ function candidateLibrary(records) {
 
 function identityCandidates(item, matcher) {
   const candidates = new Set(matcher.byIdentityTitle.get(HumbleComicLibrary.titleKey(item.lookupTitle ?? item.title)) ?? []);
+  for (const record of matcher.byPresentationTitle.get(HumbleComicLibrary.presentationTitle(item.lookupTitle ?? item.title, item.kind)) ?? []) candidates.add(record);
   const fields = HumbleComicLibrary.bibliographicFields(item);
   for (const isbn of fields.isbn ?? []) for (const record of matcher.byEditionIdentifier.get(`isbn:${isbn}`) ?? []) candidates.add(record);
   for (const field of ['asin', 'editionId']) if (fields[field]) for (const record of matcher.byEditionIdentifier.get(`${field}:${fields[field]}`) ?? []) candidates.add(record);
@@ -1233,6 +1241,7 @@ function ownershipFallbackCandidates(item, matcher, mappings) {
 
 function findPossibleMatch(title, libraryMatcher, itemKind = 'book', offered = { title, kind: itemKind }) {
   const pool = new Set(identityCandidates(offered, libraryMatcher));
+  for (const key of HumbleComicLibrary.candidateTitleKeys(title, itemKind)) for (const item of libraryMatcher.byPossibleTitle.get(key) ?? []) pool.add(item);
   for (const token of significantTokens(title)) for (const item of libraryMatcher.byToken.get(token) ?? []) pool.add(item);
   for (const item of libraryMatcher.byCandidateBase.get(HumbleOwnership.editionParts(title, itemKind).base) ?? []) pool.add(item);
   if (itemKind === 'book') {
@@ -1253,6 +1262,10 @@ function findPossibleMatch(title, libraryMatcher, itemKind = 'book', offered = {
     reason: related.map(item => `${item.title}: ${HumbleOwnership.conflicts(offered, item, true).join('; ') || 'Related title/edition; identity requires review'}`).join('\n') };
   const formats = [...libraryByKey.values()].filter(item => itemKind === 'book' && bookVariantParts(item.title).key === bookVariantParts(title).key);
   if (formats.length) return { items: formats.length === 1 ? formats[0] : formats, reason: 'Related book presentation or title identity needs review.' };
+  const discovered = [...libraryByKey.values()].map(item => ({ item, reason: HumbleComicLibrary.possibleTitleRelation(title, item.title, itemKind) }))
+    .filter(candidate => candidate.reason).sort((a, b) => naturalTitleCompare(a.item.title, b.item.title));
+  if (discovered.length) return { items: discovered.length === 1 ? discovered[0].item : discovered.map(candidate => candidate.item),
+    reason: discovered.map(candidate => candidate.item.title + ': ' + candidate.reason).join('\n') };
   const numberedBase = numberedTitleBase(title);
   if (numberedBase) {
     const candidate = libraryByKey.get(numberedBase);

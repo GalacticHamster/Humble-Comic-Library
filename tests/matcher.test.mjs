@@ -34,15 +34,12 @@ function classify(title, ownedTitles, itemKind = 'book', mappings = matcher.Humb
   matcher.__values = { libraryByKey, itemKind, mappings, title };
   const result = vm.runInContext(`(() => {
     const { libraryByKey, itemKind, mappings, title } = __values;
-    const libraryMatcher = createLibraryMatcher(libraryByKey, itemKind);
-    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
-    const volumeRange = exact ? null : findOwnedVolumeRange(title, libraryByKey);
-    const bookVariant = exact || volumeRange || itemKind !== 'book' ? null : findOwnedBookVariant(title, libraryMatcher);
-    const collectionIssue = exact || volumeRange || bookVariant || itemKind !== 'book' ? null : findOwnedCollectionIssue(title, libraryByKey, mappings);
-    const possible = exact || volumeRange || bookVariant || collectionIssue ? null : findPossibleMatch(title, libraryMatcher, itemKind);
-    if (exact || volumeRange?.complete || bookVariant || collectionIssue) return { state: 'owned', item: (exact ?? volumeRange?.items[0] ?? bookVariant?.item ?? collectionIssue?.item).title };
-    if (volumeRange) return { state: 'partial', owned: volumeRange.owned, total: volumeRange.total };
-    return possible ? { state: 'possible', item: possible.items.title, reason: possible.reason } : { state: 'new' };
+    const records = [...libraryByKey.values()].map(item => ({ ...item, kind: itemKind }));
+    const libraryMatcher = createBundleLibraryMatcher(records, itemKind);
+    const match = classifyLocalBundleItem({ title, lookupTitle: title, kind: itemKind }, libraryMatcher, mappings);
+    if (match.state === 'partial') return { state: 'partial', owned: match.range.owned, total: match.range.total };
+    const record = Array.isArray(match.item) ? match.item[0] : match.item;
+    return { state: match.state, ...(record ? { item: record.title } : {}), ...(match.possibleReason ? { reason: match.possibleReason } : {}) };
   })()`, matcher);
   return JSON.parse(JSON.stringify(result));
 }
@@ -58,10 +55,9 @@ function classifyCurrentBundleVariant(title, ownedTitles, currentBundleTitle) {
     matcher.__values = { libraryByKey, title };
     const result = vm.runInContext(`(() => {
       const { libraryByKey, title } = __values;
-      const libraryMatcher = createLibraryMatcher(libraryByKey, 'book');
-      const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
-      const variant = exact ? null : findOwnedBookVariant(title, libraryMatcher);
-      return exact || variant ? { state: 'owned', item: (exact ?? variant.item).title } : { state: 'new' };
+      const libraryMatcher = createBundleLibraryMatcher([...libraryByKey.values()], 'book');
+      const match = classifyLocalBundleItem({ title, lookupTitle: title, kind: 'book' }, libraryMatcher);
+      return { state: match.state, ...(match.item ? { item: (Array.isArray(match.item) ? match.item[0] : match.item).title } : {}) };
     })()`, matcher);
     return JSON.parse(JSON.stringify(result));
   } finally {
@@ -173,9 +169,9 @@ test('short generic subtitles stay new; explicit editions of meaningful short ti
   assert.equal(classify('Dune', ['Dune, Second Edition']).state, 'possible');
 });
 
-test('volume-range partial and complete ownership behavior is unchanged', () => {
+test('title-derived ranges remain Partial even when every numbered title is present', () => {
   assert.deepEqual(classify('Aftermath Vol. 1-3', ['Aftermath Vol. 1', 'Aftermath Vol. 2']), { state: 'partial', owned: 2, total: 3 });
-  assert.equal(classify('Aftermath Vol. 1-3', ['Aftermath Vol. 1', 'Aftermath Vol. 2', 'Aftermath Vol. 3']).state, 'owned');
+  assert.equal(classify('Aftermath Vol. 1-3', ['Aftermath Vol. 1', 'Aftermath Vol. 2', 'Aftermath Vol. 3']).state, 'partial');
 });
 
 test('curated collection issue mapping behavior is unchanged', () => {

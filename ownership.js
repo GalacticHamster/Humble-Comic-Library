@@ -41,6 +41,8 @@
       if (C.numberKey(leftUnits[0].number) !== C.numberKey(rightUnits[0].number)) reasons.push('Different issue/volume');
     }
     if (exact) {
+      const limited = title => /\b(?:preview|sample|excerpt|read\s+now|demo|trial)\b/iu.test(title);
+      if (limited(offered.title) !== limited(owned.title)) reasons.push('Preview/sample and full-product access differ');
       if (leftUnits.length && rightUnits.length && JSON.stringify(leftUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort()) !== JSON.stringify(rightUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort())) reasons.push('Different enumerated issues/volumes');
       if ((left.editionId || right.editionId) && left.editionId !== right.editionId) reasons.push('Edition ID not established on both items');
       for (const field of ['language', 'editionId', 'edition']) if (left[field] && right[field] && key(left[field]) !== key(right[field])) reasons.push(`Different ${field}`);
@@ -61,21 +63,21 @@
   }
 
   function exactCandidate(offered, records, currentBundle = () => false) {
-    const target = H.normalizeTitle(offered.lookupTitle ?? offered.title);
     const editionIdentifier = record => {
       const left = H.bibliographicFields(offered); const right = H.bibliographicFields(record);
       return Boolean(left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)
         || left.asin && left.asin === right.asin || left.editionId && left.editionId === right.editionId);
     };
     const related = records.filter(record => !conflicts(offered, record).length
-      && (H.titleKey(record.title) === H.titleKey(offered.lookupTitle ?? offered.title) || editionIdentifier(record)));
+      && (H.titleKey(record.title) === H.titleKey(offered.lookupTitle ?? offered.title)
+        || H.presentationTitle(record.title, offered.kind) === H.presentationTitle(offered.lookupTitle ?? offered.title, offered.kind) || editionIdentifier(record)));
     const compatible = related.filter(record => !conflicts(offered, record, true).length);
-    // A literal local ownership assertion is usable; a lossy title key alone
-    // is not. Multiple homonyms require independent edition/author evidence.
-    const literal = value => H.text(value).toLowerCase();
+    // Unique presentation equality can establish local ownership without
+    // enrichment. Lossy keys and ambiguous homonyms still need identity proof.
+    const presentation = value => H.presentationTitle(value, offered.kind);
     const exact = compatible.find(record => purchased(record) && (editionIdentifier(record)
-      || H.normalizeTitle(record.title) === target && (sharedIdentity(offered, record) || currentBundle(record))
-      || compatible.length === 1 && related.length === 1 && literal(record.title) === literal(offered.lookupTitle ?? offered.title)));
+      || H.presentationTitle(record.title, offered.kind) === H.presentationTitle(offered.lookupTitle ?? offered.title, offered.kind) && (sharedIdentity(offered, record) || currentBundle(record))
+      || compatible.length === 1 && related.length === 1 && presentation(record.title) && presentation(record.title) === presentation(offered.lookupTitle ?? offered.title)));
     return { exact, possible: exact ? [] : related, reason: related.length
       ? related.map(record => `${record.title}: ${conflicts(offered, record, true).join('; ') || 'Title identity needs review'}`).join('\n') : '' };
   }

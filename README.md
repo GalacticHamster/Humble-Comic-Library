@@ -91,6 +91,10 @@ Audiobook detection uses explicit item metadata or format attributes, a trailing
 
 ## Browse bundles
 
+Owned accepts an unambiguous local purchase despite punctuation, spacing, volume-abbreviation or trailing book-format differences. Articles, Roman numerals, preview labels and meaningful symbols are retained for that comparison; conflicting identifiers/authors, numbered units and edition wording still prevent a weak title from proving ownership. Compatible validated identifiers can identify renamed purchases.
+
+Possible is deliberately broader: related editions, shortened/subtitled titles, parenthetical qualifiers, software versions, named game collections and small spelling differences can warn about another library item. These candidates show their actual library titles and require review; they never establish complete edition or collection ownership. Very short generic prefixes and independent subtitle-bearing works are not inferred solely from a shared main title.
+
 - On an individual Books, Games, or Software bundle page, the lower-right summary reports ownership by tier and shows the lowest tier containing every confirmed-new item. **Show new items only** hides confirmed-owned cards while retaining partial and possible matches. Uncheck it at any time to restore the full view.
 - On `https://www.humblebundle.com/bundles`, `/books`, `/games`, or `/software`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
 - In **Extension options**, enable **Show bundle and catalogue diagnostics** only when troubleshooting. It adds timing and sorting information without changing ownership results, and reveals the two local purchase-metadata discovery reports for diagnostics.

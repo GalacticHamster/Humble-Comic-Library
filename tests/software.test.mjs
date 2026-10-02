@@ -46,10 +46,10 @@ function classifySoftware(title, ownedTitles) {
   const libraryByKey = new Map(ownedTitles.map((ownedTitle) => [extension.HumbleComicLibrary.titleKey(ownedTitle), { title: ownedTitle }]));
   return run(`{
     const { title, libraryByKey } = __softwareTestValues;
-    const libraryMatcher = createLibraryMatcher(libraryByKey, 'software');
-    const exact = libraryByKey.get(HumbleComicLibrary.titleKey(title));
-    const possible = exact ? null : findPossibleMatch(title, libraryMatcher, 'software');
-    return exact ? { state: 'owned', item: exact.title } : possible ? { state: 'possible', item: possible.items.title, reason: possible.reason } : { state: 'new' };
+    const records = [...libraryByKey.values()].map(item => ({ ...item, kind: 'software' }));
+    const match = classifyLocalBundleItem({ title, lookupTitle: title, kind: 'software' }, createBundleLibraryMatcher(records, 'software'));
+    const record = Array.isArray(match.item) ? match.item[0] : match.item;
+    return { state: match.state, ...(record ? { item: record.title } : {}), ...(match.possibleReason ? { reason: match.possibleReason } : {}) };
   }`, { title, libraryByKey });
 }
 

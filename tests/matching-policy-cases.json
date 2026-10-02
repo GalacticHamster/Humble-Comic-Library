@@ -1,0 +1,191 @@
+[
+  {
+    "label": "Book punctuation",
+    "offered": "Hello, World!: A Programmer's Guide",
+    "owned": "Hello World A Programmers Guide",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Volume abbreviation",
+    "offered": "Saga Volume 1",
+    "owned": "Saga Vol. 1",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Whitespace",
+    "offered": "SAGA  Vol. 1",
+    "owned": "Saga Vol. 1",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Trailing ebook format",
+    "offered": "Saga Vol. 1 EPUB",
+    "owned": "Saga Vol. 1",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Trailing print format",
+    "offered": "4001 A.D.: Beyond New Japan TPB",
+    "owned": "4001 A.D.: Beyond New Japan",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Game punctuation",
+    "offered": "Hello, World!",
+    "owned": "Hello World",
+    "media": "game",
+    "expected": "owned"
+  },
+  {
+    "label": "Subtitle",
+    "offered": "Think Like a Programmer",
+    "owned": "Think Like a Programmer: An Introduction to Creative Problem Solving",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Qualifier",
+    "offered": "Maggie the Mechanic",
+    "owned": "Maggie the Mechanic (Love & Rockets)",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Short meaningful title",
+    "offered": "Dune",
+    "owned": "Dune: A Novel",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Short generic title",
+    "offered": "It",
+    "owned": "It: A Novel",
+    "media": "book",
+    "expected": "new"
+  },
+  {
+    "label": "Small typo",
+    "offered": "Practical Python Programming",
+    "owned": "Pratical Python Programming",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "One omitted word",
+    "offered": "Complete Guide to Practical Python Programming",
+    "owned": "Complete Guide to Python Programming",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Software versions",
+    "offered": "Forest Builder Pro v2",
+    "owned": "Forest Builder Pro v1",
+    "media": "software",
+    "expected": "possible"
+  },
+  {
+    "label": "Software short generic version",
+    "offered": "Tool v2",
+    "owned": "Tool v1",
+    "media": "software",
+    "expected": "new"
+  },
+  {
+    "label": "Different book editions",
+    "offered": "Long Book Title, 1st Edition",
+    "owned": "Long Book Title, 5th Edition",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Short book edition",
+    "offered": "Dune Second Edition",
+    "owned": "Dune",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Game base and gold",
+    "offered": "Control Gold",
+    "owned": "Control",
+    "media": "game",
+    "expected": "possible"
+  },
+  {
+    "label": "Game named packages",
+    "offered": "Control Deluxe",
+    "owned": "Control Platinum",
+    "media": "game",
+    "expected": "possible"
+  },
+  {
+    "label": "Game collection candidate",
+    "offered": "BioShock Infinite",
+    "owned": "BioShock: The Collection",
+    "media": "game",
+    "expected": "possible"
+  },
+  {
+    "label": "Different numbered volume",
+    "offered": "Saga Vol. 2",
+    "owned": "Saga Vol. 1",
+    "media": "book",
+    "expected": "new"
+  },
+  {
+    "label": "Independent subtitles",
+    "offered": "The Complete History of Computing: A Cultural Guide",
+    "owned": "The Complete History of Computing: A Technical Survey",
+    "media": "book",
+    "expected": "new"
+  },
+  {
+    "label": "Article collision",
+    "offered": "The Room",
+    "owned": "Room",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Meaningful plus symbol",
+    "offered": "C++ Programming",
+    "owned": "C Programming",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Roman title collision",
+    "offered": "Chapter I",
+    "owned": "Chapter 1",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Preview is not a purchase of full content",
+    "offered": "Saga Vol. 1 Preview",
+    "owned": "Saga Vol. 1",
+    "media": "book",
+    "expected": "possible"
+  },
+  {
+    "label": "Same literal short title",
+    "offered": "It",
+    "owned": "It",
+    "media": "book",
+    "expected": "owned"
+  },
+  {
+    "label": "Unicode punctuation",
+    "offered": "進撃の巨人：第１巻",
+    "owned": "進撃の巨人 第1巻",
+    "media": "book",
+    "expected": "owned"
+  }
+]
