@@ -1,6 +1,6 @@
 # Privacy Policy for Humble Comic Library
 
-Last updated: September 30, 2026
+Last updated: October 1, 2026
 
 Humble Comic Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
 
@@ -31,11 +31,15 @@ The extension does not read, copy, save, or ask the user to provide a Humble ses
 
 ## How data is used and shared
 
-This data is used only to provide the extension's library import, matching, provenance, and export features. It remains in browser-local extension storage unless the user explicitly exports it.
+This data is used only to provide the extension's library import, matching, provenance, and export features. It remains in browser-local extension storage unless the user explicitly exports it or enables the local Galactic Library comparison/reminder features described below.
 
-The extension has no developer-operated server, analytics, advertising, affiliate links, or third-party data recipient. It makes requests only to Humble Bundle, using the user's existing signed-in browser session, to provide the import and current-listing comparison features.
+The extension has no developer-operated server, analytics, advertising, affiliate links, or remote third-party data recipient. It makes requests only to Humble Bundle, using the user's existing signed-in browser session, to provide the import and current-listing comparison features.
 
-If the user explicitly configures the optional Galactic Library companion link, Humble Comic Library sends only the titles and media types of items in the current Humble Books or Games bundle (including audiobooks under Books) to that other locally installed extension. Ebooks and audiobooks are checked separately; Software items are not sent. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. Neither extension transfers a full library, session credential, redemption key, or data to a remote server. The link can be removed by clearing the configured extension ID or uninstalling either extension.
+If the user explicitly configures the optional Galactic Library companion link, Humble Comic Library sends current bundle titles/media types and available bibliographic identifiers, authors, edition/run/language and requested contents evidence to that other locally installed extension. Ebooks and audiobooks are checked separately; Software lookup is sent only when GL advertises support. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. Neither extension transfers a full library, session credential, redemption key, or data to a remote server. The link can be removed by clearing the configured extension ID or uninstalling either extension.
+
+When the user explicitly selects **Send reminders to Galactic Library** and confirms the same account, HB also sends entitlement titles/media types, observed key status, reported expiry and check dates, confirmed purchase/unknown activation status and opaque references. It sends the user-entered GL Humble profile label separately to scope the feed. Raw keys, purchase/entitlement identifiers, bundle names, purchase URLs, prices and the private reference salt are excluded. GL saves this feed locally and includes it in its backups; it does not change native ownership. Uploads are staged and published atomically. Sharing is manual and does not run in the background. The per-profile reference salt is stored privately in HB, excluded from backups and reset on clear, restore and account switch.
+
+An already saved GL feed remains after unlinking, clearing or uninstalling HB. Remove it with **Remove shared reminders** in HB while still paired, or **Remove Humble companion feed** in GL.
 
 ## Retention and deletion
 

@@ -280,7 +280,7 @@
 
   function createSyncStore(area) {
     let tail=Promise.resolve();
-    const controlKey='hclSyncControl';
+    const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion'];
     async function operate(operation,args){
       if(operation==='begin'){
@@ -289,7 +289,7 @@
         const state=await area.get(LIBRARY_STATE_DEFAULTS);const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
         if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan every purchase and explicitly switch profiles.');
         const forceFull=changing||!state.humbleProfileLabel;const token=global.crypto.randomUUID();
-        await area.set({[controlKey]:{token,tabId,profileLabel,changing,forceFull}});
+        await area.set({[controlKey]:{token,tabId,profileLabel,changing,forceFull,fullRescan:options.fullRescan===true}});
         const baseline=changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:state.libraryItems.filter(item=>item.source!=='humble'),customCollectionMappings:state.customCollectionMappings}:state;
         return {token,forceFull,state:baseline};
       }
@@ -298,6 +298,15 @@
         if(!control||control.token!==token||control.tabId!==tabId)throw new Error('Scan superseded by another scan, clear, or restore. Start a fresh scan.');
         const current=await area.get(LIBRARY_STATE_DEFAULTS);
         if((control.changing||control.forceFull)&&updates.lastImport?.reconciled!==true)throw new Error('This profile requires a complete successful rescan; the prior library was retained.');
+        if(control.fullRescan&&updates.lastImport?.reconciled!==true){
+          const failed=updates.lastImport?.failedPurchaseKeys;
+          const identities=items=>new Set(items.flatMap(item=>{const origins=item.provenance?.length?item.provenance:[item];return origins.map(origin=>JSON.stringify([catalogItemKey(item),origin.purchaseKey??'',origin.entitlementId??'']));}));
+          const incoming=identities(Array.isArray(updates.libraryItems)?updates.libraryItems:[]);
+          const purchases=new Set((updates.purchaseSummaries??[]).map(item=>item.purchaseKey));
+          const history=identities(updates.historicalLibraryItems??current.historicalLibraryItems);
+          const historicalPurchases=new Set((updates.historicalPurchaseSummaries??current.historicalPurchaseSummaries).map(item=>item.purchaseKey));
+          if(!Array.isArray(failed)||!failed.length||[...identities(current.libraryItems)].some(ref=>!incoming.has(ref))||current.purchaseSummaries.some(item=>!purchases.has(item.purchaseKey))||[...identities(current.historicalLibraryItems)].some(ref=>!history.has(ref))||current.historicalPurchaseSummaries.some(item=>!historicalPurchases.has(item.purchaseKey)))throw new Error('Incomplete full scan cannot remove existing purchase evidence; prior library retained.');
+        }
         const clean=Object.fromEntries(scanFields.filter(key=>Object.hasOwn(updates,key)).map(key=>[key,updates[key]]));
         if(control.changing){
           const archived={profileLabel:current.humbleProfileLabel,backup:createLibraryBackup({...current,profileArchives:[]})};
@@ -305,11 +314,23 @@
           if(clean.profileArchives.length>100)throw new Error('Too many archived profiles; export a backup first.');
         }
         clean.humbleProfileLabel=control.profileLabel;
-        await area.set({...clean,[controlKey]:null});return true;
+        const checked=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,...clean,profileArchives:[]}));for(const field of scanFields)if(Object.hasOwn(clean,field))clean[field]=checked[field];
+        const sharing=await area.get({[shareScopeKey]:null});
+        await area.set({...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});return true;
       }
       if(operation==='replace'){
         const replacement=restoreBackupState(createLibraryBackup(args[0]));
-        await area.set({...replacement,hclPurchaseFocus:null,[controlKey]:null});return true;
+        await area.set({...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+      }
+      if(operation==='shareSnapshot'){
+        const [profileLabel]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);if(!profileLabel||state.humbleProfileLabel!==profileLabel)throw new Error('The active Humble profile changed. Refresh before sharing.');
+        const stored=await area.get({[shareScopeKey]:null});let scope=stored[shareScopeKey];
+        if(!scope||scope.profileLabel!==profileLabel){scope={profileLabel,salt:global.crypto.randomUUID(),revisionRef:global.crypto.randomUUID()};await area.set({[shareScopeKey]:scope});}
+        return {state,scope};
+      }
+      if(operation==='verifyShareSnapshot'){
+        const [scope,targetId]=args,stored=await area.get({[shareScopeKey]:null,galacticLibraryExtensionId:''});const active=stored[shareScopeKey];
+        if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||stored.galacticLibraryExtensionId!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
       if(operation==='patch'){
         const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus'];
@@ -325,7 +346,7 @@
         const keys=args[0];if(!Array.isArray(keys))throw new Error('Invalid removal.');
         const clear=keys.includes('libraryItems');
         if(!clear&&keys.some(key=>!['hclPurchaseFocus','galacticLibraryExtensionId'].includes(key)))throw new Error('Unsupported removal.');
-        await area.remove(clear?[...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey]:keys);return true;
+        await area.remove(clear?[...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey]:keys);return true;
       }
       throw new Error('Unsupported library operation.');
     }

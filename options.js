@@ -104,6 +104,9 @@
         : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
     }
     const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel:'', profileArchives:[] });
+    document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'unassigned';
+    document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
+    document.querySelector('#confirm-reminder-sharing').checked=false;
     count.textContent += ` Active profile: ${history.humbleProfileLabel||'unassigned'}. ${history.profileArchives.length} other profile archives (backup only; excluded from matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (excluded from matching).`;
     preview.replaceChildren(...items.slice(0, 50).map((item) => {
       const row = document.createElement('li');
@@ -294,6 +297,10 @@
     await HumbleComicLibrary.storageSet({ openDirectPurchaseLinks: openDirectPurchaseLinks.checked });
   });
 
+  for(const [id,type]of [['share-entitlements','HCL_SHARE_ENTITLEMENTS'],['remove-shared-entitlements','HCL_REMOVE_SHARED_ENTITLEMENTS']])document.querySelector('#'+id).addEventListener('click',async()=>{
+    const status=document.querySelector('#entitlement-share-status'),button=document.querySelector('#'+id);if(!document.querySelector('#confirm-reminder-sharing').checked){status.textContent='Confirm the same Humble account before sending or removing reminders.';return;}
+    button.disabled=true;try{const response=await chrome.runtime.sendMessage({type,confirmed:true,profileLabel:document.querySelector('#share-hb-profile').dataset.profileLabel,targetProfileLabel:document.querySelector('#share-gl-profile').value});if(!response?.ok)throw new Error(response?.error??'Reminder sharing unavailable.');status.textContent=type==='HCL_SHARE_ENTITLEMENTS'?`Shared ${response.count} entitlements (${response.coverage} baseline). Ownership and activation were not changed.`:'Shared reminders removed from Galactic Library.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+  });
   document.querySelector('#save-galactic-library-link').addEventListener('click', async () => {
     const id = galacticLibraryExtensionId.value.trim();
     if (!isExtensionId(id)) {

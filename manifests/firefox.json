@@ -1,5 +1,5 @@
 {
-  "background": { "scripts": ["shared.js", "background.js"] },
+  "background": { "scripts": ["shared.js", "collection-mappings.js", "entitlement-share.js", "background.js"] },
   "browser_specific_settings": {
     "gecko": {
       "id": "humble-comic-library@galactichamster.com",

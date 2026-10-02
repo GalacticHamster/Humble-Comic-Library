@@ -49,6 +49,15 @@
         <p id="galactic-library-link-status" role="status"></p>
       </section>
       <section>
+        <h2>Share entitlement reminders</h2>
+        <p>Send safe key statuses to the linked Galactic Library in batches of 200. This sends titles, media types, opaque references, status and reported dates; no keys, order IDs, purchase links or prices. Destination activation remains unknown and this feed never establishes ownership. Sending is manual, not automatic.</p>
+        <p>Active HB profile: <strong id="share-hb-profile">unassigned</strong>. The same Humble account must be selected in GL.</p>
+        <label>Current GL Humble profile label <input id="share-gl-profile" maxlength="100" autocomplete="off"></label>
+        <label><input id="confirm-reminder-sharing" type="checkbox"> I checked that both extensions refer to the same Humble account.</label>
+        <div class="actions"><button id="share-entitlements" type="button">Send reminders to Galactic Library</button><button id="remove-shared-entitlements" type="button">Remove shared reminders</button></div>
+        <p id="entitlement-share-status" role="status"></p>
+      </section>
+      <section>
         <h2>Diagnostics</h2>
         <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
         <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>
@@ -72,6 +81,6 @@
         <ol id="library-preview"></ol>
       </section>
     </main>
-    <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="options.js"></script>
+    <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="entitlement-share.js"></script><script src="options.js"></script>
   </body>
 </html>

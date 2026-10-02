@@ -29,6 +29,7 @@ $releaseFiles = @(
   'manifest.json',
   'shared.js',
   'background.js',
+  'entitlement-share.js',
   'collection-mappings.js',
   'ownership.js',
   'content.js',

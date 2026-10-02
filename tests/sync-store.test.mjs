@@ -36,3 +36,22 @@ test('concurrent wishlist edits merge in the writer and failed requests do not p
   assert.equal(f.state.wishlistItems.length,2);await assert.rejects(f.store.execute('patch',[{libraryItems:[]}]),/Unsupported/);
   await f.store.execute('patch',[{showDiagnostics:true}]);assert.equal(f.state.showDiagnostics,true);
 });
+
+test('incomplete full scans retain provenance and history while allowing successful purchases to append',async()=>{
+  const f=fixture();f.state.customCollectionMappings=[{id:'unrelated legacy setting'}];
+  f.state.libraryItems[0].provenance=[{purchaseKey:'old',entitlementId:'key'}];
+  f.state.purchaseSummaries=[{purchaseKey:'old',itemCount:1}];
+  f.state.historicalLibraryItems=[{title:'Archived book',kind:'book',source:'humble',purchaseKey:'archive'}];
+  f.state.historicalPurchaseSummaries=[{purchaseKey:'archive',itemCount:1}];
+  const scan=await f.store.execute('begin',[options,1]),before=structuredClone(f.state);
+  const partial={libraryItems:[...f.state.libraryItems,{title:'Successful new book'}],purchaseSummaries:[...f.state.purchaseSummaries,{purchaseKey:'new',itemCount:1}],historicalLibraryItems:[...f.state.historicalLibraryItems,{title:'New history'}],historicalPurchaseSummaries:[...f.state.historicalPurchaseSummaries,{purchaseKey:'new',itemCount:1}],lastImport:{reconciled:false,failedPurchaseKeys:['old']}};
+  for(const delta of [{libraryItems:[]},{purchaseSummaries:[]},{historicalLibraryItems:[]},{historicalPurchaseSummaries:[]},{lastImport:{reconciled:false,failedPurchaseKeys:[]}},{libraryItems:[{...f.state.libraryItems[0],provenance:[{purchaseKey:'old',entitlementId:'different'}]},f.state.libraryItems[1]]}]){
+    await assert.rejects(f.store.execute('commit',[scan.token,{...partial,...delta},1]),/Incomplete full scan/);assert.deepEqual(f.state,before);
+  }
+  await f.store.execute('commit',[scan.token,partial,1]);assert.equal(f.state.libraryItems.length,3);assert.deepEqual(f.state.lastImport.failedPurchaseKeys,['old']);assert.deepEqual(f.state.customCollectionMappings,[{id:'unrelated legacy setting'}]);
+});
+test('the background writer validates every scan record before writing any state',async()=>{
+  const f=fixture(),scan=await f.store.execute('begin',[options,1]),before=structuredClone(f.state);
+  await assert.rejects(f.store.execute('commit',[scan.token,{libraryItems:[{title:'Valid new title'},{title:'Invalid media',kind:'unsupported'}],lastImport:{reconciled:true}},1]),/kind/);assert.deepEqual(f.state,before);
+  await f.store.execute('commit',[scan.token,updates,1]);assert.equal(f.state.libraryItems[0].title,'Fresh book');
+});
