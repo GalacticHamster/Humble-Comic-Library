@@ -430,13 +430,16 @@ function waitForGalacticResponse(promise) {
 }
 
 function ownedOutsideHumble(result, offered = null) {
+  const offeredSeries = offered ? HumbleComicLibrary.bibliographicFields(offered).series : '';
   return (Array.isArray(result?.matches) ? result.matches : [])
     .filter((match) => match?.provider !== 'humble' && HumbleOwnership.permanent(match)
       && (match.relationship === undefined || match.relationship === 'same-edition'
         || match.relationship === 'contains' && result?.coverage?.complete === true))
     .filter(match => !offered || match.relationship === 'contains'
       || !HumbleOwnership.conflicts(offered, { ...match, ...(match.evidence ?? {}), kind: offered.kind,
-        series: Array.isArray(match.evidence?.series) ? match.evidence.series[0] : match.evidence?.series }, true).length);
+        series: Array.isArray(match.evidence?.series)
+          ? match.evidence.series.find(series => HumbleCollectionMappings.scopeKey(series) === HumbleCollectionMappings.scopeKey(offeredSeries)) ?? match.evidence.series[0]
+          : match.evidence?.series }, true).length);
 }
 
 function needsOwnershipReviewOutsideHumble(result) {

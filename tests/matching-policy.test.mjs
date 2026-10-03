@@ -206,6 +206,7 @@ test('central validation accepts any shared ISBN and rejects a preview even from
   const evidence = {isbn:['9780306406157','9780140328721'],authors:['Moore, Alan']};
   const record = {provider:'kindle',title:'Full Book',ownership:'owned',relationship:'same-edition',evidence};
   assert.equal((await fixture([], 'book', offer, {matches:[record]}).classify()).match.state,fanatical?'owned-elsewhere':'elsewhere');
+  assert.equal((await fixture([], 'book', {...offer,series:'Second alias'}, {matches:[{...record,evidence:{...evidence,series:['First alias','Second alias']}}]}).classify()).match.state,fanatical?'owned-elsewhere':'elsewhere');
   const preview = {...record,title:'Full Book Preview'};
   const {match,candidates} = await fixture([], 'book', offer, {matches:[preview]}).classify();
   assert.equal(match.state,'possible');
