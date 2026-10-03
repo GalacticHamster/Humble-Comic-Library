@@ -17,11 +17,12 @@ function options(initial = {}) {
       addEventListener(type, handler) { this.listeners[type] = handler; },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
+      setAttribute(name,value) { this[name]=value; },
       click() {}
     };
   }
   const context = {
-    Blob, console, Date, encodeURIComponent,
+    Blob, console, Date, encodeURIComponent, setTimeout,
     confirm: () => true,
     URL: { createObjectURL(blob) { exportedBlob = blob; return 'blob:test'; }, revokeObjectURL() {} },
     document: {
@@ -58,6 +59,7 @@ function options(initial = {}) {
       await elements.get('#export-library').listeners.click();
       return JSON.parse(await exportedBlob.text());
     },
+    async exportCatalog() { await elements.get('#export-catalog').listeners.click(); return JSON.parse(await exportedBlob.text()); },
     async exportWishlist() {
       await elements.get('#export-wishlist').listeners.click();
       return JSON.parse(await exportedBlob.text());
@@ -104,10 +106,11 @@ test('wishlist options validate before writing, preserve bibliographic identity 
   await target.elements.get('#add-wishlist').listeners.click();
   assert.equal(target.stored.wishlistItems.at(-1).weight, 5);
   const list = target.elements.get('#wishlist-list');
-  const priority = list.children.at(-1).children[0];
+  const addedRow = list.children.find(row=>row.children[0].textContent.startsWith('Added title'));
+  const priority = addedRow.children[1];
   priority.value = '8'; await priority.listeners.change();
   assert.equal(target.stored.wishlistItems.at(-1).weight, 8);
-  await target.elements.get('#wishlist-list').children.at(-1).children[2].listeners.click();
+  await target.elements.get('#wishlist-list').children.find(row=>row.children[0].textContent.startsWith('Added title')).children[3].listeners.click();
   assert.equal(target.stored.wishlistItems.length, 1);
 });
 
@@ -223,4 +226,25 @@ test('restores retain only supported data fields and never restore key values or
   assert.equal(target.stored.libraryItems[0].redemption_key, undefined);
   assert.equal(target.stored.openDirectPurchaseLinks, false);
   assert.equal(target.stored.settings, undefined);
+});
+
+
+test('title catalog excludes all purchase authority and cannot be restored as ownership',async()=>{
+  const ui=options(libraryState());const before=structuredClone(ui.stored),catalog=await ui.exportCatalog();
+  assert.equal(catalog.format,'humble-title-catalog');assert.equal(catalog.items.length,before.libraryItems.length);
+  for(const row of catalog.items){assert.equal(row.purchaseKey,undefined);assert.equal(row.provenance,undefined);assert.equal(row.entitlement,undefined);assert.equal(row.sourceBundle,undefined);assert.equal(typeof row.title,'string');}
+  await ui.load('#restore-file',catalog);assert.deepEqual(ui.stored,before);assert.match(ui.elements.get('#restore-status').textContent,/failed/);
+});
+
+test('Humble wishlist pages and search reach later entries without changing ownership',async()=>{
+  const ui=options({...libraryState(),wishlistItems:Array.from({length:61},(_,n)=>({title:'Wish '+n,kind:'book',weight:1}))});
+  await new Promise(resolve=>setTimeout(resolve,10));const before=structuredClone(ui.stored.libraryItems);
+  assert.equal(ui.elements.get('#wishlist-list').children.length,50);ui.elements.get('#wishlist-next').listeners.click();assert.equal(ui.elements.get('#wishlist-list').children.length,11);
+  ui.elements.get('#wishlist-search').value='Wish 60';ui.elements.get('#wishlist-search').listeners.input();assert.equal(ui.elements.get('#wishlist-list').children.length,1);assert.equal(ui.elements.get('#wishlist-list').children[0].children[0].textContent,'Wish 60 (book)');assert.deepEqual(ui.stored.libraryItems,before);
+});
+
+test('collection mapping help ships a valid example that cannot establish ownership',()=>{
+  const context={};vm.createContext(context);vm.runInContext(fs.readFileSync(new URL('../collection-mappings.js',import.meta.url),'utf8'),context);
+  const html=fs.readFileSync(new URL('../options.html',import.meta.url),'utf8'),example=JSON.parse(html.match(/<pre>([\s\S]*?)<\/pre>/)[1]);
+  const checked=context.HumbleCollectionMappings.validateCustomMappings(example);assert.equal(checked.length,1);assert.equal(checked[0].verified,false);assert.equal(checked[0].contentsComplete,false);
 });

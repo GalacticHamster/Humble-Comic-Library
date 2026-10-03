@@ -23,21 +23,30 @@
     try {
       const wishlistItems=await HumbleComicLibrary.storageRequest('wishlist',action,items);
       renderWishlist(wishlistItems);
-      wishlistStatus.textContent = `Saved ${wishlistItems.length} wishlist items.`;
-    } catch (error) { wishlistStatus.textContent = `Wishlist update failed: ${error.message}`; }
+      wishlistStatus.textContent = `Saved ${wishlistItems.length} wishlist items. Ownership was not changed.`;
+      return true;
+    } catch (error) { wishlistStatus.textContent = `Wishlist update failed: ${error.message}`; renderWishlist(); return false; }
   }
 
-  function renderWishlist(value) {
+  let wishlist = [], wishlistPage = 0;
+  function renderWishlist(value = wishlist) {
     const list = document.querySelector('#wishlist-list');
     let items;
     try { items = HumbleComicLibrary.normalizeWishlist(value); }
     catch (error) { list.replaceChildren(); wishlistStatus.textContent = `Could not read wishlist: ${error.message}`; return; }
-    list.replaceChildren(...items.map(item => {
+    wishlist = items;
+    const filtered = items.filter(item => item.title.toLowerCase().includes(document.querySelector('#wishlist-search').value.toLowerCase())).sort((a,b) => b.weight-a.weight || a.title.localeCompare(b.title));
+    const pages = Math.max(1, Math.ceil(filtered.length/50));
+    wishlistPage = Math.max(0, Math.min(wishlistPage, pages-1));
+    document.querySelector('#wishlist-count').textContent = `${filtered.length} wishes; page ${wishlistPage+1} of ${pages}.`;
+    document.querySelector('#wishlist-previous').disabled = wishlistPage === 0;
+    document.querySelector('#wishlist-next').disabled = (wishlistPage+1)*50 >= filtered.length;
+    list.replaceChildren(...filtered.slice(wishlistPage*50,wishlistPage*50+50).map(item => {
       const row = document.createElement('li');
-      row.textContent = `${item.title} (${item.kind}) `;
+      const title=document.createElement('span');title.className='wish-title';title.textContent=`${item.title} (${item.kind})`;row.append(title);
       const priority = document.createElement('input');
       priority.type = 'number'; priority.min = '1'; priority.max = '100'; priority.step = '1'; priority.value = String(item.weight);
-      priority.title = `Priority for ${item.title}`;
+      priority.title = `Priority for ${item.title}`; priority.setAttribute("aria-label",priority.title);
       priority.addEventListener('change', () => editWishlist('add',[{...item,weight:Number(priority.value)}]));
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Remove';
       remove.addEventListener('click', () => editWishlist('remove',HumbleComicLibrary.catalogItemKey(item)));
@@ -46,17 +55,19 @@
   }
 
   for(const selector of ['#summary-minimized','#summary-position'])document.querySelector(selector).addEventListener('change',async()=>{try{await HumbleComicLibrary.storageSet({bundleSummaryPreferences:{minimized:document.querySelector('#summary-minimized').checked,position:document.querySelector('#summary-position').value}});document.querySelector('#summary-preferences-status').textContent='Panel preferences saved.';}catch(error){document.querySelector('#summary-preferences-status').textContent=error.message;}});
-  document.querySelector('#add-wishlist').addEventListener('click', () => editWishlist('add',[{
+  document.querySelector('#add-wishlist').addEventListener('click', async () => {const saved=await editWishlist('add',[{
     title: document.querySelector('#wishlist-title').value,
     kind: document.querySelector('#wishlist-kind').value,
     weight: Number(document.querySelector('#wishlist-weight').value)
-  }]));
+  }]); if(saved)document.querySelector('#wishlist-title').value='';});
   document.querySelector('#wishlist-file').addEventListener('change', async () => {
     const input = document.querySelector('#wishlist-file'); const [file] = input.files;
     if (!file) return;
     try {
+      if(file.size > 50*1024*1024) throw new Error("Choose a wishlist smaller than 50 MB.");
       const value = JSON.parse(await file.text());
       const wishlistItems = HumbleComicLibrary.normalizeWishlist(Array.isArray(value) ? value : value.wishlist);
+      if(!confirm(`Replace your wishlist with ${wishlistItems.length} items? Ownership will not change.`)) { wishlistStatus.textContent='Wishlist restore cancelled.'; return; }
       await HumbleComicLibrary.storageRequest('wishlist','replace',wishlistItems); renderWishlist(wishlistItems);
       wishlistStatus.textContent = `Restored ${wishlistItems.length} wishlist items.`;
     } catch (error) { wishlistStatus.textContent = `Wishlist restore failed: ${error.message}`; }
@@ -70,6 +81,11 @@
       Object.assign(document.createElement('a'), { href: url, download: 'humble-wishlist.json' }).click(); URL.revokeObjectURL(url);
     } catch (error) { wishlistStatus.textContent = `Wishlist export failed: ${error.message}`; }
   });
+
+  document.querySelector('#clear-wishlist').addEventListener('click',()=>{if(confirm('Clear your local wishlist? Ownership will not change.'))editWishlist('replace',[]);});
+  document.querySelector('#wishlist-search').addEventListener('input',()=>{wishlistPage=0;renderWishlist();});
+  document.querySelector('#wishlist-previous').addEventListener('click',()=>{wishlistPage--;renderWishlist();});
+  document.querySelector('#wishlist-next').addEventListener('click',()=>{wishlistPage++;renderWishlist();});
 
   function isExtensionId(value) {
     return HumbleComicLibrary.isExtensionId(value);
@@ -106,11 +122,13 @@
         : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
     }
     const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel:'', profileArchives:[] });
-    document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'unassigned';
+    document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'Not yet named';
     document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
     document.querySelector('#confirm-reminder-sharing').checked=false;
-    count.textContent += ` Active profile: ${history.humbleProfileLabel||'unassigned'}. ${history.profileArchives.length} other profile archives (backup only; excluded from matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (excluded from matching).`;
-    preview.replaceChildren(...items.slice(0, 50).map((item) => {
+    count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other profile archives (backup only; excluded from matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
+    document.querySelector('#preview-note').textContent=items.length?`Showing ${Math.min(50,items.length)} of ${items.length} items, alphabetically.`:'Your library is empty. Import purchases or restore a backup to see a preview.';
+    const collator=new Intl.Collator('en',{numeric:true,sensitivity:'base'});
+    preview.replaceChildren(...[...items].sort((a,b)=>collator.compare(a.title,b.title)).slice(0, 50).map((item) => {
       const row = document.createElement('li');
       row.textContent = item.sourceBundle ? `${item.title} — ${item.sourceBundle}` : item.title;
       return row;
@@ -128,7 +146,7 @@
 
   function renderKeyReminders(reminders, scan) {
     if (!scan) {
-      keyReminderSummary.textContent = 'No key-reminder scan yet. Open Humble Purchases and select Rescan every purchase to establish complete reminders.';
+      keyReminderSummary.textContent = 'No key-reminder scan yet. Open Humble Purchases and select Rescan all purchases to establish complete reminders.';
       keyReminderList.replaceChildren();
       return;
     }
@@ -141,7 +159,7 @@
     const needsReview = sorted.filter((record) => record.status === 'needs-review').length;
     const baseline = scan.complete
       ? ''
-      : ' Older purchases have not been checked yet; use Rescan every purchase to establish complete reminders.';
+      : ' Older purchases have not been checked yet; use Rescan all purchases to establish complete reminders.';
     keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.${baseline}`;
     const groups = [
       ['Expiring or dated', sorted.filter((record) => {
@@ -343,6 +361,16 @@
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-comic-library-export.json' });
     link.click();
     URL.revokeObjectURL(url);
+  });
+
+  document.querySelector('#export-catalog').addEventListener('click',async()=>{
+    const status=document.querySelector('#local-status');
+    try {
+      const catalog=HumbleComicLibrary.createTitleCatalog(await library());
+      const url=URL.createObjectURL(new Blob([JSON.stringify(catalog,null,2)],{type:'application/json'}));
+      Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.json'}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
+      status.textContent='Exported catalog titles and identity metadata only; this is not a recoverable ownership backup.';
+    }catch(error){status.textContent='Could not export the title catalog: '+error.message;}
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {

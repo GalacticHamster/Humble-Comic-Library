@@ -195,6 +195,15 @@
     return fields;
   }
 
+  function createTitleCatalog(items) {
+    if(!Array.isArray(items))throw new Error('Expected a title list.');
+    return {format:'humble-title-catalog',version:1,items:items.map(row=>{
+      const item=normalizeLibraryImportItem(row);
+      if(!item)throw new Error('Invalid catalog title.');
+      return {title:item.title,mediaType:item.kind??'book',...bibliographicFields(row)};
+    })};
+  }
+
   function catalogItemKey(item) {
     const fields = bibliographicFields(item);
     const identity = Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))
@@ -277,6 +286,7 @@
 
   function restoreBackupState(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)
+      || value.format !== undefined && value.format !== 'humble-comic-library-backup'
       || !Number.isInteger(value.version) || value.version < 1 || value.version > BACKUP_VERSION) {
       throw new Error('Choose a supported Humble Comic Library backup, not a manual title list.');
     }
@@ -396,9 +406,9 @@
     async function operate(operation,args){
       if(operation==='begin'){
         const [options,tabId]=args;const profileLabel=String(options.profileLabel??'').trim();
-        if(!options.confirmed||!profileLabel||profileLabel.length>100)throw new Error('Enter a profile label and confirm the signed-in Humble account.');
+        if(!options.confirmed||!profileLabel||profileLabel.length>100)throw new Error('Enter an account nickname and confirm the signed-in Humble account.');
         const state=await area.get(LIBRARY_STATE_DEFAULTS);const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
-        if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan every purchase and explicitly switch profiles.');
+        if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan all purchases and explicitly select Replace active account.');
         const forceFull=changing||!state.humbleProfileLabel;const token=global.crypto.randomUUID();
         await area.set({[controlKey]:{token,tabId,profileLabel,changing,forceFull,fullRescan:options.fullRescan===true}});
         const baseline=changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:state.libraryItems.filter(item=>item.source!=='humble'),customCollectionMappings:state.customCollectionMappings}:state;
@@ -475,7 +485,7 @@
   global.HumbleComicLibrary = {
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove,
     normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
-    LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
+    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };
 }(globalThis));

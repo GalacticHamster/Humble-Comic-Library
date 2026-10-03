@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 // Synthetic libraries only; no installed extensions, account sessions or remote requests.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const firefox = process.argv.includes('--firefox');
+const importer = process.argv.includes('--importer');
 const storeFirefox = firefox && process.platform === 'win32' ? await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', '(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'], {windowsHide:true}).then(({stdout})=>stdout.trim() ? [join(stdout.trim(),'VFS/ProgramFiles/Firefox Package Root/firefox.exe')] : [],()=>[]) : [];
 const candidates = (firefox ? [process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...storeFirefox] : [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium']).filter(Boolean);
 let browser;
@@ -25,6 +26,10 @@ const server = createServer(async (request, response) => {
       let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 100000) throw new Error('Excessive result.'); }
       result = JSON.parse(body); response.end('ok'); complete(); return;
     }
+    if (pathname === '/home/purchases') {
+      response.setHeader('Content-Type','text/html; charset=utf-8');
+      response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
+    }
     if (pathname === '/books/test') pathname = '/tests/bundle-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
@@ -35,7 +40,7 @@ const server = createServer(async (request, response) => {
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 try {
   let child;
-  const url=`http://127.0.0.1:${server.address().port}/books/test`;
+  const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':'/books/test'}`;
   const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
   const exited=new Promise(resolve=>{child=execFile(browser,args,{windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
   let timeout;try{await Promise.race([finished,exited,new Promise(resolve=>{timeout=setTimeout(resolve,25000);})]);}finally{clearTimeout(timeout);child.kill();await exited;}

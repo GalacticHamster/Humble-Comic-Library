@@ -4,51 +4,52 @@
   <body>
     <main class="settings">
       <h1>Humble Comic Library</h1>
-      <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or from a JSON backup.</p>
+      <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or restore a JSON backup.</p>
       <section>
         <h2>Import from Humble</h2>
-        <p>While signed into Humble in this browser, open your Purchases page and select <em>Import new purchases</em>. It skips orders already imported locally; use <em>Rescan every purchase</em> only when you need to rebuild the Humble library.</p>
-        <button id="open-purchases">Open Humble purchases importer</button>
+        <p>Sign in to Humble in this browser, open the purchase importer, and select <em>Import new purchases</em>. Use <em>Rescan all purchases</em> to rebuild the active account's snapshot from the full purchase history.</p>
+        <details class="settings-help"><summary>How account nicknames work</summary><p>An account nickname is a name you choose for the website account you import, such as personal. It is stored only in this browser; it does not sign you in or detect your login. Only one account snapshot is active for ownership checks. Sign in to the other account on the website, enter its nickname, confirm it, select Replace active account, and use Rescan all purchases to switch. A successful full rescan archives the previous snapshot for backup recovery; archived accounts are not combined with the active library.</p><p><strong>Not yet named</strong> means no account nickname has been established. Confirm a nickname in the importer and run a complete rescan to establish it. The first import automatically requires a full scan.</p></details>
+        <button id="open-purchases" type="button">Open Humble purchase importer</button>
         <p id="last-import" role="status"></p>
       </section>
       <section>
         <h2>Wishlist and priorities</h2>
-        <p>Add titles here or tick Wishlist beside a bundle summary item. Priority is your personal weight from 1 to 100, not a price estimate. Bundle plans exclude owned items and uncertain matches unless you include them.</p>
-        <label for="wishlist-title">Title</label><input id="wishlist-title" type="text" maxlength="500">
-        <label for="wishlist-kind">Media</label><select id="wishlist-kind"><option value="book">Book</option><option value="audiobook">Audiobook</option><option value="game">Game</option><option value="software">Software</option></select>
-        <label for="wishlist-weight">Priority</label><input id="wishlist-weight" type="number" min="1" max="100" step="1" value="1">
-        <button id="add-wishlist" type="button">Add to wishlist</button>
-        <ul id="wishlist-list"></ul>
-        <button id="export-wishlist" type="button">Export wishlist</button>
+        <p>Add titles here or use Wishlist in a bundle summary. Priority is your preference from 1 to 100; higher priorities matter more in purchase plans. Wishes do not establish ownership.</p><details class="settings-help"><summary>What happens after I add a wish?</summary><p>When you open a supported bundle, the extension compares its items with your saved wishes. Choose the Wishlist purchase goal to see the lowest tier or selection that covers eligible wishes and the priority available at each price. Owned items are excluded; uncertain matches are excluded unless you include them. A wish may have no eligible target in the bundle you opened.</p><p>The extension does not monitor new bundles or send wishlist notifications. Wishlist entries and priorities are local to this extension and are not shared with the other extension or Galactic Library.</p></details>
+        <div class="wishlist-form"><label>Title <input id="wishlist-title" type="text" maxlength="500"></label><label>Media <select id="wishlist-kind"><option value="book">Book/comic/manga</option><option value="audiobook">Audiobook</option><option value="game">Game</option><option value="software">Software</option></select></label><label>Priority (1-100) <input id="wishlist-weight" type="number" min="1" max="100" step="1" value="1"></label></div>
+        <div class="actions"><button id="add-wishlist" type="button">Add to wishlist</button><button id="clear-wishlist" type="button">Clear wishlist</button></div>
+        <label>Find wishes <input id="wishlist-search" type="search" placeholder="Filter by title"></label>
+        <div class="wishlist-navigation"><p id="wishlist-count" role="status"></p><div class="actions"><button id="wishlist-previous" type="button">Previous wishes</button><button id="wishlist-next" type="button">Next wishes</button></div></div>
+        <ol id="wishlist-list"></ol>
+        <div class="actions"><button id="export-wishlist" type="button">Export wishlist</button></div>
         <label for="wishlist-file">Restore wishlist (replaces this list)</label><input id="wishlist-file" type="file" accept="application/json,.json">
         <p id="wishlist-status" role="status"></p>
       </section>
       <section>
         <h2>Galactic Library link</h2>
-        <p>Check current bundle games, software, books, and audiobooks against Galactic Library. Exact ownership, related editions, and reviewed collection contents are supported; ebooks and audio remain separate. Software lookup is enabled only when Galactic Library advertises software support. Requests include current bundle titles, media types, available catalog evidence, and explicit contents lists. They exclude Humble records to avoid stale duplicates and never transfer either full library.</p>
+        <p>Optionally check bundle items against your linked Galactic Library. Results can include owned items, possible matches with their library titles, and partial matches from reviewed collection contents. Books/comics, audiobooks, games, and supported software are checked separately.</p><p>In Galactic Library, allow this extension's ID shown below. Then paste Galactic Library's extension ID here, save, and test the link. Checks send the bundle title and available identity/contents evidence; they never transfer either full library.</p>
         <p>Your Humble Comic Library extension ID: <code id="humble-extension-id">Loading…</code></p>
         <label for="galactic-library-extension-id">Galactic Library extension ID</label>
-        <input id="galactic-library-extension-id" type="text" inputmode="text" autocomplete="off" maxlength="128" spellcheck="false" placeholder="Chrome extension ID or Firefox add-on ID">
+        <input id="galactic-library-extension-id" type="text" autocomplete="off" maxlength="255" spellcheck="false" placeholder="Chrome extension ID or Firefox add-on ID">
         <div class="actions"><button id="save-galactic-library-link" type="button">Save link</button><button id="test-galactic-library-link" type="button">Test link</button><button id="clear-galactic-library-link" type="button">Remove link</button></div>
         <p id="galactic-library-link-status" role="status"></p>
       </section>
       <section>
-        <h2>Share entitlement reminders</h2>
-        <p>Send safe key statuses to the linked Galactic Library in batches of 200. This sends titles, media types, opaque references, status and reported dates; no keys, order IDs, purchase links or prices. Destination activation remains unknown and this feed never establishes ownership. Sending is manual, not automatic.</p>
-        <p>Active HB profile: <strong id="share-hb-profile">unassigned</strong>. The same Humble account must be selected in GL.</p>
-        <label>Current GL Humble profile label <input id="share-gl-profile" maxlength="100" autocomplete="off"></label>
-        <label><input id="confirm-reminder-sharing" type="checkbox"> I checked that both extensions refer to the same Humble account.</label>
-        <div class="actions"><button id="share-entitlements" type="button">Send reminders to Galactic Library</button><button id="remove-shared-entitlements" type="button">Remove shared reminders</button></div>
-        <p id="entitlement-share-status" role="status"></p>
-      </section>
-      <section>
-        <h2>Key reminders</h2>
-        <p>Track unrevealed keys and entitlements needing review. Imports refresh new and pending purchases; a full rescan establishes the complete reminder baseline. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
+        <h2>Key and access reminders</h2>
+        <p>These reminders come from your local Humble imports. Track unrevealed keys and entitlements needing review. Imports refresh new and pending purchases; a full rescan establishes the complete reminder baseline. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
         <button id="open-key-reminders">Open Humble purchases</button>
         <label class="key-reminder-direct-option"><input id="open-direct-purchase-links" type="checkbox"> Open direct Humble order links</label>
         <p class="key-reminder-direct-note">Off by default: <strong>Open purchase</strong> uses Humble's normal purchase-card flow, so allow pop-ups and redirects for Humble if you want it to open the individual order. When enabled, the purchase identifier appears in the Humble URL and browser history.</p>
         <p id="key-reminder-summary" role="status"></p>
         <ol id="key-reminder-list"></ol>
+      </section>
+      <section>
+        <h2>Share reminders with Galactic Library</h2>
+        <p>Send safe key statuses to the linked Galactic Library in batches of 200. This sends titles, media types, opaque references, status and reported dates; no keys, order IDs, purchase links or prices. Destination activation remains unknown and this feed never establishes ownership. Sending is manual, not automatic.</p>
+        <p>Active Humble account nickname: <strong id="share-hb-profile">Not yet named</strong>. Confirm that Galactic Library is using the same website account. The nickname there may differ.</p>
+        <label>Humble account nickname in Galactic Library <input id="share-gl-profile" maxlength="100" autocomplete="off"></label>
+        <label><input id="confirm-reminder-sharing" type="checkbox"> I checked that both extensions refer to the same Humble account.</label>
+        <div class="actions"><button id="share-entitlements" type="button">Send reminders to Galactic Library</button><button id="remove-shared-entitlements" type="button">Remove shared reminders</button></div>
+        <p id="entitlement-share-status" role="status"></p>
       </section>
       <section>
         <h2>Display and diagnostics</h2>
@@ -57,21 +58,21 @@
         <label>Bundle summary position <select id="summary-position"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option><option value="top-right">Top right</option><option value="top-left">Top left</option></select></label>
         <p id="summary-preferences-status" role="status"></p>
         <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
-        <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>
+        <p>Leave this off for a cleaner page. Turn it on when troubleshooting loading, matching, or sorting.</p>
       </section>
       <section>
-        <h2>Library</h2><p>Export backup saves ownership and purchase evidence. Your wishlist has its own export and restore above. Clear library removes ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
+        <h2>Library</h2><p>Export backup saves ownership and purchase evidence. Export title catalog saves titles and identity metadata only; it cannot restore ownership. Your wishlist has its own export and restore above. Clear library removes ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
         <p id="library-count">Loading…</p>
-        <div class="actions"><button id="export-library">Export backup</button><button id="clear-library" class="danger">Clear library</button></div>
-        <ol id="library-preview"></ol>
+        <div class="actions"><button id="export-library">Export backup</button><button id="export-catalog" type="button">Export title catalog</button><button id="clear-library" class="danger">Clear library</button></div>
+        <p id="local-status" role="status"></p><p id="preview-note"></p><ol id="library-preview"></ol>
       </section>
       <section>
         <h2>Restore backup</h2>
-        <p>Choose an exported Humble Comic Library backup. Restore replaces all items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
+        <p>Choose a backup exported by this Humble Comic Library extension. HB and FAN ownership backups are not interchangeable. Restore replaces all items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
         <input id="restore-file" type="file" accept="application/json,.json">
         <p id="restore-status" role="status"></p>
       </section>
-      <section>
+      <details class="advanced-settings"><summary>Advanced: manual title imports and collection mappings (Humble only)</summary><p>These tools support manually curated libraries and reviewed comic collection contents. Fanatical uses its product records and linked Galactic Library instead.</p><section>
         <h2>Import titles</h2>
         <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
         <input id="import-file" type="file" accept="application/json,.json">
@@ -79,11 +80,27 @@
       </section>
       <section>
         <h2>Collection mappings</h2>
-        <p>Import reviewed issue/volume-to-collection rules. Edition identifiers, series/run IDs, annuals, specials, fractional issues, source evidence, and partial reprints are supported. Unreviewed rules and excerpts never prove full ownership. See the README for the JSON format.</p>
-        <input id="collection-mapping-file" type="file" accept="application/json,.json">
+        <p>Import reviewed issue/volume-to-collection rules. Edition identifiers, series/run IDs, annuals, specials, fractional issues, source evidence, and partial reprints are supported. Unreviewed rules and excerpts never prove full ownership. Expand the format help below for an example you can use without leaving the extension.</p>
+        <details class="settings-help"><summary>Collection mapping format and review requirements</summary><p>A mapping links a collection title to the issues or volumes it contains. Import a JSON array of rules. Replace the example title, series, run, language and range with the actual edition's contents. The example starts unverified; it cannot establish ownership.</p><pre>[{
+  "id": "example-collection",
+  "collectionTitle": "Example Series Collection",
+  "verified": false,
+  "contentsComplete": false,
+  "contains": [{
+    "series": "Example Series",
+    "run": "2020",
+    "language": "en",
+    "unitType": "issue",
+    "from": 1,
+    "to": 6,
+    "completeness": "full"
+  }]
+}]</pre><p>Only set <code>verified: true</code> after checking this edition's contents against a reliable source. Record <code>sourceLabel</code>, an optional public <code>sourceUrl</code>, and an ISO <code>verifiedAt</code> date. Set <code>contentsComplete: true</code> only if the list covers the entire collection. Use <code>completeness: "excerpt"</code> for partial reprints. Runs, languages, issues, volumes, annuals and specials remain separate; unreviewed rules and excerpts never prove full ownership.</p></details><input id="collection-mapping-file" type="file" accept="application/json,.json">
         <p id="collection-mapping-status" role="status"></p>
         <p id="collection-mapping-count"></p>
       </section>
+      </details>
+      <section><h2>Privacy</h2><p>Your library, wishlist and preferences stay in this browser. Galactic Library linking exchanges only the match or reminder evidence needed for the action you request; neither full library is transferred.</p><p>Humble imports use the website's signed-in session without copying cookies or storing redemption-key values. Local records and backups retain purchase identifiers and provenance for recovery and reminder navigation. Keep backups private. Direct order links are optional because their purchase identifiers can appear in browser history.</p></section>
     </main>
     <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="entitlement-share.js"></script><script src="options.js"></script>
   </body>

@@ -31,3 +31,25 @@ code { font-family: ui-monospace, monospace; }
 #wishlist-title { width: min(100%, 24rem); }
 
 .actions { flex-wrap:wrap; } #humble-extension-id { overflow-wrap:anywhere; } label { display:block; margin:.5rem 0; } #summary-position { padding:.35rem; }
+
+/* Shared settings layout in the companion extensions. */
+.settings { max-width:52rem; }
+.settings input, .settings select { box-sizing:border-box; max-width:100%; padding:.4rem; }
+.settings-help { margin:.75rem 0; font-size:.92rem; }
+.settings-help summary, .advanced-settings > summary { cursor:pointer; font-weight:600; }
+.settings-help p { line-height:1.5; }
+.settings-help pre { padding:1rem; overflow:auto; background:color-mix(in srgb, CanvasText 7%, Canvas); }
+.advanced-settings { margin-top:2rem; padding-top:1rem; border-top:1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+.wishlist-form { display:grid; grid-template-columns:minmax(0,1fr) 11rem 8rem; gap:.75rem; }
+.wishlist-form label { display:flex; flex-direction:column; gap:.35rem; }
+#wishlist-title { width:100%; }
+.wishlist-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+#wishlist-list { max-height:24rem; overflow:auto; padding-left:1.5rem; }
+#wishlist-list li { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; padding:.65rem 0; border-bottom:1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+#wishlist-list .wish-title { flex:1 1 16rem; overflow-wrap:anywhere; }
+#wishlist-list input { width:4.5rem; }
+#library-preview { max-height:24rem; overflow:auto; }
+@media(max-width:600px) { .wishlist-form { grid-template-columns:1fr; } .settings { margin:0; } }
+
+.wishlist-form input, .wishlist-form select, #wishlist-weight { width:100%; }
+#wishlist-list li { margin:0; }
