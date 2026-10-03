@@ -48,6 +48,51 @@
       title.replace(/\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, word => roman[word])
     ].filter(Boolean))].map(key => 'presentation:' + key);
   }
+  // Discovery only: these parts never supply exact-title or edition identity.
+  // Prefer explicit structure/semantic markers to a list of accepted titles.
+  function revisionTitleParts(value, kind = 'book') {
+    const title = String(value ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
+    const result = (base, qualifier = '') => ({base, qualifier});
+    if (!['book', 'audiobook', 'software'].includes(kind)) return result(title);
+    const marker = /\b(?:edition|ed\.?|revision|rev\.?|revised|updated|expanded|annotated|abridged|unabridged|version|release|printing|print|reprint|format|paperback|hardcover|hardback|softcover|ebook|e-book|digital|pdf|epub|mobi|cbz|cbr)\b|\b\d+e\b|\bv\d+(?:\.\d+)*\b/iu;
+    // Delimiters identify the base even when an edition description is new.
+    const bracket = /^(.*?)\s*[([]([^()[\]]+)[)\]]\s*$/u.exec(title);
+    if (bracket?.[1]?.trim() && marker.test(bracket[2])) return result(bracket[1].trim(), bracket[2]);
+    const structured = /^(.*?)\s*(?:[,;:]\s*|\s+[\-\u2013\u2014]\s+)(.+)$/u.exec(title);
+    if (structured?.[1]?.trim() && marker.test(structured[2])) return result(structured[1].trim(), structured[2]);
+    // Numeric shorthand and bare revision/access/format labels.
+    const tail = /\s+((?:(?:edition|ed\.?|revision|rev\.?|version|release|printing)\s+\d+(?:\.\d+)*|\d+e|v(?:ersion)?\.?\s*\d+(?:\.\d+)*|(?:revised|updated|expanded|annotated)(?:\s*(?:and|&)\s*(?:revised|updated|expanded|annotated))*(?:\s+(?:edition|ed\.?|version))?|(?:abridged|unabridged|paperback|hardcover|hardback|softcover|ebook|e-book|digital|pdf|epub|mobi|cbz|cbr)))\s*$/iu.exec(title);
+    if (tail) return result(title.slice(0, tail.index).trim(), tail[1]);
+    // English ordinals are compositional: twenty-first, one hundred and first,
+    // eleventh and hundredth use the same rule; numeric ordinals are unbounded.
+    const ordinal = '(?:first|second|third|(?:four|fif|six|seven|eigh|nin|ten|eleven|twelf|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|hundred|thousand|million|billion)th|(?:twent|thirt|fort|fift|sixt|sevent|eight|ninet)ieth)';
+    const tens = '(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)';
+    const compound = '(?:(?:one|two|three|four|five|six|seven|eight|nine) (?:hundred|thousand|million|billion)(?: and)? )?(?:'+tens+'[- ])?'+ordinal;
+    const ordinalTail = new RegExp('\\s+('+compound+'|\\d+(?:st|nd|rd|th)?)$', 'iu');
+    const ending = /\s+(?:(?:revised|updated|expanded|annotated|anniversary)\s+)*(?:edition|ed\.?|revision|version|printing)\s*$/iu.exec(title);
+    if (ending) {
+      const prefix = title.slice(0, ending.index).trim();
+      const number = ordinalTail.exec(prefix);
+      if (number) return result(prefix.slice(0, number.index).trim(), title.slice(number.index).trim());
+    }
+    return result(title);
+  }
+  function revisionWordingConflict(left, right, kind = 'book') {
+    if (!['book', 'audiobook', 'software'].includes(kind)) return false;
+    const a = revisionTitleParts(left, kind), b = revisionTitleParts(right, kind);
+    const revision = /\b(?:edition|ed\.?|revision|rev\.?|revised|updated|expanded|annotated|abridged|unabridged|version|release|printing|reprint)\b|\b\d+e\b|\bv\d+(?:\.\d+)*\b/iu;
+    const titles = [presentationTitle(left, kind), presentationTitle(right, kind)];
+    // Pairwise fallback: an unfamiliar trailing descriptor can still warn
+    // when it explicitly labels a revision of the complete shorter title.
+    for (const [base, longer] of [titles, [...titles].reverse()]) {
+      if (base.replace(/\s/gu, '').length >= (kind === 'software' ? 8 : 4)
+        && longer.startsWith(base+' ') && revision.test(longer.slice(base.length+1))) return true;
+    }
+    return Boolean((revision.test(a.qualifier) || revision.test(b.qualifier))
+      && presentationTitle(a.base, kind).replace(/\s/gu, '').length >= (kind === 'software' ? 8 : 4)
+      && presentationTitle(a.base, kind) === presentationTitle(b.base, kind)
+      && presentationTitle(a.qualifier, kind) !== presentationTitle(b.qualifier, kind));
+  }
   function personKey(value) {
     let name = String(value ?? '').normalize('NFKC').toLowerCase().trim();
     name = name.replace(/\s*\((?:author|writer|artist|illustrator|editor|translator|pencill?er|inker|colorist|colourist|letterer)\)\s*$/u, '').trim();
@@ -104,7 +149,7 @@
     return /^\d+(?:\.\d+)?$/u.test(text) ? String(Number(text)) : presentationTitle(text, 'unit');
   }
   global.LibraryMatchingPolicy = Object.freeze({ presentationTitle, ownershipTitleKeys, fullTitleMatches,
-    relatedPresentationReason, relatedTitleKeys, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
+    relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
 }(globalThis));
 // END SHARED MATCHING POLICY
 /* Global helpers shared by the options page and Humble page overlay. */
@@ -143,11 +188,13 @@
 
   function relationTitleParts(value, kind) {
     let title = String(value ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
+    const revision = global.LibraryMatchingPolicy.revisionTitleParts(title, kind);
+    if (revision.qualifier) title = revision.base;
     const edition = /\s*(?:[,;:\-\u2013\u2014]\s*)?((?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|revised|updated|expanded|annotated|new|deluxe)(?:\s+(?:revised|updated))?\s+(?:edition|ed\.?))\s*$/iu;
-    let hasEdition = false;
+    let hasEdition = Boolean(revision.qualifier);
     if (kind === 'software') {
       const version = /^(.*?)\s*(?:[,;:\-\u2013\u2014]\s*)?(?:v(?:ersion)?\.?\s*\d+(?:\.\d+){0,3}|(?:19|20)\d{2})\s*$/iu.exec(title);
-      return { primary: normalizeTitle(version?.[1]?.trim() || title), hasVersion: Boolean(version?.[1]?.trim()), subtitle: false, qualifier: false, hasEdition: false };
+      return { primary: normalizeTitle(version?.[1]?.trim() || title), hasVersion: Boolean(revision.qualifier || version?.[1]?.trim()), subtitle: false, qualifier: false, hasEdition: false };
     }
     const stripEdition = () => {
       const found = edition.exec(title);
@@ -197,6 +244,7 @@
     const presentation = global.LibraryMatchingPolicy.relatedPresentationReason(left, right, kind);
     if (presentation) return presentation;
     if (a === b) return 'Related title presentation; identity needs review.';
+    if (global.LibraryMatchingPolicy.revisionWordingConflict(left, right, kind)) return 'Related complete base title with revision or version wording; identity needs review.';
     const access = value => value.replace(/\s+(?:preview|sample|excerpt|read now|demo|trial)$/iu, '').trim();
     if (access(a) === access(b)) return 'Related title, but preview/sample access does not establish the full product.';
     const numbers = value => (value.match(/\d+(?:\.\d+|\/\d+)?/gu) ?? []).join('|');

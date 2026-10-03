@@ -1,0 +1,759 @@
+[
+  {
+    "label": "MAGGIE_PARENTHESES",
+    "owned": {
+      "title": "Maggie the Mechanic (Love & Rockets)"
+    },
+    "offered": {
+      "title": "Maggie the Mechanic"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "THINK_LIKE_PROGRAMMER_SUBTITLE",
+    "owned": {
+      "title": "Think Like a Programmer: An Introduction to Creative Problem Solving"
+    },
+    "offered": {
+      "title": "Think Like a Programmer"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "ALGORITHMIC_THINKING_EDITION",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 2nd Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Revised",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Revised"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Updated",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Updated"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Revised Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Revised Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Updated Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Updated Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Revised and Updated Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Revised and Updated Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Revised & Updated Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Revised & Updated Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Eleventh Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Eleventh Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Edition 2",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Edition 2"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , 2e",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 2e"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  Revised",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Revised"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  Updated",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Updated"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  Eleventh Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Eleventh Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  Twenty-first Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Twenty-first Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  One Hundred and First Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking One Hundred and First Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  Edition 17",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Edition 17"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  17e",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking 17e"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Classroom Revision X",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Classroom Revision X"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , Library Binding Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Library Binding Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  [Updated Version 3.2]",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking [Updated Version 3.2]"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax  - Newly Revised Release 2027",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking - Newly Revised Release 2027"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , 11th Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 11th Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , 100th Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 100th Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "revision syntax , 2nd Revised Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 2nd Revised Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions 1st Edition / 2nd Edition",
+    "owned": {
+      "title": "Algorithmic Thinking, 1st Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 2nd Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions 2nd Edition / 3rd Edition",
+    "owned": {
+      "title": "Algorithmic Thinking, 2nd Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 3rd Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions 1st Edition / 10th Edition",
+    "owned": {
+      "title": "Algorithmic Thinking, 1st Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, 10th Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions 2nd Edition / Revised",
+    "owned": {
+      "title": "Algorithmic Thinking, 2nd Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Revised"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions 10th Edition / Updated Edition",
+    "owned": {
+      "title": "Algorithmic Thinking, 10th Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Updated Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "different editions Twenty-first Edition / Edition 99",
+    "owned": {
+      "title": "Algorithmic Thinking, Twenty-first Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking, Edition 99"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "article difference",
+    "owned": {
+      "title": "Room"
+    },
+    "offered": {
+      "title": "The Room"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "small typo",
+    "owned": {
+      "title": "Practical Python Programming"
+    },
+    "offered": {
+      "title": "Pratical Python Programming"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "punctuation only",
+    "owned": {
+      "title": "Hello, World!"
+    },
+    "offered": {
+      "title": "Hello World"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "same edition punctuation",
+    "owned": {
+      "title": "Algorithmic Thinking, 2nd Edition"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking (2nd Edition)"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "different numbered volumes",
+    "owned": {
+      "title": "Saga Vol. 1"
+    },
+    "offered": {
+      "title": "Saga Vol. 2"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "unrelated generic words",
+    "owned": {
+      "title": "The Complete Guide to Gardening"
+    },
+    "offered": {
+      "title": "The Complete Guide to Algorithms"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "ordinary title word Revised",
+    "owned": {
+      "title": "The Revised History of Computing"
+    },
+    "offered": {
+      "title": "The History of Computing"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "independently subtitled works",
+    "owned": {
+      "title": "4001 A.D.: Beyond New Japan"
+    },
+    "offered": {
+      "title": "4001 A.D.: Another Different Story"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "game extras",
+    "owned": {
+      "title": "Control"
+    },
+    "offered": {
+      "title": "Control Deluxe Edition"
+    },
+    "expected": "possible",
+    "media": "game",
+    "editions": false
+  },
+  {
+    "label": "preview cannot use shared ISBN",
+    "owned": {
+      "title": "Example Book Preview",
+      "isbn": "9780306406157"
+    },
+    "offered": {
+      "title": "Example Book",
+      "isbn": "9780306406157"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "sample cannot use shared ISBN",
+    "owned": {
+      "title": "Example Book Sample",
+      "isbn": "9780306406157"
+    },
+    "offered": {
+      "title": "Example Book",
+      "isbn": "9780306406157"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "same title missing metadata",
+    "owned": {
+      "title": "Example Book",
+      "authors": [
+        "Alan Moore"
+      ],
+      "isbn": "9780306406157"
+    },
+    "offered": {
+      "title": "Example Book"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "compatible author",
+    "owned": {
+      "title": "Example Book",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "offered": {
+      "title": "Example Book",
+      "authors": [
+        "Moore, Alan"
+      ]
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "plausible author initials",
+    "owned": {
+      "title": "Example Book",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "offered": {
+      "title": "Example Book",
+      "authors": [
+        "A. Moore"
+      ]
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "conflicting known authors",
+    "owned": {
+      "title": "Example Book",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "offered": {
+      "title": "Example Book",
+      "authors": [
+        "Neil Gaiman"
+      ]
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "disjoint validated ISBNs",
+    "owned": {
+      "title": "Example Book",
+      "isbn": "9780306406157"
+    },
+    "offered": {
+      "title": "Example Book",
+      "isbn": "9780140328721"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "ISBN 10/13 identity",
+    "owned": {
+      "title": "Old Book Name",
+      "isbn": "0306406152"
+    },
+    "offered": {
+      "title": "Renamed Book",
+      "isbn": "9780306406157"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "matching second ISBN",
+    "owned": {
+      "title": "Old Book Name",
+      "isbn": [
+        "9780140328721",
+        "9780306406157"
+      ]
+    },
+    "offered": {
+      "title": "Renamed Book",
+      "isbn": "9780306406157"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "invalid ISBN is neutral",
+    "owned": {
+      "title": "Example Book",
+      "isbn": "invalid"
+    },
+    "offered": {
+      "title": "Example Book",
+      "isbn": "9780306406157"
+    },
+    "expected": "owned",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "software version",
+    "owned": {
+      "title": "Forest Builder Pro version 2.1"
+    },
+    "offered": {
+      "title": "Forest Builder Pro version 3.5"
+    },
+    "expected": "possible",
+    "media": "software",
+    "editions": false
+  },
+  {
+    "label": "short generic subtitle stays separate",
+    "owned": {
+      "title": "It"
+    },
+    "offered": {
+      "title": "It: A Novel"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "ordinal parser retains Growth title word",
+    "owned": {
+      "title": "Algorithmic Growth"
+    },
+    "offered": {
+      "title": "Algorithmic Growth Twenty-first Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "ordinal parser retains North title word",
+    "owned": {
+      "title": "Journey North"
+    },
+    "offered": {
+      "title": "Journey North Eleventh Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "numbered edition not a volume",
+    "owned": {
+      "title": "Saga Vol. 1, 2nd Edition"
+    },
+    "offered": {
+      "title": "Saga Vol. 2, Revised"
+    },
+    "expected": "new",
+    "media": "book",
+    "editions": false
+  },
+  {
+    "label": "unfamiliar structured qualifier  Classroom Revision X",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Classroom Revision X"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "unfamiliar structured qualifier  Bespoke Library Edition",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking Bespoke Library Edition"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "unfamiliar structured qualifier  New Version Z",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking New Version Z"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": true
+  },
+  {
+    "label": "unfamiliar structured qualifier  - Special Format Q",
+    "owned": {
+      "title": "Algorithmic Thinking"
+    },
+    "offered": {
+      "title": "Algorithmic Thinking - Special Format Q"
+    },
+    "expected": "possible",
+    "media": "book",
+    "editions": false
+  }
+]

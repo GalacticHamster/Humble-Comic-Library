@@ -3,44 +3,8 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-// Mirrored policy fixture in HB/FAN; exercise shipped classification, never a
-// reconstructed matcher. HB keeps the real storefront merge/count path here.
+import {fixture} from './matching-fixture.mjs';
 const fanatical = fs.existsSync(new URL('../src/shared.js', import.meta.url));
-function fixture(records, media, offered, central = null, historical = []) {
-  const context = { URL, Blob, Promise, setTimeout, clearTimeout, console, performance: { now: () => 0 },
-    document: { title: '', querySelector: () => null, querySelectorAll: () => [] }, location: { pathname: '/' } };
-  context.globalThis = context;
-  vm.createContext(context);
-  for (const file of fanatical ? ['src/shared.js'] : ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js'])
-    vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), context, { filename: file });
-  context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
-  context.historical = historical.map(record => ({ ...record, ...(fanatical && record.sourceBundle ? {bundle:{title:record.sourceBundle}} : {}), [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
-  context.offered = { ...offered, [fanatical ? 'mediaType' : 'kind']: media, lookupTitle: offered.title, tier: { label: '$5 tier', price: 5 } };
-  context.centralResult = central instanceof Error ? { matches: [], lookupIncomplete: true } : central;
-  if (!fanatical) {
-    context.central = central;
-    context.chrome = { runtime: { sendMessage: async (_id, message) => {
-      if (central instanceof Error) throw central;
-      return { ok: true, apiVersion: 1, results: message.items.map(({ requestId }) => ({ requestId, matches: [], ...central })) };
-    } } };
-    vm.runInContext(
-      "collectBundleItems = () => [offered]; sortBundleItems = () => ({}); annotateAllCoverCopies = () => {}; " +
-      "applyBundleNewItemsOnlyFilter = () => {}; showComparisonProgress = () => {}; " +
-      "renderComparisonSummary = (counts, tiers) => { summary = { counts, tiers: [...tiers.values()] }; }; " +
-      "comparison = { job: 1, galactic: createGalacticLookup(central ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' : '') };", context);
-  }
-  return {
-    context,
-    async classify() {
-      const match = fanatical ? vm.runInContext('FanaticalLibrary.resolveProduct(offered, records, FanaticalLibrary.localContents(records), () => centralResult, 0, historical)', context)
-        : (await vm.runInContext("renderBundleComparison(createBundleLibraryMatcher(records, offered.kind, historical), offered.kind, [], [], comparison, 1)", context),
-          context.comparison.resolvedItems[0].match);
-      const candidates = [...(Array.isArray(match.item) ? match.item : match.item ? [match.item] : []), ...(match.candidates ?? []),
-        ...(match.externalPossibleMatches ?? [])];
-      return { match, candidates };
-    }
-  };
-}
 
 test('missing historical purchases warn with their titles and never prove ownership or coverage', async () => {
   for (const [offered, previous] of [['Offered Book', 'Offered Book'], ['Offered Book', 'Offered Book: A Useful Subtitle'],

@@ -56,7 +56,7 @@ test('expired keys remain Possible, cannot supply owned contents, and survive ba
   const context=load();const H=context.HumbleComicLibrary;const O=context.HumbleOwnership;
   const item={title:'Comic Vol. 1',kind:'book',source:'humble',purchaseKey:'order',entitlement:'third-party-key',entitlementId:'comic:0',keyStatus:'expired',expiresAt:'2026-09-01T00:00:00.000Z'};
   const identity=O.exactCandidate({title:item.title},[item]);
-  assert.equal(identity.exact,undefined);assert.equal(identity.possible.length,1);
+  assert.equal(identity.exact,item,'Expired access does not erase exact identity');assert.equal(identity.ownedExact,undefined);assert.equal(identity.possible.length,1);
   assert.equal(O.localEvidence([item],[]).length,0);
   const backup=plain(H.createLibraryBackup({libraryItems:[item],mediaImportVersion:7}));
   assert.equal(backup.version,9);

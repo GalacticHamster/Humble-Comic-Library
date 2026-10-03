@@ -1151,7 +1151,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
 function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
   const title = item.lookupTitle ?? item.title;
   const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher));
-  const exact = identity.exact;
+  const exact = identity.ownedExact;
   const fallbackRecords = exact ? [] : ownershipFallbackCandidates(item, matcher, collectionMappings);
   const compatible = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).length));
   const rangeCandidates = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).filter(reason => reason !== 'Different enumerated issues/volumes').length));

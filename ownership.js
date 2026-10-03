@@ -47,6 +47,7 @@
       if (C.numberKey(leftUnits[0].number) !== C.numberKey(rightUnits[0].number)) reasons.push('Different issue/volume');
     }
     if (exact) {
+      if (policy.revisionWordingConflict(offered.title, owned.title, offered.kind)) reasons.push('Different revision wording');
       const limited = title => /\b(?:preview|sample|excerpt|read\s+now|demo|trial)\b/iu.test(title);
       if (limited(offered.title) !== limited(owned.title)) reasons.push('Preview/sample and full-product access differ');
       if (leftUnits.length && rightUnits.length && JSON.stringify(leftUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort()) !== JSON.stringify(rightUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort())) reasons.push('Different enumerated issues/volumes');
@@ -83,8 +84,10 @@
     const full = compatible.filter(record => policy.fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind));
     const pool = identified.length ? identified : full;
     const ambiguous = policy.ambiguousWorks(pool, H.bibliographicFields);
-    const exact = ambiguous ? undefined : pool.find(purchased);
-    return { exact, possible: exact ? [] : related, reason: related.length
+    // Identity is independent of whether a recorded key is still available.
+    const exact = ambiguous ? undefined : pool[0];
+    const ownedExact = ambiguous ? undefined : pool.find(purchased);
+    return { exact, ownedExact, possible: ownedExact ? [] : related, reason: related.length
       ? related.map(record => `${record.title}: ${conflicts(offered, record, true).join('; ') || 'Title identity needs review'}`).join('\n') : '' };
   }
 
