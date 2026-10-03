@@ -157,6 +157,29 @@ test('indexed lookup keeps distinct metadata candidates while finding editions i
 });
 
 const glApi = new URL('../../GalacticLibrary/src/lib/external-api.js', import.meta.url);
+test('HB consumes real GL full comic title matches without demanding missing library metadata', { skip: !fs.existsSync(glApi) }, async () => {
+  const { handleExternalApiRequest } = await import(glApi);
+  const { normalizeProviderItem } = await import(new URL('../../GalacticLibrary/src/lib/models.js', import.meta.url));
+  const titles = ['Harbinger Vol. 1: Omega Rising', 'Harbinger, Vol. 1:Omega Rising', '4001 A.D. TPB', '4001 A.D.: Beyond New Japan'];
+  const copies = titles.map((title, index) => normalizeProviderItem({ provider: 'fanatical', providerItemId: 'synthetic-' + index, title, mediaType: 'book', ownership: 'owned' }));
+  const db = { providerItems: Object.fromEntries(copies.map(item => [item.id, item])) };
+  for (const title of ['Harbinger Vol 1 Omega Rising', '4001 A.D.', '4001 A.D. Beyond New Japan']) {
+    const item = { title, kind: 'book', authors: ['Writer'], isbn: ['9780306406157'] };
+    const reply = handleExternalApiRequest(db, { type: 'MATCH_ITEMS', apiVersion: 1, items: [{ requestId: 'synthetic', ...plain(O.request(item, [])) }] });
+    assert.equal(reply.ok, true);
+    context.fullTitleResult = reply.results[0];
+    assert.ok(vm.runInContext('ownedOutsideHumble(fullTitleResult).length', context), title);
+    if (title === '4001 A.D.') {
+      assert.deepEqual(plain(vm.runInContext('ownedOutsideHumble(fullTitleResult).map(item=>item.title)', context)), ['4001 A.D. TPB']);
+      assert.deepEqual(plain(vm.runInContext('possibleOutsideHumble(fullTitleResult).map(item=>item.title)', context)), ['4001 A.D.: Beyond New Japan']);
+    }
+  }
+  const offered = { title: titles[0], kind: 'book', isbn: ['9780140328721'] };
+  const conflict = normalizeProviderItem({ provider: 'fanatical', providerItemId: 'conflict', title: offered.title, mediaType: 'book', ownership: 'owned', metadata: { isbn: '9780306406157' } });
+  context.fullTitleResult = handleExternalApiRequest({ providerItems: { [conflict.id]: conflict } }, { type: 'MATCH_ITEMS', apiVersion: 1, items: [{ requestId: 'synthetic', ...plain(O.request(offered, [])) }] }).results[0];
+  assert.equal(vm.runInContext('ownedOutsideHumble(fullTitleResult).length', context), 0);
+  assert.equal(vm.runInContext('possibleOutsideHumble(fullTitleResult).length', context), 1);
+});
 test('HB requests and coverage agree with the actual adjacent GL API', { skip: !fs.existsSync(glApi) }, async () => {
   const { handleExternalApiRequest } = await import(glApi);
   const { titleKey } = await import(new URL('../../GalacticLibrary/src/lib/normalization.js', import.meta.url));
