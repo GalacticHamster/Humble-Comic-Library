@@ -55,3 +55,9 @@ test('the background writer validates every scan record before writing any state
   await assert.rejects(f.store.execute('commit',[scan.token,{libraryItems:[{title:'Valid new title'},{title:'Invalid media',kind:'unsupported'}],lastImport:{reconciled:true}},1]),/kind/);assert.deepEqual(f.state,before);
   await f.store.execute('commit',[scan.token,updates,1]);assert.equal(f.state.libraryItems[0].title,'Fresh book');
 });
+
+test('summary preferences merge through the writer, reject invalid patches atomically, and survive restore and clear outside backups',async()=>{
+  const f=fixture();await f.store.execute('patch',[{bundleSummaryPreferences:{position:'top-left'}}]);await f.store.execute('patch',[{bundleSummaryPreferences:{minimized:true}}]);assert.deepEqual(f.state.bundleSummaryPreferences,{position:'top-left',minimized:true});const before=structuredClone(f.state);
+  for(const value of [{position:'offscreen'},{minimized:'true'},{extra:'private'},null,[]]){await assert.rejects(f.store.execute('patch',[{showDiagnostics:true,bundleSummaryPreferences:value}]),/preferences/);assert.deepEqual(f.state,before);}
+  assert.equal(JSON.stringify(library.createLibraryBackup(f.state)).includes('bundleSummaryPreferences'),false);await f.store.execute('replace',[library.LIBRARY_STATE_DEFAULTS]);assert.deepEqual(f.state.bundleSummaryPreferences,before.bundleSummaryPreferences);await f.store.execute('remove',[['libraryItems']]);assert.deepEqual(f.state.bundleSummaryPreferences,before.bundleSummaryPreferences);
+});

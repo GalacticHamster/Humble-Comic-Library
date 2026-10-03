@@ -7,7 +7,7 @@ const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
 const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'software']);
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 let purchaseFocusTimer;
-let bundleSummaryMinimized = false;
+let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
@@ -52,8 +52,9 @@ let bundleSummaryMinimized = false;
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storageDefaults = { libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [] };
+  const storageDefaults = { libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
   const storage = await chrome.storage.local.get(storageDefaults);
+  bundleSummaryPreferences = HumbleComicLibrary.normalizeSummaryPreferences(storage.bundleSummaryPreferences);
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
@@ -79,6 +80,7 @@ let bundleSummaryMinimized = false;
   refresh('initial');
   let libraryRevision = 0;
   chrome.storage.onChanged?.addListener((changes, area) => {
+    if(area==='local'&&changes.bundleSummaryPreferences){bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));}
     if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
     const revision = ++libraryRevision;
     ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
@@ -937,6 +939,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     item.style.removeProperty('font-weight');
   });
   document.querySelector('#hcl-summary')?.remove();
+  document.querySelectorAll('.hcl-related-titles').forEach(node=>{if(node.parentElement.matches('li'))return;node.nextElementSibling?.matches('details[data-hcl-related]')&&node.nextElementSibling.remove();node.remove();});
 
   const media = bundleMediaContext(itemKind);
   const items = collectBundleItems(media);
@@ -1609,7 +1612,7 @@ function annotateBundleItem(bundleItem, match) {
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchasedKey ? `Purchased${purchaseCount>1?` ×${purchaseCount}`:''}` : purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
-      : isElsewhere ? 'Owned elsewhere' : isPartial ? `${match.range.owned}/${match.range.total} ${match.coverage?.owned === match.range.owned ? 'Owned' : 'titles found'}` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Not checked' : 'New';
+      : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Not checked' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
     const button = document.createElement('button');
@@ -1626,6 +1629,7 @@ function annotateBundleItem(bundleItem, match) {
     });
     badgeHost.classList.add('hcl-interactive-badge');
     badgeHost.append(button);
+    if(isPossible||isPartial){const noteHost=bundleItem.container??badgeHost;appendRelatedTitles(noteHost,match);}
   }
   const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : isUnchecked ? 'unchecked' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);
@@ -1691,7 +1695,7 @@ function matchLibraryItems(match) {
   return entries.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).filter(Boolean);
 }
 
-function showMatchInspector(match) {
+function showMatchInspector(match, trigger = document.activeElement) {
   document.querySelector('#hcl-match-inspector')?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = 'hcl-match-inspector';
@@ -1704,7 +1708,8 @@ function showMatchInspector(match) {
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Close';
-  close.addEventListener('click', () => { dialog.close(); dialog.remove(); });
+  close.autofocus=true;
+  close.addEventListener('click', () => dialog.close());
   dialog.append(close);
   const list = document.createElement('ul');
   for (const line of HumbleOwnership.explanationLines(match)) {
@@ -1718,14 +1723,15 @@ function showMatchInspector(match) {
   review.textContent = 'Review in Galactic Library';
   const status = document.createElement('p');
   status.setAttribute('role', 'status');
+  const refreshEvidence=document.createElement('button');refreshEvidence.type='button';refreshEvidence.textContent='Refresh central evidence';refreshEvidence.addEventListener('click',()=>{dialog.close();window.dispatchEvent(new Event('resize'));});
   review.addEventListener('click', async () => {
     try {
       const response = await chrome.runtime.sendMessage({ type: 'HCL_OPEN_GALACTIC_REVIEW' });
       status.textContent = response?.ok ? 'Opened Galactic Library. Use its ownership inspector or series coverage to review these titles.' : response?.error || 'Configure the Galactic Library link in Extension options.';
     } catch (error) { status.textContent = `Could not open review: ${error.message}`; }
   });
-  dialog.append(review, status);
-  dialog.addEventListener('close', () => dialog.remove());
+  dialog.append(review, refreshEvidence, status);
+  dialog.addEventListener('close', () => {dialog.remove();if(trigger?.isConnected)trigger.focus();});
   document.body.append(dialog);
   dialog.showModal();
 }
@@ -1851,6 +1857,14 @@ function applyBundleNewItemsOnlyFilter(enabled) {
   document.querySelectorAll('.hcl-card-owned, .hcl-card-elsewhere').forEach((card) => card.classList.add('hcl-bundle-filtered'));
 }
 
+function appendRelatedTitles(host, match) {
+  if(!['possible','partial'].includes(match.state))return;
+  const records=[...matchLibraryItems(match.localMatch??match),...(match.historicalItems??[]),...(match.externalPossibleMatches??[]),...(match.externalMatches??[]),...(match.externalResult?.partialMatches??[]),...(match.coverage?.covered??[]).flatMap(entry=>entry.evidence??[])].flat(Infinity).filter(Boolean);
+  const titles=[...new Set(records.filter(record=>record.title).map(record=>{const evidence=record.evidence??record,provider=displayProviderName(record.provider??record.source??'humble');const access=record.historical?'previously recorded; access unconfirmed':record.provider?record.ownership??'ownership unconfirmed':HumbleOwnership.purchased(record)?'local purchase':'ownership needs review';return [record.title,provider,access,evidence.edition,evidence.isbn?.length?'ISBN '+[evidence.isbn].flat().join(', '):''].filter(Boolean).join(' - ');}))];if(!titles.length)return;
+  const note=document.createElement('small');note.className='hcl-related-titles';note.textContent=(match.ownershipReview?'Check ownership: ':'Related library item: ')+titles[0];note.title=titles.join('; ');host.append(note);
+  if(titles.length>1){const details=document.createElement('details'),heading=document.createElement('summary');details.dataset.hclRelated='';heading.textContent='Other related items ('+(titles.length-1)+')';details.append(heading);const list=document.createElement('ul');for(const title of titles.slice(1)){const row=document.createElement('li');row.textContent=title;list.append(row);}details.append(list);host.append(details);}
+}
+
 function appendBundleSummaryControls(summary) {
   const controls = document.createElement('div');
   controls.className = 'hcl-summary-controls';
@@ -1864,24 +1878,31 @@ function appendBundleSummaryControls(summary) {
   expand.className = 'hcl-summary-expand';
   expand.textContent = 'Humble Library — Expand';
   expand.setAttribute('aria-label', 'Expand Humble Library bundle summary');
+  const position=document.createElement('select');position.setAttribute('aria-label','Bundle summary position');
+  for(const [value,label]of [['bottom-right','Bottom right'],['bottom-left','Bottom left'],['top-right','Top right'],['top-left','Top left']]){const option=document.createElement('option');option.value=value;option.textContent=label;position.append(option);}
+  const status=document.createElement('small');status.setAttribute('role','status');status.hidden=true;
+  const persist=()=>HumbleComicLibrary.storageSet({bundleSummaryPreferences:{...bundleSummaryPreferences}}).catch(error=>{status.hidden=false;status.textContent='Could not save panel preferences: '+error.message;});
+  position.addEventListener('change',()=>{bundleSummaryPreferences.position=position.value;update();persist();});
+  summary.addEventListener('hcl-summary-preferences',()=>update());
   const update = () => {
-    summary.classList.toggle('hcl-summary-minimized', bundleSummaryMinimized);
-    minimize.hidden = bundleSummaryMinimized;
-    expand.hidden = !bundleSummaryMinimized;
-    minimize.setAttribute('aria-expanded', String(!bundleSummaryMinimized));
-    expand.setAttribute('aria-expanded', String(!bundleSummaryMinimized));
+    summary.classList.toggle('hcl-summary-minimized', bundleSummaryPreferences.minimized);
+    summary.dataset.position=bundleSummaryPreferences.position;position.value=bundleSummaryPreferences.position;position.hidden=bundleSummaryPreferences.minimized;
+    minimize.hidden = bundleSummaryPreferences.minimized;
+    expand.hidden = !bundleSummaryPreferences.minimized;
+    minimize.setAttribute('aria-expanded', String(!bundleSummaryPreferences.minimized));
+    expand.setAttribute('aria-expanded', String(!bundleSummaryPreferences.minimized));
   };
   minimize.addEventListener('click', () => {
-    bundleSummaryMinimized = true;
-    update();
+    bundleSummaryPreferences.minimized = true;
+    update();persist();
     expand.focus();
   });
   expand.addEventListener('click', () => {
-    bundleSummaryMinimized = false;
-    update();
+    bundleSummaryPreferences.minimized = false;
+    update();persist();
     minimize.focus();
   });
-  controls.append(minimize, expand);
+  controls.append(position,minimize, expand,status);
   summary.prepend(controls);
   update();
 }
@@ -1956,13 +1977,14 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     const detail = document.createElement('details');
     detail.className = 'hcl-title-list';
     const heading = document.createElement('summary');
-    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partially owned' : state === 'unchecked' ? 'Not checked' : 'Possible matches'} (${titlesByState[state].length})`;
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partial' : state === 'unchecked' ? 'Not checked' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.purchaseCount > 1 ? ` — purchased ${item.purchaseCount} times` : ''}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.provenance;
+      if(item.match)appendRelatedTitles(row,item.match);
       if (item.match) {
         const explain = document.createElement('button');
         explain.type = 'button';

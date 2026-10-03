@@ -248,3 +248,18 @@
 .hcl-reading-sequence [data-coverage="covered"] { color: #9ce4b7; }
 .hcl-reading-sequence [data-coverage="uncertain"] { color: #f8cf7d; }
 .hcl-series-coverage button { color: #fff; background: #333; border: 1px solid #aaa; padding: .3rem .5rem; border-radius: .3rem; cursor: pointer; }
+
+.hcl-summary { box-sizing:border-box; width:384px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); overflow:auto; padding:12px 16px; font:600 14px/1.45 Arial,sans-serif; }
+.hcl-summary-controls { gap:8px; flex-wrap:wrap; align-items:center; }
+.hcl-summary-controls select { max-width:150px; padding:4px 6px; border:1px solid #777; border-radius:4px; background:#171717; color:#fff; font:400 12px Arial,sans-serif; }
+.hcl-summary-controls [hidden] { display:none!important; }
+.hcl-summary[data-position="bottom-left"] { left:16px; right:auto; top:auto; bottom:16px; }
+.hcl-summary[data-position="top-left"] { left:16px; right:auto; top:16px; bottom:auto; }
+.hcl-summary[data-position="top-right"] { right:16px; left:auto; top:16px; bottom:auto; }
+.hcl-summary[data-position="bottom-right"] { right:16px; left:auto; top:auto; bottom:16px; }
+.hcl-summary-controls :focus-visible,.hcl-title-list button:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.hcl-related-titles { display:block; margin:.35rem 0; color:#f4cc73; font:400 12px/1.4 Arial,sans-serif; overflow-wrap:anywhere; }
+.hcl-match-inspector { width:min(44rem,calc(100vw - 2rem)); font:400 .9rem/1.45 Arial,sans-serif; }
+.hcl-match-inspector::backdrop { background:rgb(0 0 0 / 65%); }
+.hcl-match-inspector h2 { font:700 1.1rem/1.4 Arial,sans-serif; color:inherit; }
+.hcl-match-inspector button { padding:.4rem .6rem; margin:.25rem; border-radius:.25rem; }

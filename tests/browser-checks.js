@@ -1,13 +1,14 @@
 (async () => {
-  const checks = [];
+  const checks = JSON.parse(sessionStorage.getItem('prior-summary-checks')||'[]');
   const check = (condition, label) => { if (!condition) throw new Error(label); checks.push(label); };
   const waitFor = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(done => setTimeout(done, 30)); } throw new Error('Timed out waiting for storefront'); };
   let error;
   try {
     await waitFor(() => document.querySelector('#hcl-summary'));
+    if(sessionStorage.getItem('verify-summary-reload')){check(document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized')&&document.querySelector('#hcl-summary').dataset.position==='top-left','Saved summary size and corner survive a real page reload');document.querySelector('.hcl-summary-expand').click();await waitFor(()=>fixtureStored.bundleSummaryPreferences.minimized===false);check(!document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized'),'Reloaded summary can expand and persist');await fetch('/test-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checks})});return;}
     check(document.querySelectorAll('.hcl-status-button').length === 5, 'Every card has an accessible ownership explanation button');
     const partial = [...document.querySelectorAll('.hcl-status-button')].find(button => button.dataset.state === 'partial');
-    check(partial?.textContent === '3/4 Owned', 'Reviewed local and GL contents combine into Partial coverage');
+    check(partial?.textContent === 'Partial (3/4)', 'Reviewed local and GL contents combine into Partial coverage');
     partial.click();
     const dialog = document.querySelector('#hcl-match-inspector');
     check(dialog?.open && dialog.textContent.includes('GL collection') && dialog.textContent.includes('Owned collection'), 'Inspector opens and names both ownership sources');
@@ -18,6 +19,8 @@
     [...dialog.querySelectorAll('button')].find(button => button.textContent === 'Close').click();
     await waitFor(() => !document.querySelector('#hcl-match-inspector'));
     check(!document.querySelector('#hcl-match-inspector'), 'Closing removes the evidence dialog');
+    check([...document.querySelectorAll('.hcl-title-list li')].some(row=>row.textContent.includes('Related library item: Dune, 1st Edition')),'Possible summary names the actual library edition without opening an inspector');
+    const otherCandidates=[...document.querySelectorAll('.hcl-title-list details[data-hcl-related]')].find(node=>node.textContent.includes('Dune, 3rd Edition'));check(Boolean(otherCandidates)&&otherCandidates.textContent.includes('Kindle')&&otherCandidates.textContent.includes('owned'),'Additional Possible editions retain titles, providers and ownership in an expandable summary');
     const possible = [...document.querySelectorAll('.hcl-status-button')].find(button => button.dataset.state === 'possible');
     possible.click();
     check(document.querySelector('#hcl-match-inspector').textContent.includes('Dune, 1st Edition'), 'Possible explains the actual different owned edition');
@@ -106,6 +109,8 @@
     await chrome.storage.local.set({ historicalLibraryItems: [], humbleProfileLabel: 'other profile' });
     await waitFor(() => ![...document.querySelectorAll('.hcl-status-button')].some(button => button.textContent === 'Check ownership'));
     check(localComparison.resolvedItems.some(row => row.match.state === 'possible') && ![...document.querySelectorAll('.hcl-status-button')].some(button => button.textContent === 'Check ownership'), 'Clearing or switching active history removes stale candidates on the open page');
+    await waitFor(()=>document.querySelector('[aria-label="Bundle summary position"]'));
+    const originalRecords=JSON.stringify(fixtureStored.libraryItems),position=document.querySelector('[aria-label="Bundle summary position"]');position.value='top-left';position.dispatchEvent(new Event('change'));document.querySelector('.hcl-summary-minimize').click();await waitFor(()=>fixtureStored.bundleSummaryPreferences?.minimized&&fixtureStored.bundleSummaryPreferences.position==='top-left');check(document.querySelector('#hcl-summary').dataset.position==='top-left'&&getComputedStyle(document.querySelector('#hcl-summary')).left==='16px','Panel corner and minimize changes persist and apply');check(JSON.stringify(fixtureStored.libraryItems)===originalRecords,'Panel preferences preserve ownership records');sessionStorage.setItem('prior-summary-checks',JSON.stringify(checks));sessionStorage.setItem('verify-summary-reload','true');location.reload();return;
   } catch (failure) { error = failure.stack || failure.message; }
   await fetch('/test-result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checks, ...(error ? { error } : {}) }) });
 })().catch(error => console.error(error));

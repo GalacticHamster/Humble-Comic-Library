@@ -173,7 +173,7 @@
 
   function explanationLines(match) {
     const offered = match.offered ?? {};
-    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.state}`, `Media: ${offered.kind || 'book'}`];
+    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.ownershipReview?'Check ownership':({owned:'Owned',elsewhere:'Owned elsewhere',possible:'Possible',partial:'Partial',unchecked:'Not checked',new:'New'}[match.state]??match.state)}`, `Media: ${offered.kind || 'book'}`];
     const describe = (label, value) => {
       const data = H.bibliographicFields(value);
       const fields = Object.entries(data).map(([name, entry]) => `${name}: ${Array.isArray(entry) ? entry.join(', ') : entry}`);

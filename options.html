@@ -12,32 +12,16 @@
         <p id="last-import" role="status"></p>
       </section>
       <section>
-        <h2>Key reminders</h2>
-        <p>Track unrevealed keys and entitlements needing review. Imports refresh new and pending purchases; a full rescan establishes the complete reminder baseline. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
-        <button id="open-key-reminders">Open Humble purchases</button>
-        <label class="key-reminder-direct-option"><input id="open-direct-purchase-links" type="checkbox"> Open direct Humble order links</label>
-        <p class="key-reminder-direct-note">Off by default: <strong>Open purchase</strong> uses Humble's normal purchase-card flow, so allow pop-ups and redirects for Humble if you want it to open the individual order. When enabled, the purchase identifier appears in the Humble URL and browser history.</p>
-        <p id="key-reminder-summary" role="status"></p>
-        <ol id="key-reminder-list"></ol>
-      </section>
-      <section>
-        <h2>Import titles</h2>
-        <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
-        <input id="import-file" type="file" accept="application/json,.json">
-        <p id="import-status" role="status"></p>
-      </section>
-      <section>
-        <h2>Collection mappings</h2>
-        <p>Import reviewed issue/volume-to-collection rules. Edition identifiers, series/run IDs, annuals, specials, fractional issues, source evidence, and partial reprints are supported. Unreviewed rules and excerpts never prove full ownership. See the README for the JSON format.</p>
-        <input id="collection-mapping-file" type="file" accept="application/json,.json">
-        <p id="collection-mapping-status" role="status"></p>
-        <p id="collection-mapping-count"></p>
-      </section>
-      <section>
-        <h2>Restore backup</h2>
-        <p>Choose an exported Humble Comic Library backup. Restore replaces all items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Browser preferences and your Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
-        <input id="restore-file" type="file" accept="application/json,.json">
-        <p id="restore-status" role="status"></p>
+        <h2>Wishlist and priorities</h2>
+        <p>Add titles here or tick Wishlist beside a bundle summary item. Priority is your personal weight from 1 to 100, not a price estimate. Bundle plans exclude owned items and uncertain matches unless you include them.</p>
+        <label for="wishlist-title">Title</label><input id="wishlist-title" type="text" maxlength="500">
+        <label for="wishlist-kind">Media</label><select id="wishlist-kind"><option value="book">Book</option><option value="audiobook">Audiobook</option><option value="game">Game</option><option value="software">Software</option></select>
+        <label for="wishlist-weight">Priority</label><input id="wishlist-weight" type="number" min="1" max="100" step="1" value="1">
+        <button id="add-wishlist" type="button">Add to wishlist</button>
+        <ul id="wishlist-list"></ul>
+        <button id="export-wishlist" type="button">Export wishlist</button>
+        <label for="wishlist-file">Restore wishlist (replaces this list)</label><input id="wishlist-file" type="file" accept="application/json,.json">
+        <p id="wishlist-status" role="status"></p>
       </section>
       <section>
         <h2>Galactic Library link</h2>
@@ -58,27 +42,47 @@
         <p id="entitlement-share-status" role="status"></p>
       </section>
       <section>
-        <h2>Diagnostics</h2>
-        <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
-        <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>
+        <h2>Key reminders</h2>
+        <p>Track unrevealed keys and entitlements needing review. Imports refresh new and pending purchases; a full rescan establishes the complete reminder baseline. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
+        <button id="open-key-reminders">Open Humble purchases</button>
+        <label class="key-reminder-direct-option"><input id="open-direct-purchase-links" type="checkbox"> Open direct Humble order links</label>
+        <p class="key-reminder-direct-note">Off by default: <strong>Open purchase</strong> uses Humble's normal purchase-card flow, so allow pop-ups and redirects for Humble if you want it to open the individual order. When enabled, the purchase identifier appears in the Humble URL and browser history.</p>
+        <p id="key-reminder-summary" role="status"></p>
+        <ol id="key-reminder-list"></ol>
       </section>
       <section>
-        <h2>Wishlist and priorities</h2>
-        <p>Add titles here or tick Wishlist beside a bundle summary item. Priority is your personal weight from 1 to 100, not a price estimate. Bundle plans exclude owned items and uncertain matches unless you include them.</p>
-        <label for="wishlist-title">Title</label><input id="wishlist-title" type="text" maxlength="500">
-        <label for="wishlist-kind">Media</label><select id="wishlist-kind"><option value="book">Book</option><option value="audiobook">Audiobook</option><option value="game">Game</option><option value="software">Software</option></select>
-        <label for="wishlist-weight">Priority</label><input id="wishlist-weight" type="number" min="1" max="100" step="1" value="1">
-        <button id="add-wishlist" type="button">Add to wishlist</button>
-        <ul id="wishlist-list"></ul>
-        <button id="export-wishlist" type="button">Export wishlist</button>
-        <label for="wishlist-file">Restore wishlist (replaces this list)</label><input id="wishlist-file" type="file" accept="application/json,.json">
-        <p id="wishlist-status" role="status"></p>
+        <h2>Display and diagnostics</h2>
+        <p>Bundle summaries remember their size and corner across visits. You can also change the corner on an expanded summary.</p>
+        <label><input id="summary-minimized" type="checkbox"> Keep bundle summaries minimized</label>
+        <label>Bundle summary position <select id="summary-position"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option><option value="top-right">Top right</option><option value="top-left">Top left</option></select></label>
+        <p id="summary-preferences-status" role="status"></p>
+        <label><input id="show-diagnostics" type="checkbox"> Show bundle and catalogue diagnostics</label>
+        <p>Leave this off for a cleaner Humble page. Turn it on when troubleshooting loading, matching, or sorting.</p>
       </section>
       <section>
         <h2>Library</h2>
         <p id="library-count">Loading…</p>
         <div class="actions"><button id="export-library">Export backup</button><button id="clear-library" class="danger">Clear library</button></div>
         <ol id="library-preview"></ol>
+      </section>
+      <section>
+        <h2>Restore backup</h2>
+        <p>Choose an exported Humble Comic Library backup. Restore replaces all items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
+        <input id="restore-file" type="file" accept="application/json,.json">
+        <p id="restore-status" role="status"></p>
+      </section>
+      <section>
+        <h2>Import titles</h2>
+        <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
+        <input id="import-file" type="file" accept="application/json,.json">
+        <p id="import-status" role="status"></p>
+      </section>
+      <section>
+        <h2>Collection mappings</h2>
+        <p>Import reviewed issue/volume-to-collection rules. Edition identifiers, series/run IDs, annuals, specials, fractional issues, source evidence, and partial reprints are supported. Unreviewed rules and excerpts never prove full ownership. See the README for the JSON format.</p>
+        <input id="collection-mapping-file" type="file" accept="application/json,.json">
+        <p id="collection-mapping-status" role="status"></p>
+        <p id="collection-mapping-count"></p>
       </section>
     </main>
     <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="entitlement-share.js"></script><script src="options.js"></script>

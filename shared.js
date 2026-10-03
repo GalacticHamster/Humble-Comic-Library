@@ -383,6 +383,12 @@
   }
 
 
+  function normalizeSummaryPreferences(value={},strict=false) {
+    const positions=['bottom-right','bottom-left','top-right','top-left'];
+    if(strict&&(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['minimized','position'].includes(key))||Object.hasOwn(value,'minimized')&&typeof value.minimized!=='boolean'||Object.hasOwn(value,'position')&&!positions.includes(value.position)))throw new Error('Invalid bundle summary preferences.');
+    return {minimized:value?.minimized===true,position:positions.includes(value?.position)?value.position:'bottom-right'};
+  }
+
   function createSyncStore(area) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
@@ -438,8 +444,9 @@
         if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||stored.galacticLibraryExtensionId!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
       if(operation==='patch'){
-        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus'];
+        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
+        if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
         await area.set(updates);return true;
       }
       if(operation==='wishlist'){
@@ -466,7 +473,7 @@
   const storageRemove=keys=>storageRequest('remove',Array.isArray(keys)?keys:[keys]);
 
   global.HumbleComicLibrary = {
-    createSyncStore, storageRequest, storageSet, storageRemove,
+    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove,
     normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields

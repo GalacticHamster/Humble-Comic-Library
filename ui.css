@@ -29,3 +29,5 @@ code { font-family: ui-monospace, monospace; }
 #wishlist-list li { margin-block: .5rem; }
 #wishlist-list input, #wishlist-weight { width: 4.5rem; }
 #wishlist-title { width: min(100%, 24rem); }
+
+.actions { flex-wrap:wrap; } #humble-extension-id { overflow-wrap:anywhere; } label { display:block; margin:.5rem 0; } #summary-position { padding:.35rem; }
