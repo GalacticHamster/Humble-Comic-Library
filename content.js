@@ -1,7 +1,9 @@
 const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
-const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 3500;
+// Reading and validating a large private GL database, then matching a bounded
+// batch, can exceed a few seconds. Keep a finite deadline with room for that work.
+const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 30000;
 // Media types accepted by Galactic Library's version-1 MATCH_ITEMS contract.
 // Software requests require an advertised capability; older GL stays local.
 const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'software']);
@@ -77,6 +79,13 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     // expensive comparison. The timeout guarantees it still runs promptly on
     // a continuously busy page.
     refreshTimer = setTimeout(() => runWhenIdle(() => renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job), 500), reason === 'initial' ? 0 : 120);
+  };
+  comparison.retryGalactic = () => {
+    if (comparison.galactic.softwareCapabilityFailed) {
+      comparison.galactic.softwareCapability = null;
+      comparison.galactic.softwareCapabilityFailed = false;
+    }
+    refresh('retry Galactic Library');
   };
   refresh('initial');
   let libraryRevision = 0;
@@ -415,7 +424,7 @@ function galacticRequestKey(itemKind, title) {
 function waitForGalacticResponse(promise) {
   let timeout;
   const timed = new Promise((_, reject) => {
-    timeout = setTimeout(() => reject(new Error('Galactic Library did not respond in time.')), GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS);
+    timeout = setTimeout(() => reject(new Error('Galactic Library did not respond within 30 seconds. It may be busy; retry the checks.')), GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS);
   });
   return Promise.race([promise, timed]).finally(() => clearTimeout(timeout));
 }
@@ -1998,6 +2007,18 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       : `Galactic Library: ${comparison.galactic.status}`;
     galactic.title = 'GL receives current bundle titles, media types, available catalog evidence, and explicit requested contents. Exact confirmed ownership and full reviewed contents are distinct from related editions or uncertain access.';
     summary.append(galactic);
+    if ((comparison.galactic.error || comparison.galactic.softwareCapabilityFailed) && comparison.retryGalactic) {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'hcl-retry-galactic';
+      retry.textContent = 'Retry Galactic Library checks';
+      retry.addEventListener('click', () => {
+        if (retry.disabled) return;
+        retry.disabled = true;
+        comparison.retryGalactic();
+      });
+      summary.append(retry);
+    }
   }
   appendBundleNewItemsOnlyFilter(summary, comparison);
   if (counts.partial) {

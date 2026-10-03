@@ -13,6 +13,7 @@ const firefox = process.argv.includes('--firefox');
 const importer = process.argv.includes('--importer');
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
+const slowCentral = process.argv.includes('--slow-central');
 const storeFirefox = firefox && process.platform === 'win32' ? await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', '(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'], {windowsHide:true}).then(({stdout})=>stdout.trim() ? [join(stdout.trim(),'VFS/ProgramFiles/Firefox Package Root/firefox.exe')] : [],()=>[]) : [];
 const candidates = (firefox ? [process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...storeFirefox] : [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium']).filter(Boolean);
 let browser;
@@ -41,6 +42,9 @@ const server = createServer(async (request, response) => {
     if(refreshLoop&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=250;window.fixtureCentralFailure=true;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};fixtureStored.showDiagnostics=true;</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/summary-refresh-checks.js');
+    if(slowCentral&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
+      .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=4500;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};</script><script src="/shared.js">')
+      .replace('/tests/browser-checks.js','/tests/slow-central-checks.js');
     response.end(body);
   } catch (error) { response.writeHead(404); response.end(error.message); }
 });

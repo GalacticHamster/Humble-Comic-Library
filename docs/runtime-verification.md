@@ -10,6 +10,8 @@ node tests/browser.mjs --catalogue
 node tests/browser.mjs --firefox --catalogue
 node tests/browser.mjs --refresh-loop
 node tests/browser.mjs --firefox --refresh-loop
+node tests/browser.mjs --slow-central
+node tests/browser.mjs --firefox --slow-central
 node tests/runtime.mjs
 node tests/runtime.mjs --firefox
 node tests/runtime.mjs --central
@@ -18,6 +20,8 @@ node tests/runtime.mjs --central
 The core suite tests parsing, matching, purchase/key evidence, scan races, restore validation, outbound privacy and deterministic Chrome/Firefox packaging. Storefront fixtures run the actual content scripts in Chrome and Firefox with synthetic providers: explanations, Possible editions, contents coverage, summary controls, tier planning, wishlist and series gaps, Purchased versus activation, and expiry review.
 
 The refresh-loop fixture delays and fails Galactic Library lookups, reproducing the feedback loop between HB's own DOM annotations and its bundle observer. It checks stable Not checked and local Partial results, no repeated idle requests, preserved minimized/expanded preferences, and retaining the current summary during a deliberate refresh. Real lazy-loaded covers, hydrated titles and removed covers must still trigger a single settled update. These checks run in both Chrome and Firefox.
+
+The slow-central fixture uses valid 4.5-second replies, exceeding the former 3.5-second deadline. Initial checks and an explicit retry must complete with the normal Possible/Partial results, preserve panel preferences and stop requesting once settled. The deadline is now 30 seconds per request, allowing large private databases and a busy worker to finish while retaining a finite failure path. A core test advances that deadline without a real wait and verifies that timed-out requests cannot overwrite later results and that retry clears their failure state. Failed checks offer "Retry Galactic Library checks" in the summary; retry keeps completed central results and requests the missing results again.
 
 The catalogue fixture reproduces Humble's `.mosaic-section > .mosaic-layout > .tile-holder` structure, including a final one-card row. It checks expiry order across full and singleton rows, category boundaries, purchased badges, combined filters, empty-row gaps, preserved row capacities, inline flex order, repeat sorting and later-added singleton offers. It also tests hidden duplicate countdowns, unrelated marketing durations, clock-only hydration, temporarily empty timers, and day-boundary changes without refreshing on every second tick. On 2026-10-03, an anonymous live Books-page comparison reproduced the Image in the '20s two-day offer stranded behind seven-day offers with the old sorter; the fix includes that last row in the normal cross-row sort. The previous two-card minimum silently excluded it. Diagnostics now report the sortable-card count and one-card rows so excluded cards cannot hide behind a successful sort of the other rows.
 
