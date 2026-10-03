@@ -17,6 +17,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   let humble=false;try{humble=own&&new URL(sender.url).origin==='https://www.humblebundle.com';}catch{}
   if(!extensionPage&&!humble){respond({ok:false,error:'Untrusted library request.'});return false;}
   if(['replace','remove','shareSnapshot','verifyShareSnapshot'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
+  if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&new URL(sender.url).pathname.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options or the purchase importer.'});return false;}
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
   if(message.operation==='commit')args[2]=sender.tab?.id??null;

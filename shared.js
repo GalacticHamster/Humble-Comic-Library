@@ -404,11 +404,40 @@
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion'];
     async function operate(operation,args){
+      if(operation==='profiles'){
+        const state=await area.get(LIBRARY_STATE_DEFAULTS),unique=new Map(state.profileArchives.map(entry=>[entry.profileLabel,entry]));
+        if(state.humbleProfileLabel)unique.delete(state.humbleProfileLabel);
+        return {activeLabel:state.humbleProfileLabel,profiles:[...(state.humbleProfileLabel?[{label:state.humbleProfileLabel,active:true,itemCount:state.libraryItems.length}]:[]),...[...unique.values()].map(entry=>({label:entry.profileLabel,active:false,itemCount:entry.backup.items.length}))]};
+      }
+      if(operation==='selectProfile'||operation==='renameProfile'){
+        const [options]=args,state=await area.get(LIBRARY_STATE_DEFAULTS),label=String(options.profileLabel??'').trim();
+        if(options.confirmed!==true)throw new Error('Confirm the selected account before continuing.');
+        if(options.expectedActiveLabel!==state.humbleProfileLabel)throw new Error('The active account changed. Review the saved accounts and try again.');
+        const selected=label===state.humbleProfileLabel&&label?null:[...state.profileArchives].reverse().find(entry=>entry.profileLabel===label);
+        if(!label||label!==state.humbleProfileLabel&&!selected)throw new Error('This saved account is unavailable. Refresh the account list.');
+        if(operation==='renameProfile'){
+          const next=String(options.newLabel??'').trim();
+          if(!next||next.length>100)throw new Error('Enter an account nickname of 1 to 100 characters.');
+          if(next===label)return true;
+          if(next===state.humbleProfileLabel||state.profileArchives.some(entry=>entry.profileLabel===next))throw new Error('That account nickname is already in use.');
+          const archives=state.profileArchives.map(entry=>entry.profileLabel===label?{profileLabel:next,backup:{...entry.backup,profileLabel:next}}:entry);
+          await area.set({profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+        }
+        if(label===state.humbleProfileLabel)return true;
+        if(!state.humbleProfileLabel&&state.libraryItems.length)throw new Error('Confirm a nickname for the current library through the importer before switching saved accounts.');
+        const snapshot=restoreBackupState({...selected.backup,profileArchives:[]});
+        if(snapshot.humbleProfileLabel&&snapshot.humbleProfileLabel!==label)throw new Error('Saved account identity is inconsistent. Restore a valid backup first.');
+        const archives=state.profileArchives.filter(entry=>entry.profileLabel!==label&&entry.profileLabel!==state.humbleProfileLabel);
+        if(state.humbleProfileLabel)archives.push({profileLabel:state.humbleProfileLabel,backup:createLibraryBackup({...state,profileArchives:[]})});
+        if(archives.length>100)throw new Error('Too many saved accounts. Export a backup first.');
+        await area.set({...snapshot,humbleProfileLabel:label,profileArchives:archives,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+      }
       if(operation==='begin'){
         const [options,tabId]=args;const profileLabel=String(options.profileLabel??'').trim();
         if(!options.confirmed||!profileLabel||profileLabel.length>100)throw new Error('Enter an account nickname and confirm the signed-in Humble account.');
         const state=await area.get(LIBRARY_STATE_DEFAULTS);const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
-        if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan all purchases and explicitly select Replace active account.');
+        if(changing&&state.profileArchives.some(entry=>entry.profileLabel===profileLabel))throw new Error('This account is already saved. Use saved account before importing.');
+        if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan all purchases and explicitly select Save a new account.');
         const forceFull=changing||!state.humbleProfileLabel;const token=global.crypto.randomUUID();
         await area.set({[controlKey]:{token,tabId,profileLabel,changing,forceFull,fullRescan:options.fullRescan===true}});
         const baseline=changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:state.libraryItems.filter(item=>item.source!=='humble'),customCollectionMappings:state.customCollectionMappings}:state;
@@ -488,4 +517,44 @@
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };
+}(globalThis));
+
+/* Identical account picker in both companions; all changes use the serialized writer. */
+(function(global){
+  function mount(host,{request,keys,onActiveChange=()=>{}}){
+    if(!host?.ownerDocument)return {refresh:async()=>{}};
+    const details=document.createElement('details');details.className='account-manager';
+    details.innerHTML='<summary>Saved accounts</summary><p>Use a saved account to restore its library and scan history. Sign in to that website account separately; this selector does not change your login. Only the active account is used for ownership checks.</p><label>Saved account <select data-account-list></select></label><label><input type="checkbox" data-account-confirm> The website is signed in to the selected account</label><div class="account-actions"><button type="button" data-account-use>Use saved account</button></div><label>New nickname for selected account <input data-account-name maxlength="100" placeholder="e.g. personal"></label><div class="account-actions"><button type="button" data-account-rename>Rename account</button></div><p>Renaming changes only this local name. For a new website account, enter a new nickname in the purchase importer and use Rescan all purchases with Save a new account selected.</p><p data-account-status role="status" aria-live="polite"></p>';
+    host.append(details);
+    const list=details.querySelector('[data-account-list]'),confirmed=details.querySelector('[data-account-confirm]'),name=details.querySelector('[data-account-name]'),use=details.querySelector('[data-account-use]'),rename=details.querySelector('[data-account-rename]'),status=details.querySelector('[data-account-status]');
+    let data={activeLabel:'',profiles:[]},active,revision=0,busy=false;
+    const controls=()=>{list.disabled=confirmed.disabled=name.disabled=busy||!data.profiles.length;use.disabled=busy||!list.value||list.value===data.activeLabel;rename.disabled=busy||!list.value;};
+    async function refresh(){
+      const generation=++revision;
+      try{
+        const next=await request('profiles');if(generation!==revision)return;
+        const previous=active,selected=list.value;data=next;active=next.activeLabel;
+        list.replaceChildren(...next.profiles.map(profile=>{const option=document.createElement('option');option.value=profile.label;option.textContent=profile.label+(profile.active?' (active)':'')+' - '+profile.itemCount+' items';return option;}));
+        list.value=previous===active&&next.profiles.some(profile=>profile.label===selected)?selected:active||next.profiles[0]?.label||'';
+        if(previous!==active||name.value===''){name.value=list.value;confirmed.checked=false;}
+        details.querySelector('summary').textContent='Saved accounts ('+next.profiles.length+')'+(active?' - active: '+active:' - not yet named');
+        controls();if(previous!==active)onActiveChange(active,previous);
+      }catch(error){if(generation===revision)status.textContent='Could not load saved accounts: '+error.message;}
+    }
+    list.addEventListener('change',()=>{confirmed.checked=false;name.value=list.value;controls();});
+    use.addEventListener('click',async()=>{
+      if(!confirmed.checked){status.textContent='Confirm the website is signed in to the selected account first.';return;}
+      const label=list.value;busy=true;controls();
+      try{await request('selectProfile',{profileLabel:label,expectedActiveLabel:data.activeLabel,confirmed:true});await refresh();confirmed.checked=false;status.textContent='Using '+label+'. Its saved library is active; Import new purchases checks for changes without a mandatory full rescan.';}
+      catch(error){status.textContent=error.message;await refresh();}finally{busy=false;controls();}
+    });
+    rename.addEventListener('click',async()=>{
+      const label=list.value,next=name.value.trim();busy=true;controls();
+      try{await request('renameProfile',{profileLabel:label,newLabel:next,expectedActiveLabel:data.activeLabel,confirmed:true});await refresh();list.value=next;name.value=next;confirmed.checked=false;status.textContent='Renamed '+label+' to '+next+'. Purchases and scan history were kept; no scan was started.';}
+      catch(error){status.textContent=error.message;await refresh();}finally{busy=false;controls();}
+    });
+    chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&keys.some(key=>changes[key]))refresh();});
+    refresh();return {refresh};
+  }
+  global.LibraryAccountProfiles={mount};
 }(globalThis));

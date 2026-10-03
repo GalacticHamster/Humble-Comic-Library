@@ -8,8 +8,9 @@
       <section>
         <h2>Import from Humble</h2>
         <p>Sign in to Humble in this browser, open the purchase importer, and select <em>Import new purchases</em>. Use <em>Rescan all purchases</em> to rebuild the active account's snapshot from the full purchase history.</p>
-        <details class="settings-help"><summary>How account nicknames work</summary><p>An account nickname is a name you choose for the website account you import, such as personal. It is stored only in this browser; it does not sign you in or detect your login. Only one account snapshot is active for ownership checks. Sign in to the other account on the website, enter its nickname, confirm it, select Replace active account, and use Rescan all purchases to switch. A successful full rescan archives the previous snapshot for backup recovery; archived accounts are not combined with the active library.</p><p><strong>Not yet named</strong> means no account nickname has been established. Confirm a nickname in the importer and run a complete rescan to establish it. The first import automatically requires a full scan.</p></details>
+        <details class="settings-help"><summary>How account nicknames work</summary><p>A nickname labels a website account locally; it does not detect your login. Use Saved accounts to switch to an existing snapshot without a full rescan. Rename account changes only its name and preserves scan history. For a new account, sign in on the website, enter a new nickname in the importer, select Save a new account, and rescan all purchases once. Only the active account is matched; other saved accounts are kept separately.</p><p>Not yet named means no account nickname has been established. Confirm a nickname in the importer; the first import automatically requires a full scan.</p></details>
         <button id="open-purchases" type="button">Open Humble purchase importer</button>
+        <div id="account-profiles"></div>
         <p id="last-import" role="status"></p>
       </section>
       <section>
@@ -61,20 +62,20 @@
         <p>Leave this off for a cleaner page. Turn it on when troubleshooting loading, matching, or sorting.</p>
       </section>
       <section>
-        <h2>Library</h2><p>Export backup saves ownership and purchase evidence. Export title catalog saves titles and identity metadata only; it cannot restore ownership. Your wishlist has its own export and restore above. Clear library removes ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
+        <h2>Library</h2><p>Export backup saves ownership and purchase evidence. Export title catalog saves titles and identity metadata only; it cannot restore ownership. Your wishlist has its own export and restore above. Clear library removes all saved accounts, ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
         <p id="library-count">Loading…</p>
         <div class="actions"><button id="export-library">Export backup</button><button id="export-catalog" type="button">Export title catalog</button><button id="clear-library" class="danger">Clear library</button></div>
         <p id="local-status" role="status"></p><p id="preview-note"></p><ol id="library-preview"></ol>
       </section>
       <section>
         <h2>Restore backup</h2>
-        <p>Choose a backup exported by this Humble Comic Library extension. HB and FAN ownership backups are not interchangeable. Restore replaces all items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
+        <p>Choose a backup exported by this Humble Comic Library extension. HB and FAN ownership backups are not interchangeable. Restore replaces all saved accounts, items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
         <input id="restore-file" type="file" accept="application/json,.json">
         <p id="restore-status" role="status"></p>
       </section>
       <details class="advanced-settings"><summary>Advanced: manual title imports and collection mappings (Humble only)</summary><p>These tools support manually curated libraries and reviewed comic collection contents. Fanatical uses its product records and linked Galactic Library instead.</p><section>
         <h2>Import titles</h2>
-        <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
+        <p>Choose a manual JSON title list: an array of strings or objects with <code>title</code>, optional <code>sourceBundle</code>, and optional <code>kind</code>. This replaces the library and removes all saved accounts, purchase records, provenance, reminders, scan history, the history archive, and custom mappings. To recover exported purchase data, use <strong>Restore backup</strong>.</p>
         <input id="import-file" type="file" accept="application/json,.json">
         <p id="import-status" role="status"></p>
       </section>

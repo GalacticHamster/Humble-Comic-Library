@@ -8,6 +8,19 @@
     check(getComputedStyle(profile).display==='grid'&&footer.contains(panel.querySelector('output'))&&footer.contains(quick),'account controls and scan status have dedicated layout containers');
     check(quick.textContent==='Import new purchases'&&full.textContent==='Rescan all purchases','import buttons use the shared labels');
     check(panel.querySelector('details').textContent.includes('does not sign you in'),'account nickname help explains local scope');
+    const hostReset=document.createElement('style');
+    hostReset.textContent='summary { display:block; list-style:none; } summary::marker { content:""; } summary::-webkit-details-marker { display:none; }';
+    document.head.append(hostReset);
+    for(const details of panel.querySelectorAll('.library-import-description > details')){
+      const summary=details.querySelector('summary'),label=summary.textContent;
+      const arrowVisible=type=>getComputedStyle(summary).display==='list-item'&&getComputedStyle(summary).listStyleType===type&&getComputedStyle(summary,'::marker').content==='normal';
+      check(!details.open&&arrowVisible('disclosure-closed'),label+' shows a closed disclosure arrow despite host page resets');
+      summary.click();
+      check(details.open&&arrowVisible('disclosure-open'),label+' opens with a downward disclosure arrow');
+      summary.click();
+      check(!details.open&&arrowVisible('disclosure-closed'),label+' closes with its disclosure arrow restored');
+    }
+    panel.querySelector('[data-profile-confirm]').checked=true;panel.querySelector('[data-profile-label]').dispatchEvent(new Event('input'));check(!panel.querySelector('[data-profile-confirm]').checked,'editing the account nickname requires fresh signed-in-account confirmation');
     const before=JSON.stringify(fixtureStored);quick.click();await wait(()=>panel.querySelector('output').textContent.startsWith('Import failed:'));
     check(JSON.stringify(fixtureStored)===before,'unconfirmed account cannot start import or replace ownership');
     window.confirm=()=>false;full.click();check(JSON.stringify(fixtureStored)===before,'cancelled full rescan leaves the active snapshot unchanged');

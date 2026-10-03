@@ -125,7 +125,7 @@
     document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'Not yet named';
     document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
     document.querySelector('#confirm-reminder-sharing').checked=false;
-    count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other profile archives (backup only; excluded from matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
+    count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other saved accounts (selectable above; excluded from active matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
     document.querySelector('#preview-note').textContent=items.length?`Showing ${Math.min(50,items.length)} of ${items.length} items, alphabetically.`:'Your library is empty. Import purchases or restore a backup to see a preview.';
     const collator=new Intl.Collator('en',{numeric:true,sensitivity:'base'});
     preview.replaceChildren(...[...items].sort((a,b)=>collator.compare(a.title,b.title)).slice(0, 50).map((item) => {
@@ -267,7 +267,7 @@
     try {
       const parsed = JSON.parse(await file.text());
       const replacement = HumbleComicLibrary.manualTitleImportState(parsed);
-      if (!confirm('Replace your library with this manual title list? This clears purchase records, provenance, reminders, scan history, the history archive, and custom mappings.')) return;
+      if (!confirm('Replace your library with this manual title list? This removes all saved accounts, purchase records, provenance, reminders, scan history, the history archive, and custom mappings.')) return;
       await HumbleComicLibrary.storageSet(replacement);
       status.textContent = `Imported ${replacement.libraryItems.length} unique titles. Previous purchase data, reminders, scan history, and custom mappings cleared.`;
       await render();
@@ -374,10 +374,11 @@
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
-    if (!confirm('Clear every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping? Your wishlist, display preferences and Galactic Library link will be kept.')) return;
+    if (!confirm('Clear all saved accounts and every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping? Your wishlist, display preferences and Galactic Library link will be kept.')) return;
     await HumbleComicLibrary.storageRemove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();
   });
+  LibraryAccountProfiles.mount(document.querySelector('#account-profiles'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives'],onActiveChange:()=>render()});
   render();
 }());

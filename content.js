@@ -2394,11 +2394,11 @@ function addPurchaseImporter() {
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer';
   panel.innerHTML = `
-    <div class="library-import-description"><strong>Humble Comic Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Confirm the account signed in on this website before importing. Only the active account is checked for ownership. To change accounts, sign in on the website, enter a different nickname, select Replace active account, and rescan all purchases. A successful full rescan archives the previous account for backup recovery.</p></details></div>
+    <div class="library-import-description"><strong>Humble Comic Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Only the active account is checked for ownership. Use Saved accounts below to switch back to a saved snapshot, then Import new purchases to refresh it. Rename account keeps its purchases and scan history. For a new account, sign in on the website, enter a new nickname, select Save a new account, and rescan all purchases once.</p></details></div>
     <div class="library-import-profile">
       <label>Account nickname <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
       <label><input type="checkbox" data-profile-confirm> The signed-in account matches this nickname</label>
-      <label><input type="checkbox" data-profile-switch> Replace active account on full rescan</label>
+      <label><input type="checkbox" data-profile-switch> Save a new account on full rescan</label>
     </div>
     <div class="library-import-footer"><output aria-live="polite"></output>
     <div class="hcl-import-actions">
@@ -2409,12 +2409,14 @@ function addPurchaseImporter() {
       <button type="button" data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden title="Downloads a safe structural report of purchase-page links and attributes. It never includes titles, URLs, purchase identifiers, or redemption keys.">Inspect purchase navigation</button>
     </div>
     </div>`;
+  LibraryAccountProfiles.mount(panel.querySelector('.library-import-description'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives'],onActiveChange:(label,previous)=>{const input=panel.querySelector('[data-profile-label]');if(previous===undefined&&input.value)return;const changed=input.value!==label;input.value=label;if(changed){panel.querySelector('[data-profile-confirm]').checked=false;if(previous!==undefined)panel.querySelector('.library-import-footer > output').textContent='Active account: '+(label||'Not yet named')+'. Import new purchases checks for updates.';}panel.querySelector('[data-profile-switch]').checked=false;}});
+  panel.querySelector('[data-profile-label]').addEventListener('input',()=>{panel.querySelector('[data-profile-confirm]').checked=false;});
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
   chrome.storage.local.get({ showDiagnostics: false, keyReminderScan: null, humbleProfileLabel:'' })
     .then(({ showDiagnostics, keyReminderScan, humbleProfileLabel }) => {
-      panel.querySelector('[data-profile-label]').value=humbleProfileLabel;
+      if(!panel.querySelector('[data-profile-label]').value)panel.querySelector('[data-profile-label]').value=humbleProfileLabel;
       debugButtons.forEach((button) => { button.hidden = !showDiagnostics; });
       const reminderNotice = keyReminderSyncNotice(keyReminderScan);
       if (reminderNotice) status.textContent = reminderNotice;

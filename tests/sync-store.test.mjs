@@ -61,3 +61,33 @@ test('summary preferences merge through the writer, reject invalid patches atomi
   for(const value of [{position:'offscreen'},{minimized:'true'},{extra:'private'},null,[]]){await assert.rejects(f.store.execute('patch',[{showDiagnostics:true,bundleSummaryPreferences:value}]),/preferences/);assert.deepEqual(f.state,before);}
   assert.equal(JSON.stringify(library.createLibraryBackup(f.state)).includes('bundleSummaryPreferences'),false);await f.store.execute('replace',[library.LIBRARY_STATE_DEFAULTS]);assert.deepEqual(f.state.bundleSummaryPreferences,before.bundleSummaryPreferences);await f.store.execute('remove',[['libraryItems']]);assert.deepEqual(f.state.bundleSummaryPreferences,before.bundleSummaryPreferences);
 });
+
+
+const choose=(label,expectedActiveLabel)=>({profileLabel:label,expectedActiveLabel,confirmed:true});
+test('saved account activation restores its purchase and reminder scan history without a full scan',async()=>{
+  const f=fixture();f.state.mediaImportVersion=7;f.state.purchaseSummaries=[{purchaseKey:'personal-order',itemCount:1}];f.state.keyReminderScan={complete:true};f.state.keyReminders=[{id:'personal-key',purchaseKey:'personal-order',title:'Personal game',status:'unrevealed'}];f.state.lastImport={importedAt:'2026-10-02T10:00:00Z',reconciled:true};f.state.wishlistItems=[{title:'Wish',kind:'book',weight:1}];f.state.galacticLibraryExtensionId='a'.repeat(32);
+  const personal=structuredClone(f.state),scan=await f.store.execute('begin',[{...options,profileLabel:'work',switchProfile:true},1]);
+  await f.store.execute('commit',[scan.token,{...updates,libraryItems:[{title:'Work book',kind:'book',source:'humble'}],purchaseSummaries:[{purchaseKey:'work-order',itemCount:1}],keyReminders:[],keyReminderScan:{complete:true},mediaImportVersion:7},1]);
+  const old=await f.store.execute('begin',[{profileLabel:'work',confirmed:true},1]);
+  await f.store.execute('selectProfile',[choose('personal','work')]);
+  for(const key of ['libraryItems','purchaseSummaries','keyReminders','keyReminderScan','lastImport','mediaImportVersion'])assert.deepEqual(f.state[key],personal[key]);
+  assert.equal(f.state.wishlistItems[0].title,'Wish');assert.equal(f.state.galacticLibraryExtensionId,'a'.repeat(32));assert.equal(f.state.hclEntitlementShareScope,null);
+  await assert.rejects(f.store.execute('commit',[old.token,updates,1]),/superseded/);
+  f.store=library.createSyncStore(f.area);const quick=await f.store.execute('begin',[{profileLabel:'personal',confirmed:true},1]);assert.equal(quick.forceFull,false);assert.equal(quick.state.purchaseSummaries[0].purchaseKey,'personal-order');
+  await f.store.execute('selectProfile',[choose('work','personal')]);assert.equal(f.state.libraryItems[0].title,'Work book');assert.equal(f.state.purchaseSummaries[0].purchaseKey,'work-order');
+  for(let n=0;n<3;n++){await f.store.execute('selectProfile',[choose('personal','work')]);await f.store.execute('selectProfile',[choose('work','personal')]);}assert.equal(f.state.profileArchives.length,1);
+});
+test('saved account selection validates confirmation, stale UI, and target before changing storage',async()=>{
+  const f=fixture(),scan=await f.store.execute('begin',[{...options,profileLabel:'work',switchProfile:true},1]);await f.store.execute('commit',[scan.token,updates,1]);const before=structuredClone(f.state);
+  for(const args of [{...choose('personal','work'),confirmed:false},choose('personal','stale'),choose('missing','work')]){await assert.rejects(f.store.execute('selectProfile',[args]));assert.deepEqual(f.state,before);}
+  await assert.rejects(f.store.execute('begin',[{...options,profileLabel:'personal',switchProfile:true},1]),/Use saved account/);assert.deepEqual(f.state,before);
+  f.state.humbleProfileLabel='';const unnamed=structuredClone(f.state);await assert.rejects(f.store.execute('selectProfile',[choose('personal','')]),/nickname/);assert.deepEqual(f.state,unnamed);
+});
+test('renaming active and saved accounts preserves evidence, rejects collisions and invalidates scans',async()=>{
+  const f=fixture(),scan=await f.store.execute('begin',[{...options,profileLabel:'work',switchProfile:true},1]);await f.store.execute('commit',[scan.token,updates,1]);
+  const pending=await f.store.execute('begin',[{profileLabel:'work',confirmed:true},1]),before=structuredClone(f.state);
+  for(const next of ['personal','', 'x'.repeat(101)]){await assert.rejects(f.store.execute('renameProfile',[{...choose('work','work'),newLabel:next}]));assert.deepEqual(f.state,before);}
+  await f.store.execute('renameProfile',[{...choose('work','work'),newLabel:'business'}]);assert.deepEqual(f.state.libraryItems,before.libraryItems);assert.equal(f.state.humbleProfileLabel,'business');await assert.rejects(f.store.execute('commit',[pending.token,updates,1]),/superseded/);
+  await f.store.execute('renameProfile',[{...choose('personal','business'),newLabel:'home'}]);assert.equal(f.state.profileArchives[0].backup.profileLabel,'home');
+  const backup=library.createLibraryBackup(f.state);await f.store.execute('replace',[library.restoreBackupState(backup)]);await f.store.execute('selectProfile',[choose('home','business')]);assert.equal(f.state.libraryItems[0].title,'Personal book');assert.equal((await f.store.execute('begin',[{profileLabel:'home',confirmed:true},1])).forceFull,false);
+});

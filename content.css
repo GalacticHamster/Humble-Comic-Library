@@ -268,6 +268,11 @@
 .library-import-description { width:100%; }
 .library-import-description details { margin-top:.35rem; font-size:.82rem; }
 .library-import-description summary { cursor:pointer; }
+/* Restore native disclosure arrows when Humble's page styles reset summaries. */
+#hcl-importer details > summary { display:list-item !important; list-style:disclosure-closed inside !important; }
+#hcl-importer details[open] > summary { list-style-type:disclosure-open !important; }
+#hcl-importer summary::marker { content:normal !important; }
+#hcl-importer summary::-webkit-details-marker { display:inline !important; }
 .library-import-description p { margin:.4rem 0; }
 .library-import-profile { display:grid; grid-template-columns:minmax(14rem,1fr) minmax(14rem,1fr) minmax(14rem,1fr); gap:1rem; align-items:center; width:100%; }
 .library-import-profile label { display:flex; align-items:center; gap:.45rem; margin:0; }
@@ -276,3 +281,10 @@
 .library-import-footer output { flex:1 1 18rem; min-width:0; overflow-wrap:anywhere; }
 .library-import-footer > div { flex:0 0 auto; justify-content:flex-end; margin-left:auto; }
 @media (max-width:800px) { .library-import-profile { grid-template-columns:1fr; gap:.6rem; } .library-import-footer { flex-wrap:wrap; } .library-import-footer > div { flex-wrap:wrap; } }
+
+.account-manager { margin:.75rem 0; }
+.account-manager summary { cursor:pointer; font-weight:600; }
+.account-manager label { display:block; margin:.5rem 0; }
+.account-manager select, .account-manager input:not([type="checkbox"]) { max-width:100%; padding:.35rem; }
+.account-manager .account-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+.account-manager [data-account-status] { display:block; margin-top:.5rem; overflow-wrap:anywhere; }
