@@ -21,6 +21,8 @@ window.chrome = { storage: { onChanged: { addListener: listener => fixtureStorag
   }
   if (typeof id === 'object') { fixtureReviewCalls.push(id); return { ok: true }; }
   fixtureCalls.push(request);
+  if(window.fixtureCentralDelayMs)await new Promise(resolve=>setTimeout(resolve,window.fixtureCentralDelayMs));
+  if(window.fixtureCentralFailure)throw Error('Synthetic delayed central failure');
   return { ok: true, apiVersion: 1, results: request.items.map(item => {
     const record = { provider: 'kindle', itemRef: 'opaque', title: 'GL collection', ownership: 'owned', relationship: 'contains', reason: 'Reviewed publisher contents', evidence: { source: 'manual-review', checkedAt: '2026-10-01', language: 'en' }, verifiedAt: '2026-10-01' };
     return { requestId: item.requestId, matches: [], partialMatches: item.contents?.length ? [record] : [],

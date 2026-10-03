@@ -71,6 +71,7 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     const job = ++comparison.job;
     comparison.refreshes += 1;
     comparison.completedItems = 0;
+    document.querySelector('#hcl-summary')?.setAttribute('aria-busy', 'true');
     showComparisonProgress(reason === 'initial' ? 'Checking your library…' : 'Updating library labels…');
     // Let Humble finish its paint and image work before this potentially
     // expensive comparison. The timeout guarantees it still runs promptly on
@@ -84,6 +85,8 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
     const revision = ++libraryRevision;
     ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
+    clearBundleAnnotations();
+    document.querySelector('#hcl-summary')?.remove(); // Do not display the previous account's ownership.
     (async () => {
       const latest = await chrome.storage.local.get(storageDefaults);
       if (revision !== libraryRevision) return;
@@ -101,7 +104,7 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     // Humble renders covers lazily. Look only at the added/changed local
     // subtree, rather than re-querying every cover after every React update.
     if (records.some(recordHasUnannotatedCover)) refresh('new bundle items');
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['alt'] });
 }()).catch((error) => showComparisonFailure(error));
 
 const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
@@ -138,17 +141,25 @@ function runWhenIdle(callback, timeout) {
 }
 
 function recordHasUnannotatedCover(record) {
-  const roots = [...record.addedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE);
-  const hasNonExtensionAddition = roots.some((node) => !node.id?.startsWith('hcl-') && !node.classList?.contains('hcl-summary'));
-  // Text/hydration changes can complete a card around an existing cover, so
-  // inspect the local target in that case. Do not inspect document.body just
-  // because the extension added its own progress or summary panel.
-  if (record.target instanceof Element && (hasNonExtensionAddition || !roots.length)) roots.push(record.target);
+  const uiSelector = '[id^="hcl-"], .hcl-summary, .hcl-progress, .hcl-status-button, .hcl-related-titles, details[data-hcl-related], .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge';
+  const isOwnUi = node => (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest?.(uiSelector);
+  if (isOwnUi(record.target)) return false;
+  const changed = [...record.addedNodes, ...record.removedNodes];
+  if (changed.length && changed.every(isOwnUi)) return false;
+  if (record.type === 'attributes' && record.attributeName === 'alt') return record.target.matches(HCL_COVER_SELECTOR) && Boolean(likelyItemTitle({textContent:record.target.alt}));
+  const roots = [...record.addedNodes].filter(node => node.nodeType === Node.ELEMENT_NODE && !isOwnUi(node));
+  for (const node of record.removedNodes) {
+    if (node.nodeType !== Node.ELEMENT_NODE || isOwnUi(node) || node.isConnected) continue;
+    if (node.matches(HCL_COVER_SELECTOR) || node.querySelector(HCL_COVER_SELECTOR)) return true;
+  }
+  // Provider text/hydration can complete a local card. Never expand an unrelated
+  // body mutation into a scan of every cover, including unmatchable galleries.
+  if (record.target instanceof Element && record.target !== document.body && record.target !== document.documentElement) roots.push(record.target);
   return roots.some((root) => {
     const covers = [];
     if (root.matches?.(HCL_COVER_SELECTOR)) covers.push(root);
     covers.push(...(root.querySelectorAll?.(HCL_COVER_SELECTOR) ?? []));
-    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial'));
+    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial') && !cover.classList.contains('hcl-cover-unchecked'));
   });
 }
 
@@ -966,7 +977,7 @@ function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   return matcher;
 }
 
-async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
+function clearBundleAnnotations() {
   document.querySelectorAll('.hcl-status-button, .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.hcl-owned-item, .hcl-unchecked-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item').forEach((item) => {
     item.style.removeProperty('border-left');
@@ -989,12 +1000,16 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     item.style.removeProperty('color');
     item.style.removeProperty('font-weight');
   });
-  document.querySelector('#hcl-summary')?.remove();
   document.querySelectorAll('.hcl-related-titles').forEach(node=>{if(node.parentElement.matches('li'))return;node.nextElementSibling?.matches('details[data-hcl-related]')&&node.nextElementSibling.remove();node.remove();});
+}
 
+async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
+  if (comparison && comparison.job !== job) return;
   const media = bundleMediaContext(itemKind);
   const items = collectBundleItems(media);
   if (!items.length) {
+    clearBundleAnnotations();
+    document.querySelector('#hcl-summary')?.remove();
     if (comparison) comparison.emptyChecks += 1;
     const waitedLongEnough = comparison && (comparison.emptyChecks >= 3 || performance.now() - comparison.startedAt >= 6000);
     showComparisonProgress(waitedLongEnough ? 'No active bundle items found. This offer may have ended.' : 'Waiting for Humble’s bundle items…', { spinning: !waitedLongEnough });
@@ -1043,6 +1058,9 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   const seriesQueries = HumbleOwnership.readingTargets(resolvedItems);
   await queryGalacticLibrary([...resolvedItems, ...seriesQueries], itemKind, comparison, job);
   if (comparison?.job !== job) return;
+  // Retain the settled labels while awaiting GL or yielding CPU time. Clearing
+  // them earlier makes our own card moves look like unprocessed lazy content.
+  clearBundleAnnotations();
   for (const resolved of resolvedItems) {
     const { kind, lookupTitle } = resolved.item;
     const result = comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
@@ -2073,7 +2091,9 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
   appendBundleSummaryControls(summary);
   removeComparisonProgress();
-  document.body.append(summary);
+  const previous = document.querySelector('#hcl-summary');
+  if (previous) previous.replaceWith(summary);
+  else document.body.append(summary);
 }
 
 function appendBuyRecommendation(summary, tiers) {

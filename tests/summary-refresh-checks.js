@@ -1,0 +1,44 @@
+(async()=>{
+  const checks=[],check=(condition,message)=>{if(!condition)throw Error(message);checks.push(message);};
+  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const wait=async predicate=>{for(let n=0;n<150;n++){if(predicate())return;await pause(20);}throw Error('Summary did not settle');};
+  let summaryChanges=0;
+  new MutationObserver(records=>{for(const record of records)for(const node of [...record.addedNodes,...record.removedNodes])if(node.id==='hcl-summary')summaryChanges++;}).observe(document.body,{childList:true});
+  try{
+    await wait(()=>document.querySelector('#hcl-summary'));
+    await pause(700);
+    const panel=document.querySelector('#hcl-summary'),changes=summaryChanges,requests=fixtureCalls.length;
+    await pause(700);
+    check(panel&&document.querySelector('#hcl-summary')===panel&&summaryChanges===changes,'failed central checks settle without repeatedly removing and rebuilding the summary');
+    check(fixtureCalls.length===requests&&!document.querySelector('#hcl-progress'),'idle summary stops requesting GL and returns from progress to a stable result');
+    check(panel.classList.contains('hcl-summary-minimized')&&panel.dataset.position==='top-left','minimized summary stays minimized while unavailable ownership remains Not checked');
+    check(document.querySelectorAll('.hcl-status-button[data-state="unchecked"]').length===3&&document.querySelectorAll('.hcl-status-button[data-state="partial"]').length===2,'failed lookup preserves local Partial evidence and marks the other three titles Not checked');
+    panel.querySelector('.hcl-summary-expand').click();await pause(100);
+    check(document.querySelector('#hcl-summary')===panel&&!panel.classList.contains('hcl-summary-minimized'),'expanding the summary does not start another comparison');
+    window.dispatchEvent(new Event('resize'));await pause(30);
+    check(document.querySelector('#hcl-summary')===panel,'an intentional refresh keeps the current summary visible while awaiting GL');
+    await wait(()=>document.querySelector('#hcl-summary')!==panel&&!document.querySelector('#hcl-progress'));
+    const refreshed=document.querySelector('#hcl-summary'),afterRefresh=summaryChanges;
+    await pause(600);
+    check(document.querySelector('#hcl-summary')===refreshed&&summaryChanges===afterRefresh&&!refreshed.classList.contains('hcl-summary-minimized'),'intentional refresh replaces the summary once and preserves its expanded preference');
+    const product=document.createElement('article');product.className='product';
+    product.innerHTML='<img class="item-image" alt="Late-added book"><h3>Late-added book</h3>';
+    document.querySelector('[data-tier="5"]').append(product);
+    await wait(()=>document.querySelectorAll('.hcl-status-button[data-state="unchecked"]').length===4&&!document.querySelector('#hcl-progress'));
+    const latePanel=document.querySelector('#hcl-summary'),lateChanges=summaryChanges;
+    await pause(600);
+    check(document.querySelector('#hcl-summary')===latePanel&&summaryChanges===lateChanges,'a real lazy-loaded cover updates once and then settles');
+    product.querySelector('img').alt='Hydrated book title';
+    product.querySelector('h3').textContent='Hydrated book title';
+    await wait(()=>document.querySelector('#hcl-summary')!==latePanel&&!document.querySelector('#hcl-progress'));
+    const hydratedPanel=document.querySelector('#hcl-summary'),hydratedChanges=summaryChanges;
+    await pause(600);
+    check(document.querySelector('#hcl-summary')===hydratedPanel&&summaryChanges===hydratedChanges&&hydratedPanel.textContent.includes('Hydrated book title'),'a provider title change refreshes the result and settles');
+    product.remove();
+    await wait(()=>document.querySelector('#hcl-summary')!==hydratedPanel&&document.querySelectorAll('.hcl-status-button[data-state="unchecked"]').length===3&&!document.querySelector('#hcl-progress'));
+    const removedPanel=document.querySelector('#hcl-summary'),removedChanges=summaryChanges;
+    await pause(600);
+    check(document.querySelector('#hcl-summary')===removedPanel&&summaryChanges===removedChanges&&!removedPanel.textContent.includes('Hydrated book title'),'removing a real cover updates the summary and settles');
+    await fetch('/test-result',{method:'POST',body:JSON.stringify({checks})});
+  }catch(error){await fetch('/test-result',{method:'POST',body:JSON.stringify({checks,error:error.message})});}
+})();
