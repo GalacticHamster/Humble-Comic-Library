@@ -1,0 +1,48 @@
+(async()=>{
+  const checks=[],check=(condition,message)=>{if(!condition)throw Error(message);checks.push(message);};
+  const wait=async predicate=>{for(let n=0;n<100;n++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Catalogue did not update');};
+  const visible=host=>[...host.querySelectorAll('a.full-tile-view')].filter(card=>card.getBoundingClientRect().width>0);
+  const days=card=>Number(card.querySelector('.js-simple-countdown-timer').textContent.match(/\d+/)[0]);
+  const ordered=host=>{const values=visible(host).map(days);return values.every((value,index)=>!index||values[index-1]<=value);};
+  const rowCounts=host=>[...host.children].map(row=>visible(row).length).filter(Boolean);
+  try{
+    await wait(()=>document.querySelector('#hcl-catalog-sort-diagnostics'));
+    const books=document.querySelector('#books'),games=document.querySelector('#games');
+    const image=books.querySelector('a[href$="image-in-20s"]');
+    check(visible(books).length===8&&ordered(books),'two-day singleton participates in expiry sorting across every books row: '+JSON.stringify(visible(books).map(days)));
+    check(JSON.stringify(rowCounts(books))==='[3,3,2]','ending-soon filtering fills rows without leaving the purchased singleton stranded: '+JSON.stringify(rowCounts(books)));
+    check(image.classList.contains('hcl-catalog-purchased')&&visible(books)[1]===image,'purchase marker travels with the card into its correct two-day position');
+    check(games.children[0].querySelector('a').pathname.endsWith('/earlier-game'),'sections made entirely of singleton rows sort independently');
+    check(books.querySelectorAll('a').length===19&&games.querySelectorAll('a').length===2,'cross-row sorting preserves every card and category');
+    check(document.querySelector('#hcl-catalog-sort-diagnostics').textContent.includes('21/21 cards in sortable slots (3 one-card rows)'),'diagnostics account for every sortable card, including one-card rows');
+    const filterInputs=()=>document.querySelectorAll('#hcl-catalog-filters input');
+    filterInputs()[0].checked=true;filterInputs()[0].dispatchEvent(new Event('change',{bubbles:true}));
+    await wait(()=>visible(books).length===7);
+    check(ordered(books)&&image.getBoundingClientRect().width===0,'hide-purchased and ending-soon filters still combine correctly');
+    filterInputs()[0].checked=false;filterInputs()[1].checked=false;filterInputs()[1].dispatchEvent(new Event('change',{bubbles:true}));
+    await wait(()=>visible(books).length===19);
+    check(ordered(books)&&JSON.stringify(rowCounts(books))==='[3,3,3,3,3,3,1]','unfiltered mosaic keeps its original row capacities while sorting the last singleton');
+    const before=[...books.querySelectorAll('a')].map(card=>card.pathname).join('|');
+    renderCataloguePurchaseMarkers(fixtureStored.purchaseSummaries,true,{});
+    check([...books.querySelectorAll('a')].map(card=>card.pathname).join('|')===before,'repeat sorting is stable');
+    addOfferRow(books,[{slug:'late-singleton',title:'Late-added one-day offer',days:1}]);
+    await wait(()=>visible(books).length===20&&ordered(books));
+    check(visible(books).slice(0,2).some(card=>card.pathname.endsWith('/late-singleton')),'a lazily appended singleton joins expiry sorting automatically');
+    check(visible(books).every(card=>getComputedStyle(card.parentElement).order==='0'),'moved singleton slots ignore Humble inline flex order');
+    const future=books.querySelector('a[href$="offer-17"]');
+    future.querySelector('.js-simple-countdown-timer').firstChild.nodeValue='0 Days Left';
+    await wait(()=>visible(books)[0]===future);
+    check(catalogueTimingForOffer(future,future).displayedDays===0,'countdown text changes refresh expiry sorting instead of retaining the initial cached day');
+    const sample=document.createElement('a');sample.href='/books/timing-sample';sample.className='full-tile-view';
+    sample.innerHTML='<div>Special offer ends in 30 days</div><span class="js-simple-countdown-timer">2 Days Left</span><span class="js-countdown-timer" aria-label="2 days, 13 hours, 5 minutes, and 10 seconds left">2 Days Left:13:05:10</span>';
+    const timing=catalogueTimingForOffer(sample,sample);
+    check(timing.minutes===2*1440+13*60+5&&timing.displayedDays===2,'expiry parsing reads one dedicated countdown and excludes hidden duplicates and marketing durations');
+    sample.querySelector('.js-simple-countdown-timer').textContent='';sample.querySelector('.js-countdown-timer').removeAttribute('aria-label');sample.querySelector('.js-countdown-timer').textContent='02:13:05:10';
+    check(catalogueTimingForOffer(sample,sample).minutes===2*1440+13*60+5+10/60,'clock-only countdown hydration remains readable');
+    sample.querySelector('.js-countdown-timer').textContent='';sample.querySelector('div').textContent='';
+    check(catalogueTimingForOffer(sample,sample).minutes>2*1440,'temporarily empty countdown retains the last readable expiry');
+    const full=future.querySelector('.js-countdown-timer');full.setAttribute('aria-label','0 days, 13 hours, 0 minutes, and 1 second left');
+    check(!recordHasCatalogueTimingChange({target:full}),'normal second-by-second countdown ticks do not trigger repeated catalogue refreshes');
+    await fetch('/test-result',{method:'POST',body:JSON.stringify({checks})});
+  }catch(error){await fetch('/test-result',{method:'POST',body:JSON.stringify({checks,error:error.message})});}
+})();

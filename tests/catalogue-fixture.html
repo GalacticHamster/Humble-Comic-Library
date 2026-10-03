@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Humble catalogue mosaic fixture</title>
+<link rel="stylesheet" href="/content.css">
+<style>
+  body { margin:0; font-family:Arial,sans-serif; }
+  .mosaic-section { width:900px; }
+  .mosaic-layout { display:flex; gap:12px; margin-bottom:12px; }
+  .tile-holder { flex:0 0 288px; }
+  .full-tile-view { display:block; height:100px; background:#ddd; }
+</style></head><body><main><h2>Books</h2><div id="books" class="mosaic-section"></div>
+<h2>Games</h2><div id="games" class="mosaic-section"></div></main>
+<script src="/tests/bundle-fixture.js"></script>
+<script>
+  function addOfferRow(host,offers) {
+    const row=document.createElement('div');row.className='mosaic-layout threes';
+    for(const {slug,title,days} of offers){
+      const slot=document.createElement('div');slot.className='tile-holder js-tile-holder one-third';slot.style.order='99';
+      const link=document.createElement('a');link.className='full-tile-view one-third bundle';link.href='/'+host.id+'/'+slug;
+      const image=document.createElement('img');image.alt=title;
+      const caption=document.createElement('div');caption.className='tile-title';caption.textContent=title;
+      const timer=document.createElement('span');timer.className='js-simple-countdown-timer';timer.textContent=days+' Days Left';
+      const full=document.createElement('span');full.className='js-countdown-timer';full.style.display='none';
+      full.setAttribute('aria-label',days+' days, 13 hours, 0 minutes, and 0 seconds left');full.textContent=days+' Days Left:13:00:00';
+      link.append(image,caption,' ',timer,' ',full);slot.append(link);row.append(slot);
+    }
+    host.append(row);return row;
+  }
+  const days=[11,5,7,12,4,9,3,5,8,6,8,15,10,1,9,13,14,16,2];
+  const offers=days.map((days,index)=>({slug:index===18?'image-in-20s':'offer-'+index,title:index===18?"Image in the '20s: A Megabundle by Image Comics":'Book offer '+index,days}));
+  for(let n=0;n<offers.length;n+=3)addOfferRow(document.querySelector('#books'),offers.slice(n,n+3));
+  addOfferRow(document.querySelector('#games'),[{slug:'later-game',title:'Later game',days:7}]);
+  addOfferRow(document.querySelector('#games'),[{slug:'earlier-game',title:'Earlier game',days:2}]);
+  fixtureStored.purchaseSummaries=[{sourceBundle:"Image in the '20s: A Megabundle by Image Comics",purchasedAt:'2026-09-30'}];
+  fixtureStored.catalogueFilters={endingSoon:true};fixtureStored.showDiagnostics=true;
+</script>
+<script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script>
+<script src="/tests/catalogue-checks.js"></script></body></html>

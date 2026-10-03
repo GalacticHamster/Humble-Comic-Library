@@ -40,8 +40,8 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     };
     refresh();
     new MutationObserver((records) => {
-      if (records.some(recordHasExternalAddition)) refresh();
-    }).observe(document.documentElement, { childList: true, subtree: true });
+      if (records.some(record => recordHasExternalAddition(record) || recordHasCatalogueTimingChange(record))) refresh();
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'data-countdown'] });
     return;
   }
 
@@ -111,6 +111,21 @@ function recordHasExternalAddition(record) {
     if (node.nodeType !== Node.ELEMENT_NODE) return false;
     return !node.id?.startsWith('hcl-') && !node.classList?.contains('hcl-summary') && !node.classList?.contains('hcl-progress');
   });
+}
+
+function recordHasCatalogueTimingChange(record) {
+  const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
+  const link = target?.closest('a[href]');
+  if (!link || !isBundleOfferLink(link)) return false;
+  const card = catalogueCardContainer(link);
+  const cached = catalogueExpiryByOffer.get(catalogueOfferKey(link));
+  const days = catalogueDisplayedDays(card);
+  const minutes = catalogueEndsInMinutes(card);
+  const nextWindow = catalogueSortWindow({ displayedDays: days, endsInMinutes: minutes });
+  const previousWindow = cached ? catalogueSortWindow({ displayedDays: cached.displayedDays, endsInMinutes: cached.minutes }) : null;
+  // Countdown seconds change constantly. Refresh only when an expiry becomes
+  // readable or the displayed day bucket changes, rather than on every tick.
+  return nextWindow !== null && nextWindow !== previousWindow;
 }
 
 function runWhenIdle(callback, timeout) {
@@ -253,6 +268,10 @@ function catalogueRowHasVisibleOffer(row) {
 }
 
 function catalogueLayoutSlot(card) {
+  // Humble's final mosaic row can contain just one tile. It still occupies a
+  // normal tile-holder slot; filtering the inner card leaves an empty row gap.
+  const holder = card.closest('.tile-holder');
+  if (holder?.parentElement?.matches('.mosaic-layout') && catalogueOfferLinkCount(holder) === 1) return holder;
   let child = card;
   for (let parent = child.parentElement; parent && parent !== document.body; child = parent, parent = parent.parentElement) {
     const siblingSlots = [...parent.children].filter((sibling) => catalogueOfferLinkCount(sibling) === 1);
@@ -314,20 +333,35 @@ function catalogueOfferKey(link) {
 function catalogueTimingForOffer(link, card) {
   const key = catalogueOfferKey(link);
   const cached = key ? catalogueExpiryByOffer.get(key) : null;
+  const minutes = catalogueEndsInMinutes(card);
+  const displayedDays = catalogueDisplayedDays(card);
+  if (minutes !== null) {
+    if (key) catalogueExpiryByOffer.set(key, { minutes, displayedDays, readAt: Date.now() });
+    return { minutes, displayedDays };
+  }
   if (cached) {
     return {
       minutes: Math.max(0, cached.minutes - (Date.now() - cached.readAt) / 60000),
       displayedDays: cached.displayedDays,
     };
   }
-  const minutes = catalogueEndsInMinutes(card);
-  const displayedDays = catalogueDisplayedDays(card);
-  if (key && minutes !== null) catalogueExpiryByOffer.set(key, { minutes, displayedDays, readAt: Date.now() });
   return { minutes, displayedDays };
 }
 
+function catalogueCountdownText(card, exact = false) {
+  const simple = card.querySelector('.js-simple-countdown-timer');
+  const full = card.querySelector('.js-countdown-timer');
+  const label = card.querySelector('[data-countdown]')?.getAttribute('data-countdown');
+  const sources = exact
+    ? [full?.getAttribute('aria-label'), full?.textContent, simple?.textContent, label]
+    : [simple?.textContent, label, full?.getAttribute('aria-label'), full?.textContent];
+  // Humble renders both the simple badge and a hidden detailed countdown.
+  // Read one countdown source, excluding marketing text and duplicate timers.
+  return String(sources.find(text => typeof text === 'string' && text.trim()) ?? card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
+}
+
 function catalogueDisplayedDays(card) {
-  const text = String(card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
+  const text = catalogueCountdownText(card);
   const marker = text.search(/\b(?:offer\s+)?ends?(?:\s+in)?\b/u);
   const timing = marker === -1 ? text : text.slice(marker, marker + 100);
   const match = timing.match(/\b(\d+)\s+days?\b/u);
@@ -538,7 +572,7 @@ function sortCatalogueCards() {
     section.push({ element, ...data });
     sections.set(heading, section);
   }
-  const result = { sections: sections.size, directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, timedCards: [...cards.values()].filter((card) => card.endsInMinutes !== null).length, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
+  const result = { sections: sections.size, distinctCards: cards.size, cardSlots: 0, singletonRows: 0, directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, timedCards: [...cards.values()].filter((card) => card.endsInMinutes !== null).length, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
   for (const section of sections.values()) {
     const sectionResult = sortVisibleCardGroups(section, (left, right) => {
     if (left.filtered !== right.filtered) return left.filtered ? 1 : -1;
@@ -550,8 +584,10 @@ function sortCatalogueCards() {
     const titleComparison = naturalTitleCompare(left.title, right.title);
     if (titleComparison) return titleComparison;
     return String(left.offerKey).localeCompare(String(right.offerKey));
-    }, true);
+    }, true, true);
     result.directGroups += sectionResult.directGroups;
+    result.cardSlots += sectionResult.cardSlots;
+    result.singletonRows += sectionResult.singletonRows;
     result.directCardsMoved += sectionResult.directCardsMoved;
     result.rowSections += sectionResult.rowSections;
     result.rowCardsMoved += sectionResult.rowCardsMoved;
@@ -576,7 +612,7 @@ function renderCatalogueSortDiagnostics(sorting) {
   const summary = document.createElement('summary');
   summary.textContent = 'Catalogue sorting';
   const message = document.createElement('p');
-  message.textContent = `${sorting.sections} section${sorting.sections === 1 ? '' : 's'}; ${sorting.timedCards} card${sorting.timedCards === 1 ? '' : 's'} with an expiry; ${sorting.directGroups} row group${sorting.directGroups === 1 ? '' : 's'} (${sorting.directCardsMoved} cards moved); ${sorting.rowSections} complete section${sorting.rowSections === 1 ? '' : 's'} (${sorting.rowCardsMoved}/${sorting.plannedCrossRowCards} planned cards moved, ${sorting.inaccessibleCrossRowCards} unavailable slots).`;
+  message.textContent = `${sorting.sections} section${sorting.sections === 1 ? '' : 's'}; ${sorting.timedCards} card${sorting.timedCards === 1 ? '' : 's'} with an expiry; ${sorting.cardSlots}/${sorting.distinctCards} cards in sortable slots (${sorting.singletonRows} one-card row${sorting.singletonRows === 1 ? '' : 's'}); ${sorting.directGroups} row group${sorting.directGroups === 1 ? '' : 's'} (${sorting.directCardsMoved} cards moved); ${sorting.rowSections} cross-row section${sorting.rowSections === 1 ? '' : 's'} (${sorting.rowCardsMoved}/${sorting.plannedCrossRowCards} planned cards moved, ${sorting.inaccessibleCrossRowCards} unavailable slots).`;
   details.append(summary, message);
   panel.append(details);
   document.body.append(panel);
@@ -593,7 +629,7 @@ function precedingCatalogueSectionHeading(card) {
 }
 
 function catalogueEndsInMinutes(card) {
-  const text = String(card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
+  const text = catalogueCountdownText(card, true);
   const marker = text.search(/\b(?:offer\s+)?ends?(?:\s+in)?\b/u);
   const timing = marker === -1 ? text : text.slice(marker, marker + 100);
   let total = 0;
@@ -653,8 +689,8 @@ function sortBundleItems(items) {
   return sorting;
 }
 
-function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
-  const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0 };
+function sortVisibleCardGroups(entries, compare, allowDocumentBody = false, includeSingletonMosaicRows = false) {
+  const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0, cardSlots: 0, singletonRows: 0 };
   const candidatesByParent = new Map();
   for (const entry of entries) {
     let child = entry.element;
@@ -669,6 +705,19 @@ function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
   const usableParents = new Set([...candidatesByParent].filter(([, candidates]) => (
     candidates.length >= 2 && new Set(candidates.map((candidate) => candidate.child)).size === candidates.length
   )).map(([parent]) => parent));
+  const singletonRows = new Set();
+  if (includeSingletonMosaicRows) {
+    // The live catalogue uses .mosaic-section > .mosaic-layout > .tile-holder.
+    // A row with one offer is a real row, not an unrelated sidebar/card. Admit
+    // its slot into the same cross-row sort as the fuller rows in this section.
+    for (const [parent, candidates] of candidatesByParent) {
+      if (candidates.length === 1 && parent.matches('.mosaic-layout')
+        && parent.parentElement?.matches('.mosaic-section') && candidates[0].child.matches('.tile-holder')) {
+        usableParents.add(parent);
+        singletonRows.add(parent);
+      }
+    }
+  }
   const chosenGroups = new Map();
   for (const entry of entries) {
     let child = entry.element;
@@ -682,9 +731,11 @@ function sortVisibleCardGroups(entries, compare, allowDocumentBody = false) {
     }
   }
   const recognizedRows = [];
-  for (const group of chosenGroups.values()) {
-    if (group.length < 2) continue;
-    result.directGroups += 1;
+  for (const [parent, group] of chosenGroups) {
+    if (group.length < 2 && !singletonRows.has(parent)) continue;
+    result.cardSlots += group.length;
+    if (group.length === 1) result.singletonRows += 1;
+    if (group.length >= 2) result.directGroups += 1;
     const sorted = group.sort((left, right) => compare(left.entry, right.entry)).map(({ child }) => child);
     if (reorderCardsInContainer(group[0].child.parentElement, sorted)) result.directCardsMoved += sorted.length;
     recognizedRows.push({ parent: group[0].child.parentElement, records: group });

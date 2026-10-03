@@ -6,12 +6,16 @@ Run from the HB repository root:
 node --test
 node tests/browser.mjs
 node tests/browser.mjs --firefox
+node tests/browser.mjs --catalogue
+node tests/browser.mjs --firefox --catalogue
 node tests/runtime.mjs
 node tests/runtime.mjs --firefox
 node tests/runtime.mjs --central
 ~~~
 
 The core suite tests parsing, matching, purchase/key evidence, scan races, restore validation, outbound privacy and deterministic Chrome/Firefox packaging. Storefront fixtures run the actual content scripts in Chrome and Firefox with synthetic providers: explanations, Possible editions, contents coverage, summary controls, tier planning, wishlist and series gaps, Purchased versus activation, and expiry review.
+
+The catalogue fixture reproduces Humble's `.mosaic-section > .mosaic-layout > .tile-holder` structure, including a final one-card row. It checks expiry order across full and singleton rows, category boundaries, purchased badges, combined filters, empty-row gaps, preserved row capacities, inline flex order, repeat sorting and later-added singleton offers. It also tests hidden duplicate countdowns, unrelated marketing durations, clock-only hydration, temporarily empty timers, and day-boundary changes without refreshing on every second tick. On 2026-10-03, an anonymous live Books-page comparison reproduced the Image in the '20s two-day offer stranded behind seven-day offers with the old sorter; the fix includes that last row in the normal cross-row sort. The previous two-card minimum silently excluded it. Diagnostics now report the sortable-card count and one-card rows so excluded cards cannot hide behind a successful sort of the other rows.
 
 Installed-runtime checks build the allow-listed release ZIP, load it into a fresh browser profile and exercise actual background messaging and extension storage. They verify successful backup restore, malformed JSON, invalid later records, backup-versus-manual import separation, stale scan leases, incomplete full-scan preservation, account confirmation and manual replacement/reset. Firefox uses its packaged background-script overlay, including collection mappings required by restore.
 
