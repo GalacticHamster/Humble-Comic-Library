@@ -25,6 +25,29 @@
     check(JSON.stringify(fixtureStored)===before,'unconfirmed account cannot start import or replace ownership');
     window.confirm=()=>false;full.click();check(JSON.stringify(fixtureStored)===before,'cancelled full rescan leaves the active snapshot unchanged');
     const controls=[...profile.children];check(controls.every(label=>label.querySelector('input')),'each account control retains its visible associated label');
+    const realFetch=window.fetch,detailRequests=[];
+    const orders=[{gamekey:'pending'},{gamekey:'unchanged'}];
+    window.fetch=async(url,...args)=>{
+      if(url==='/api/v1/user/order?all=true')return {ok:true,json:async()=>orders};
+      if(String(url).includes('/api/v1/order/')){
+        detailRequests.push(url);
+        return {ok:true,status:200,text:async()=>JSON.stringify({all_tpks:[{human_name:'Pending game',machine_name:'game',keyindex:0}]})};
+      }
+      return realFetch(url,...args);
+    };
+    Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey})),mediaImportVersion:7,
+      keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'}],keyReminderScan:{complete:true,purchaseKeys:['pending','unchanged'],baselinePurchaseKeys:['pending','unchanged']},lastImport:null});
+    panel.querySelector('[data-profile-label]').value='fixture';panel.querySelector('[data-profile-confirm]').checked=true;
+    quick.click();
+    await wait(()=>panel.querySelector('output').textContent.startsWith('No new purchases; rechecking key status'));
+    check(panel.querySelector('output').textContent.includes('existing purchase'),'in-progress importer identifies existing purchases as key-status rechecks');
+    await wait(()=>!quick.disabled);
+    check(panel.querySelector('output').textContent.startsWith('No new purchases; rechecked key status in 1 existing purchase; skipped 1 unchanged purchase'),'completed importer distinguishes key refreshes from new purchases');
+    check(detailRequests.length===1,'key refresh skips unchanged purchase details');
+    fixtureStored.keyReminders=[];detailRequests.length=0;
+    quick.click();await wait(()=>!quick.disabled);
+    check(detailRequests.length===0&&panel.querySelector('output').textContent.startsWith('No new purchases; no key-status refreshes or failed purchases to check'),'unchanged importer returns immediately without purchase-detail requests');
+    window.fetch=realFetch;
     await fetch('/test-result',{method:'POST',body:JSON.stringify({checks})});
   }catch(error){await fetch('/test-result',{method:'POST',body:JSON.stringify({checks,error:error.message})});}
 })();

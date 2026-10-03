@@ -2402,7 +2402,7 @@ function addPurchaseImporter() {
     </div>
     <div class="library-import-footer"><output aria-live="polite"></output>
     <div class="hcl-import-actions">
-      <button type="button" data-import-mode="new">Import new purchases</button>
+      <button type="button" data-import-mode="new" title="Checks for new purchases and rechecks unresolved key status in existing purchases.">Import new purchases</button>
       <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan all purchases</button>
       <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
@@ -2453,11 +2453,7 @@ function addPurchaseImporter() {
         return;
       }
       const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan, profileLabel:panel.querySelector('[data-profile-label]').value, confirmed:panel.querySelector('[data-profile-confirm]').checked, switchProfile:panel.querySelector('[data-profile-switch]').checked });
-      const scope = fullRescan
-        ? `Rescanned ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`
-        : result.audioBackfill || result.softwareBackfill || result.entitlementBackfill
-          ? `Scanned all ${result.scannedPurchases} purchase${result.scannedPurchases === 1 ? '' : 's'} to refresh delivery and key ownership evidence`
-          : `Checked ${result.scannedPurchases} new or pending purchase${result.scannedPurchases === 1 ? '' : 's'} and skipped ${result.skippedKnown} already scanned`;
+      const scope = purchaseImportScope(result);
       const reminders = result.keyReminders;
       const reminderStatus = reminders.complete
         ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}${reminders.expiringSoon ? `, ${reminders.expiringSoon} expiring within 30 days` : ''}`
@@ -2534,6 +2530,17 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     const key = purchaseKey(order);
     return key && (titlePurchaseKeys.has(key) || reminderPurchaseKeys.has(key));
   });
+  // Keep new purchases distinct from known orders fetched to refresh safe key
+  // evidence. Their detail request is shared, but they are different user actions.
+  const retriedPurchases = [...allPurchaseKeys].filter((key) => previouslyScanned.has(key) && priorFailedPurchaseKeys.has(key)).length;
+  const refreshedKeyPurchases = [...reminderPurchaseKeys].filter((key) => allPurchaseKeys.has(key) && previouslyScanned.has(key) && !priorFailedPurchaseKeys.has(key)).length;
+  const scope = {
+    fullRescan, audioBackfill, softwareBackfill, entitlementBackfill,
+    scannedPurchases: purchasesToInspect.length,
+    newPurchases: newPurchaseKeys.size, retriedPurchases, refreshedKeyPurchases,
+    skippedKnown: orderList.length - purchasesToInspect.length
+  };
+  report(purchaseImportScope(scope, true) + '\u2026');
 
   const imported = [];
   const purchaseSummaries = [];
@@ -2545,7 +2552,13 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     const key = purchaseKey(order);
     const importTitles = titlePurchaseKeys.has(key);
     const refreshReminders = reminderPurchaseKeys.has(key);
-    report(`Checking purchase ${index + 1} of ${purchasesToInspect.length}…`);
+    const action = fullRescan ? 'Rescanning all purchases'
+      : audioBackfill || softwareBackfill || entitlementBackfill ? 'Refreshing delivery and key ownership evidence (one-time upgrade backfill)'
+      : newPurchaseKeys.has(key) ? 'Importing new purchases'
+      : priorFailedPurchaseKeys.has(key) ? 'Retrying previously failed purchases'
+      : newPurchaseKeys.size ? 'Rechecking key status in existing purchases'
+      : 'No new purchases; rechecking key status in existing purchases';
+    report(`${action}: purchase ${index + 1} of ${purchasesToInspect.length}\u2026`);
     try {
       const detail = await fetchOrderDetail(key);
       if (!detail || typeof detail !== 'object' || Array.isArray(detail)
@@ -2678,6 +2691,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     ...(failures.length ? {} : { mediaImportVersion: 7 })
   });
   return {
+    ...scope,
     added,
     addedGames,
     addedSoftware,
@@ -2700,6 +2714,26 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
       expiringSoon
     }
   };
+}
+
+function purchaseImportScope(result, inProgress = false) {
+  const purchases = (count) => `${count} purchase${count === 1 ? '' : 's'}`;
+  if (result.fullRescan) {
+    if (inProgress) return `Rescanning all ${purchases(result.scannedPurchases)}`;
+    return `Rescanned ${purchases(result.scannedPurchases)}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`;
+  }
+  const parts = [result.newPurchases
+    ? `${inProgress ? 'Found' : 'Checked'} ${result.newPurchases} new purchase${result.newPurchases === 1 ? '' : 's'}`
+    : 'No new purchases'];
+  if (result.audioBackfill || result.softwareBackfill || result.entitlementBackfill) {
+    parts.push(`${inProgress ? 'refreshing' : 'refreshed'} delivery and key ownership evidence in all ${purchases(result.scannedPurchases)} (one-time upgrade backfill)`);
+  } else {
+    if (result.retriedPurchases) parts.push(`${inProgress ? 'retrying' : 'retried'} ${result.retriedPurchases} previously failed purchase${result.retriedPurchases === 1 ? '' : 's'}`);
+    if (result.refreshedKeyPurchases) parts.push(`${inProgress ? 'rechecking' : 'rechecked'} key status in ${result.refreshedKeyPurchases} existing purchase${result.refreshedKeyPurchases === 1 ? '' : 's'}`);
+    if (!result.scannedPurchases) parts.push('no key-status refreshes or failed purchases to check');
+    if (result.skippedKnown) parts.push(`skipped ${result.skippedKnown} unchanged purchase${result.skippedKnown === 1 ? '' : 's'}`);
+  }
+  return parts.join('; ');
 }
 
 function keyReminderSyncNotice(scan) {

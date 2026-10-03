@@ -16,7 +16,9 @@ function importer(initial, orders, details, failures = []) {
   const stored = {humbleProfileLabel:'fixture',profileArchives:[],...structuredClone(initial)};
   const requests = [];
   const writes = [];
+  const messages = [];
   const context = {
+    reportImport: (message) => messages.push(message),
     Blob, URL, clearTimeout, console, document: { title: '' }, location: { pathname: '/' },
     performance: { now: () => 0 }, Promise, setTimeout: (callback) => { callback(); return 0; },
     chrome: { storage: { local: {
@@ -37,7 +39,9 @@ function importer(initial, orders, details, failures = []) {
   for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
-  return { stored, requests, writes, context, scan: async (full = true) => plain(await vm.runInContext(`importPurchases(() => {}, { fullRescan: ${full}, profileLabel:'fixture', confirmed:true })`, context)) };
+  return { stored, requests, writes, messages, context,
+    summary: (result) => { context.importResult = result; return vm.runInContext('purchaseImportScope(importResult)', context); },
+    scan: async (full = true) => plain(await vm.runInContext(`importPurchases(reportImport, { fullRescan: ${full}, profileLabel:'fixture', confirmed:true })`, context)) };
 }
 
 function initialState() {
@@ -50,6 +54,62 @@ function initialState() {
     customCollectionMappings: [{ id: 'keep-this-rule' }]
   };
 }
+
+test('26 known pending purchases report key rechecks rather than new purchases, sharing each detail request', async () => {
+  const keys = Array.from({length:26}, (_, index) => `pending-${index}`);
+  const initial = {...initialState(), purchaseSummaries:keys.map(purchaseKey => ({purchaseKey})),
+    keyReminders:keys.map(purchaseKey => ({id:purchaseKey,purchaseKey,title:'Pending game',status:'unrevealed'}))};
+  const details = Object.fromEntries(keys.map(key => [key,{all_tpks:[{human_name:'Pending game',machine_name:'game',keyindex:0}]}]));
+  const scan = importer(initial, [...keys.map(order),order('unchanged')], details);
+  scan.stored.purchaseSummaries.push({purchaseKey:'unchanged'});
+  const result = await scan.scan(false);
+  assert.deepEqual(scan.requests, keys);
+  assert.equal(result.newPurchases, 0);
+  assert.equal(result.refreshedKeyPurchases, 26);
+  assert.equal(result.skippedKnown, 1);
+  assert.match(scan.messages[1], /^No new purchases; rechecking key status in 26 existing purchases; skipped 1 unchanged purchase/);
+  assert.match(scan.messages[2], /^No new purchases; rechecking key status in existing purchases: purchase 1 of 26/);
+  assert.match(scan.summary(result), /^No new purchases; rechecked key status in 26 existing purchases; skipped 1 unchanged purchase$/);
+});
+
+test('an unchanged library with no pending keys returns without any purchase-detail requests', async () => {
+  const scan = importer({...initialState(),keyReminders:[]}, [order('old')], {});
+  for(let count=0;count<2;count++) {
+    const result = await scan.scan(false);
+    assert.deepEqual(scan.requests, []);
+    assert.equal(result.scannedPurchases, 0);
+    assert.equal(result.newPurchases, 0);
+    assert.equal(result.refreshedKeyPurchases, 0);
+    assert.match(scan.summary(result), /^No new purchases; no key-status refreshes or failed purchases to check; skipped 1 unchanged purchase$/);
+  }
+});
+
+test('mixed incremental imports distinguish new purchases, failed retries and known key refreshes', async () => {
+  const initial = {...initialState(),purchaseSummaries:[{purchaseKey:'retry'},{purchaseKey:'pending'},{purchaseKey:'unchanged'}],
+    lastImport:{failedPurchaseKeys:['retry','removed']},
+    keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'},{id:'retry',purchaseKey:'retry',title:'Retry game',status:'unrevealed'},{id:'removed',purchaseKey:'removed',title:'Removed game',status:'unrevealed'}],
+    keyReminderScan:{failedPurchaseKeys:['removed']}};
+  const details={new:bookDetail('New book'),retry:bookDetail('Retry book'),pending:{all_tpks:[{human_name:'Pending game',machine_name:'game',keyindex:0}]}};
+  const scan=importer(initial,['new','retry','pending','unchanged'].map(order),details);
+  const result=await scan.scan(false);
+  assert.deepEqual(scan.requests,['new','retry','pending']);
+  assert.equal(result.newPurchases,1);assert.equal(result.retriedPurchases,1);assert.equal(result.refreshedKeyPurchases,1);assert.equal(result.skippedKnown,1);
+  assert.match(scan.summary(result), /^Checked 1 new purchase; retried 1 previously failed purchase; rechecked key status in 1 existing purchase; skipped 1 unchanged purchase$/);
+  assert.ok(scan.messages.some(message=>message.startsWith('Importing new purchases:')));
+  assert.ok(scan.messages.some(message=>message.startsWith('Retrying previously failed purchases:')));
+  assert.ok(scan.messages.some(message=>message.startsWith('Rechecking key status in existing purchases:')));
+});
+
+test('upgrade backfills and explicit full scans keep their separate status explanations', async () => {
+  const scan=importer({...initialState(),mediaImportVersion:6,keyReminders:[]},[order('old')],{old:bookDetail('Old Book')});
+  const backfill=await scan.scan(false);
+  assert.match(scan.summary(backfill), /^No new purchases; refreshed delivery and key ownership evidence in all 1 purchase \(one-time upgrade backfill\)$/);
+  assert.ok(scan.messages.some(message=>message.startsWith('Refreshing delivery and key ownership evidence (one-time upgrade backfill):')));
+  scan.messages.length=0;
+  const full=await scan.scan();
+  assert.match(scan.summary(full), /^Rescanned 1 purchase; current snapshot reconciled; historical evidence archived$/);
+  assert.ok(scan.messages.some(message=>message.startsWith('Rescanning all purchases:')));
+});
 
 test('key evidence backfills once, then pending refresh updates purchase status without duplicates',async()=>{
   const details={old:{all_tpks:[{human_name:'Old Game',machine_name:'game',keyindex:0,key_type:'steam'}]}};
