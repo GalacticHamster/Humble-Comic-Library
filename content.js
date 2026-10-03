@@ -2394,19 +2394,21 @@ function addPurchaseImporter() {
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer';
   panel.innerHTML = `
-    <strong>Humble Comic Library</strong>
-    <span>Import eligible books, comics, games, and software from this purchase history into this browser.</span>
-    <label>Account/profile label <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
-    <label><input type="checkbox" data-profile-confirm> Signed-in account matches this label</label>
-    <label><input type="checkbox" data-profile-switch> Switch active profile on full rescan</label>
+    <div class="library-import-description"><strong>Humble Comic Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Confirm the account signed in on this website before importing. Only the active account is checked for ownership. To change accounts, sign in on the website, enter a different nickname, select Replace active account, and rescan all purchases. A successful full rescan archives the previous account for backup recovery.</p></details></div>
+    <div class="library-import-profile">
+      <label>Account nickname <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
+      <label><input type="checkbox" data-profile-confirm> The signed-in account matches this nickname</label>
+      <label><input type="checkbox" data-profile-switch> Replace active account on full rescan</label>
+    </div>
+    <div class="library-import-footer"><output aria-live="polite"></output>
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new">Import new purchases</button>
-      <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan every purchase</button>
+      <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan all purchases</button>
       <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
       <button type="button" data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden title="Downloads a safe structural report of purchase-page links and attributes. It never includes titles, URLs, purchase identifiers, or redemption keys.">Inspect purchase navigation</button>
     </div>
-    <output aria-live="polite"></output>`;
+    </div>`;
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
@@ -2457,7 +2459,7 @@ function addPurchaseImporter() {
       const reminders = result.keyReminders;
       const reminderStatus = reminders.complete
         ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}${reminders.expiringSoon ? `, ${reminders.expiringSoon} expiring within 30 days` : ''}`
-        : `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; older purchases have not been checked yet—use Rescan every purchase for complete reminders`;
+        : `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; older purchases have not been checked yet—use Rescan all purchases for complete reminders`;
       status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
     } catch (error) {
       status.textContent = `Import failed: ${error.message}`;
@@ -2699,7 +2701,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
 }
 
 function keyReminderSyncNotice(scan) {
-  return scan?.complete ? '' : 'Key reminders have not been checked across older purchases. Use Rescan every purchase to establish complete reminders.';
+  return scan?.complete ? '' : 'Key reminders have not been checked across older purchases. Use Rescan all purchases to establish complete reminders.';
 }
 
 function inspectPurchaseNavigation() {
