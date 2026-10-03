@@ -1,0 +1,593 @@
+[
+  {
+    "label": "missing imported ISBN and author",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Writer"
+      ],
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "missing offered ISBN and author",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer"
+        ],
+        "isbn": "9780306406157"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "one-sided edition metadata",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "edition": "second edition"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "one-sided language metadata",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "language": "ja"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "one-sided edition ID",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "editionId": "edition-a"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "different validated ISBNs",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Writer"
+      ],
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer"
+        ],
+        "isbn": "9780140328721"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "abbreviated author",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "A. Moore"
+        ]
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "surname comma order",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Moore, Alan"
+        ]
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "ambiguous surname order",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Moore Alan"
+        ]
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "omitted middle name",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan James Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Alan Moore"
+        ]
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "conflicting initials",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "A. Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "B. Moore"
+        ]
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "different known authors",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Writer A"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer B"
+        ]
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "duplicate observations",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title"
+      },
+      {
+        "title": "Shared Comic Title"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "actual homonyms",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer A"
+        ]
+      },
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer B"
+        ]
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "unoffered ISBNs do not manufacture ambiguity",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Writer"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer"
+        ],
+        "isbn": "9780306406157"
+      },
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer"
+        ],
+        "isbn": "9780140328721"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "decimal numbering retained",
+    "offer": {
+      "title": "Book 1.2"
+    },
+    "records": [
+      {
+        "title": "Book 1 2"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "shortened subtitle",
+    "offer": {
+      "title": "4001 A.D."
+    },
+    "records": [
+      {
+        "title": "4001 A.D.: Beyond New Japan"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "independent subtitle owned",
+    "offer": {
+      "title": "4001 A.D. Beyond New Japan"
+    },
+    "records": [
+      {
+        "title": "4001 A.D. TPB"
+      },
+      {
+        "title": "4001 A.D.: Beyond New Japan"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article wording",
+    "offer": {
+      "title": "Room"
+    },
+    "records": [
+      {
+        "title": "The Room"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "accent wording",
+    "offer": {
+      "title": "Café"
+    },
+    "records": [
+      {
+        "title": "Cafe"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "game article wording",
+    "media": "game",
+    "offer": {
+      "title": "Room"
+    },
+    "records": [
+      {
+        "title": "The Room"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "game general Roman wording",
+    "media": "game",
+    "offer": {
+      "title": "I Am Alive"
+    },
+    "records": [
+      {
+        "title": "1 Am Alive"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "game edition difference",
+    "media": "game",
+    "offer": {
+      "title": "Control Deluxe Edition"
+    },
+    "records": [
+      {
+        "title": "Control"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "renamed validated ISBN",
+    "offer": {
+      "title": "New Catalog Name",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Old Catalog Name",
+        "isbn": "9780306406157"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "different numbered volume",
+    "offer": {
+      "title": "Saga Vol. 2"
+    },
+    "records": [
+      {
+        "title": "Saga Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "known language contradiction",
+    "offer": {
+      "title": "Shared Comic Title",
+      "language": "en"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "language": "ja"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "known run contradiction",
+    "offer": {
+      "title": "Shared Comic Title",
+      "run": "2020"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "run": "1990"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "series wording needs review",
+    "offer": {
+      "title": "Shared Comic Title",
+      "series": "Series A"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "series": "Series B"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "owned bonus copy covers base",
+    "offer": {
+      "title": "Shared Comic Title"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title (plus extra content)"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "base does not cover bonuses",
+    "offer": {
+      "title": "Shared Comic Title (plus extra content)"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "preview ISBN cannot prove full access",
+    "offer": {
+      "title": "Shared Comic Title",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title Preview",
+        "isbn": "9780306406157"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "native product ID cannot hide contradictory ISBNs",
+    "fanOnly": true,
+    "offer": {
+      "title": "Shared Comic Title",
+      "sourceItemId": "same-product",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "sourceItemId": "same-product",
+        "isbn": "9780140328721"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "author role decoration",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Alan Moore (Writer)"
+        ]
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "different writer roles cannot be hidden by a shared artist",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Writer A",
+        "Shared Artist"
+      ],
+      "contributors": [
+        {
+          "name": "Writer A",
+          "role": "writer"
+        },
+        {
+          "name": "Shared Artist",
+          "role": "artist"
+        }
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Writer B",
+          "Shared Artist"
+        ],
+        "contributors": [
+          {
+            "name": "Writer B",
+            "role": "writer"
+          },
+          {
+            "name": "Shared Artist",
+            "role": "artist"
+          }
+        ]
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "writer-only and mixed creator lists agree",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ]
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "Alan Moore",
+          "Artist"
+        ]
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "format suffix cannot conceal decimal numbering",
+    "offer": {
+      "title": "Book 1.2 TPB"
+    },
+    "records": [
+      {
+        "title": "Book 1 2"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "known numeric unit punctuation cannot be collapsed",
+    "offer": {
+      "title": "Shared Comic Title",
+      "volume": "1.2",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "volume": "1 2",
+        "isbn": "9780306406157"
+      }
+    ],
+    "expected": "new"
+  }
+]

@@ -130,7 +130,7 @@ test('central Possible preserves the actual candidate even when ownership is unc
   }
 });
 
-test('failed central lookup remains Not checked; local ownership and Possible evidence survive', async () => {
+test('failed central lookup remains Check incomplete; local ownership and Possible evidence survive', async () => {
   for (const [records, expected] of [[[], 'unchecked'], [[{ title: 'Offered Book' }], 'owned'],
     [[{ title: 'Offered Book: A Useful Subtitle' }], 'possible']]) {
     const f = fixture(records, 'book', { title: 'Offered Book' }, new Error('Unavailable'));
@@ -161,7 +161,7 @@ if (!fanatical) {
     }
   });
 
-  test('a successful retry clears Not checked and caches a completed no-match', async () => {
+  test('a successful retry clears Check incomplete and caches a completed no-match', async () => {
     const f = fixture([], 'book', { title: 'Retry Book' }, new Error('Unavailable'));
     assert.equal((await f.classify()).match.state, 'unchecked');
     let calls = 0;
@@ -193,3 +193,33 @@ if (!fanatical) {
     }
   });
 }
+
+const commonCases = JSON.parse(fs.readFileSync(new URL('./common-matching-cases.json', import.meta.url), 'utf8'));
+for (const row of commonCases.filter(row => !row.fanOnly || fanatical)) test('common matching policy: ' + row.label, async () => {
+  const { match } = await fixture(row.records, row.media || 'book', row.offer).classify();
+  assert.equal(match.state, row.expected);
+});
+
+
+test('central validation accepts any shared ISBN and rejects a preview even from an older GL build', async () => {
+  const offer = {title:'Full Book',isbn:'9780140328721',authors:['Alan Moore']};
+  const evidence = {isbn:['9780306406157','9780140328721'],authors:['Moore, Alan']};
+  const record = {provider:'kindle',title:'Full Book',ownership:'owned',relationship:'same-edition',evidence};
+  assert.equal((await fixture([], 'book', offer, {matches:[record]}).classify()).match.state,fanatical?'owned-elsewhere':'elsewhere');
+  const preview = {...record,title:'Full Book Preview'};
+  const {match,candidates} = await fixture([], 'book', offer, {matches:[preview]}).classify();
+  assert.equal(match.state,'possible');
+  assert.ok(candidates.some(row=>row.title===preview.title));
+  const conflicting = {...record,evidence:{...evidence,isbn:['9780306406157']}};
+  assert.equal((await fixture([], 'book', offer, {matches:[conflicting]}).classify()).match.state,'possible');
+});
+
+test('incomplete lookup explanations distinguish checked local evidence from an unresolved central check', async () => {
+  const f=fixture([], 'book', {title:'Offered Book'}, new Error('Unavailable'));
+  const {match}=await f.classify();
+  const lines=fanatical?f.context.FanaticalLibrary.explanationLines(match):f.context.HumbleOwnership.explanationLines(match);
+  assert.match(lines.join('\n'),/Status: Check incomplete/);
+  assert.match(lines.join('\n'),/may already be owned/);
+  assert.equal(match.state,'unchecked');
+  if(fanatical)assert.equal(f.context.FanaticalLibrary.overlayLabel(match),'Check incomplete');
+});

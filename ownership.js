@@ -3,6 +3,7 @@
   'use strict';
   const H = global.HumbleComicLibrary;
   const C = global.HumbleCollectionMappings;
+  const policy = global.LibraryMatchingPolicy;
   const permanent = record => ['owned', 'claimed'].includes(record?.ownership);
   function purchased(item) {
     const records = item.provenance?.length ? item.provenance : [item];
@@ -31,9 +32,12 @@
   function conflicts(offered, owned, exact = false) {
     const left = H.bibliographicFields(offered); const right = H.bibliographicFields(owned);
     const reasons = [];
-    if (left.authors?.length && right.authors?.length && !intersect(left.authors.map(key), right.authors.map(key))) reasons.push('Different known authors');
-    for (const field of ['seriesId', 'runId', 'series', 'run', 'volume', 'issue', 'unitType']) {
-      if (left[field] && right[field] && key(left[field]) !== key(right[field])) reasons.push(`Different ${field}`);
+    const authors = policy.authorRelation(left.authors, right.authors);
+    if (authors === 'different') reasons.push('Different known authors');
+    if (exact && authors === 'variant') reasons.push('Author name variation needs review');
+    for (const field of ['seriesId', 'runId', 'run', 'volume', 'issue', 'unitType', ...(exact ? ['series'] : [])]) {
+      const normalize = ['volume', 'issue'].includes(field) ? policy.unitKey : key;
+      if (left[field] && right[field] && normalize(left[field]) !== normalize(right[field])) reasons.push(`Different ${field}`);
     }
     const leftUnits = C.titleContents(offered.title, left); const rightUnits = C.titleContents(owned.title, right);
     if (leftUnits.length === 1 && rightUnits.length === 1) {
@@ -44,7 +48,6 @@
       const limited = title => /\b(?:preview|sample|excerpt|read\s+now|demo|trial)\b/iu.test(title);
       if (limited(offered.title) !== limited(owned.title)) reasons.push('Preview/sample and full-product access differ');
       if (leftUnits.length && rightUnits.length && JSON.stringify(leftUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort()) !== JSON.stringify(rightUnits.map(entry => `${entry.unitType}:${C.numberKey(entry.number)}`).sort())) reasons.push('Different enumerated issues/volumes');
-      if ((left.editionId || right.editionId) && left.editionId !== right.editionId) reasons.push('Edition ID not established on both items');
       for (const field of ['language', 'editionId', 'edition']) if (left[field] && right[field] && key(left[field]) !== key(right[field])) reasons.push(`Different ${field}`);
       if (left.isbn?.length && right.isbn?.length && !intersect(left.isbn, right.isbn)) reasons.push('Different validated ISBNs');
       if (left.asin && right.asin && left.asin !== right.asin) reasons.push('Different ASINs');
@@ -59,10 +62,10 @@
     return Boolean(left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)
       || left.asin && left.asin === right.asin
       || left.editionId && left.editionId === right.editionId
-      || left.authors?.length && right.authors?.length && intersect(left.authors.map(key), right.authors.map(key)));
+      || policy.authorRelation(left.authors, right.authors) === 'same');
   }
 
-  function exactCandidate(offered, records, currentBundle = () => false) {
+  function exactCandidate(offered, records) {
     const editionIdentifier = record => {
       const left = H.bibliographicFields(offered); const right = H.bibliographicFields(record);
       return Boolean(left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)
@@ -70,14 +73,15 @@
     };
     const related = records.filter(record => !conflicts(offered, record).length
       && (H.titleKey(record.title) === H.titleKey(offered.lookupTitle ?? offered.title)
-        || H.presentationTitle(record.title, offered.kind) === H.presentationTitle(offered.lookupTitle ?? offered.title, offered.kind) || editionIdentifier(record)));
+        || policy.fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind) || editionIdentifier(record)));
     const compatible = related.filter(record => !conflicts(offered, record, true).length);
-    // Unique presentation equality can establish local ownership without
-    // enrichment. Lossy keys and ambiguous homonyms still need identity proof.
-    const presentation = value => H.presentationTitle(value, offered.kind);
-    const exact = compatible.find(record => purchased(record) && (editionIdentifier(record)
-      || H.presentationTitle(record.title, offered.kind) === H.presentationTitle(offered.lookupTitle ?? offered.title, offered.kind) && (sharedIdentity(offered, record) || currentBundle(record))
-      || compatible.length === 1 && related.length === 1 && presentation(record.title) && presentation(record.title) === presentation(offered.lookupTitle ?? offered.title)));
+    // Repeated observations do not create ambiguity. Known different works
+    // still require enough evidence to select the offered identity.
+    const identified = compatible.filter(editionIdentifier);
+    const full = compatible.filter(record => policy.fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind));
+    const pool = identified.length ? identified : full;
+    const ambiguous = policy.ambiguousWorks(pool, H.bibliographicFields);
+    const exact = ambiguous ? undefined : pool.find(purchased);
     return { exact, possible: exact ? [] : related, reason: related.length
       ? related.map(record => `${record.title}: ${conflicts(offered, record, true).join('; ') || 'Title identity needs review'}`).join('\n') : '' };
   }
@@ -173,7 +177,7 @@
 
   function explanationLines(match) {
     const offered = match.offered ?? {};
-    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.ownershipReview?'Check ownership':({owned:'Owned',elsewhere:'Owned elsewhere',possible:'Possible',partial:'Partial',unchecked:'Not checked',new:'New'}[match.state]??match.state)}`, `Media: ${offered.kind || 'book'}`];
+    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.ownershipReview?'Check ownership':({owned:'Owned',elsewhere:'Owned elsewhere',possible:'Possible',partial:'Partial',unchecked:'Check incomplete',new:'New'}[match.state]??match.state)}`, `Media: ${offered.kind || 'book'}`];
     const describe = (label, value) => {
       const data = H.bibliographicFields(value);
       const fields = Object.entries(data).map(([name, entry]) => `${name}: ${Array.isArray(entry) ? entry.join(', ') : entry}`);
@@ -184,7 +188,7 @@
     if (match.ownedReason) lines.push(match.ownedReason);
     if (match.localMatch?.possibleReason && match.localMatch.possibleReason !== match.possibleReason) lines.push(`Local candidate: ${match.localMatch.possibleReason}`);
     if (match.mappingConflicts) lines.push(`Review needed: ${match.mappingConflicts}`);
-    if (match.lookupIncomplete) lines.push('Central lookup incomplete. An unavailable or omitted result is not proof of absence.');
+    if (match.lookupIncomplete) lines.push('Ownership check incomplete: Galactic Library could not complete this check. Local evidence is retained; this item may already be owned. A failed lookup is not proof of absence.');
     if (match.contentsLookupIncomplete) lines.push('Central contents coverage unavailable; additional units cannot be confirmed.');
     const local = match.localMatch ?? match;
     const records = [local.item, ...(local.historicalItems ?? []), ...(local.range?.items ?? []), ...(match.externalMatches ?? []), ...(match.externalPossibleMatches ?? []),

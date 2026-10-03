@@ -78,9 +78,9 @@
     chrome.runtime.sendMessage = async () => { throw new Error('Synthetic companion failure'); };
     await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
     const unchecked = document.querySelector('.hcl-status-button[data-state="unchecked"]');
-    check(unchecked?.textContent === 'Not checked', 'A failed central lookup renders a distinct Not checked badge');
-    check(getComputedStyle(unchecked).backgroundColor === 'rgb(102, 102, 102)', 'Not checked has a neutral status color');
-    check(document.querySelector('#hcl-summary strong').textContent.includes('not checked'), 'Unchecked items are counted separately in the summary');
+    check(unchecked?.textContent === 'Check incomplete', 'A failed central lookup renders a distinct Check incomplete badge');
+    check(getComputedStyle(unchecked).backgroundColor === 'rgb(102, 102, 102)', 'Check incomplete has a neutral status color');
+    check(document.querySelector('#hcl-summary strong').textContent.includes('check incomplete'), 'Unchecked items are counted separately in the summary');
     check(document.querySelector('.hcl-plan-output').textContent.includes('0 confirmed-new items'), 'Failed lookups do not inflate confirmed-new purchase value');
     check(comparison.seriesCoverage.every(group => group.lookupIncomplete && group.gaps.length === 0), 'Failed series lookups do not invent confirmed gaps');
     unchecked.click();
@@ -89,7 +89,7 @@
     chrome.runtime.sendMessage = originalSend;
     await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
     check(!document.querySelector('.hcl-card-unchecked, .hcl-cover-unchecked, .hcl-unchecked-item'), 'A successful retry removes stale unchecked classes');
-    check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'), 'A successful retry replaces Not checked badges');
+    check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'), 'A successful retry replaces Check incomplete badges');
     check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
     const historical = [{ title: 'New story', kind: 'book', source: 'humble', sourceBundle: 'Earlier Humble bundle', purchasedAt: '2026-09-01' }];
     const historyMatcher = createBundleLibraryMatcher(fixtureStored.libraryItems, 'book', historical);

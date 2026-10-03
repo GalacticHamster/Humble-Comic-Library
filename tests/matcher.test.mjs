@@ -164,6 +164,13 @@ test('same-bundle volume matching still requires the same series and volume', ()
   assert.deepEqual(classifyCurrentBundleVariant('X-O Manowar, Vol. 3: Planet Death', ['Ninjak Vol 3'], bundle), { state: 'new' });
 });
 
+test('current-bundle inference cannot match a longer bundle sharing a title prefix', () => {
+  matcher.document.title = 'Humble Comics Bundle: A Remarkable Collection - Humble Bundle';
+  assert.equal(vm.runInContext("isCurrentBundleName('Humble Comics Bundle: A Remarkable Collection')", matcher), true);
+  assert.equal(vm.runInContext("isCurrentBundleName('Humble Comics Bundle: A Remarkable Collection: Part Two')", matcher), false);
+  matcher.document.title = '';
+});
+
 test('short generic subtitles stay new; explicit editions of meaningful short titles are possible', () => {
   assert.deepEqual(classify('It', ['It: A Novel']), { state: 'new' });
   assert.equal(classify('Dune', ['Dune, Second Edition']).state, 'possible');
@@ -174,9 +181,21 @@ test('title-derived ranges remain Partial even when every numbered title is pres
   assert.equal(classify('Aftermath Vol. 1-3', ['Aftermath Vol. 1', 'Aftermath Vol. 2', 'Aftermath Vol. 3']).state, 'partial');
 });
 
-test('curated collection issue mapping behavior is unchanged', () => {
+test('curated collection issue mapping without language remains Possible', () => {
   const result = classify('Rai (1992) #3', ['Valiant Masters Rai: From Honor To Strength']);
-  assert.deepEqual(result, { state: 'owned', item: 'Valiant Masters Rai: From Honor To Strength' });
+  assert.equal(result.state, 'possible');
+  assert.equal(result.item, 'Valiant Masters Rai: From Honor To Strength');
+});
+
+test('legacy collection coverage needs known matching language on both sides', () => {
+  matcher.__scope = {
+    offered: {title:'Rai (1992) #3',language:'en'},
+    library: new Map([['collection',{title:'Valiant Masters Rai: From Honor To Strength'}]]),
+    mappings: [{...matcher.HumbleCollectionMappings.builtIn[0],language:'en'}]
+  };
+  assert.ok(vm.runInContext('findOwnedCollectionIssue(__scope.offered.title,__scope.library,__scope.mappings,__scope.offered)',matcher));
+  matcher.__scope.offered.language = '';
+  assert.equal(vm.runInContext('findOwnedCollectionIssue(__scope.offered.title,__scope.library,__scope.mappings,__scope.offered)',matcher),null);
 });
 
 test('structured possible matching chooses the same candidate regardless of library order', () => {

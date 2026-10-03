@@ -413,7 +413,7 @@ function createGalacticLookup(extensionId) {
     inFlightKeys: new Set(),
     inFlight: null,
     error: null,
-    status: isExtensionId(id) ? 'Not checked yet.' : 'Not configured.'
+    status: isExtensionId(id) ? 'Waiting for ownership checks.' : 'Not configured.'
   };
 }
 
@@ -429,11 +429,14 @@ function waitForGalacticResponse(promise) {
   return Promise.race([promise, timed]).finally(() => clearTimeout(timeout));
 }
 
-function ownedOutsideHumble(result) {
+function ownedOutsideHumble(result, offered = null) {
   return (Array.isArray(result?.matches) ? result.matches : [])
     .filter((match) => match?.provider !== 'humble' && HumbleOwnership.permanent(match)
       && (match.relationship === undefined || match.relationship === 'same-edition'
-        || match.relationship === 'contains' && result?.coverage?.complete === true));
+        || match.relationship === 'contains' && result?.coverage?.complete === true))
+    .filter(match => !offered || match.relationship === 'contains'
+      || !HumbleOwnership.conflicts(offered, { ...match, ...(match.evidence ?? {}), kind: offered.kind,
+        series: Array.isArray(match.evidence?.series) ? match.evidence.series[0] : match.evidence?.series }, true).length);
 }
 
 function needsOwnershipReviewOutsideHumble(result) {
@@ -522,7 +525,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
     await responsePromise;
     const matchCount = [...lookup.resultsByKey.values()].filter((result) => ownedOutsideHumble(result).length).length;
     lookup.status = `Available. ${matchCount} exact non-Humble title match${matchCount === 1 ? '' : 'es'}.`;
-    lookup.error = lookup.failuresByKey.size ? `${lookup.failuresByKey.size} unchecked requests. ${lookup.failuresByKey.values().next().value}` : null;
+    lookup.error = lookup.failuresByKey.size ? `${lookup.failuresByKey.size} incomplete ownership checks. ${lookup.failuresByKey.values().next().value}` : null;
   } catch (error) {
     lookup.status = 'Some checks unavailable.';
     const message = String(error?.message ?? error);
@@ -1074,10 +1077,11 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     const { kind, lookupTitle } = resolved.item;
     const result = comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
     const coverage = HumbleOwnership.coverageFor(resolved.target, localContents, result);
-    const externalMatches = resolved.match.state === 'owned' ? [] : ownedOutsideHumble(result)
+    const externalMatches = resolved.match.state === 'owned' ? [] : ownedOutsideHumble(result, resolved.item)
       .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);
     const externalReviewMatches = needsOwnershipReviewOutsideHumble(result);
-    const externalPossibleMatches = [...possibleOutsideHumble(result), ...externalReviewMatches];
+    const rejectedExact = ownedOutsideHumble(result).filter(record => record.relationship !== 'contains' && !externalMatches.includes(record));
+    const externalPossibleMatches = [...possibleOutsideHumble(result), ...externalReviewMatches, ...rejectedExact];
     const uncertainOwnership = externalPossibleMatches.some(record => !HumbleOwnership.permanent(record));
     let match = externalMatches.length
       ? { state: 'elsewhere', externalMatches }
@@ -1104,7 +1108,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     const contentsLookupIncomplete = Boolean(lookup?.enabled && resolved.target.entries.length
       && (kind !== 'software' || lookup.softwareSupported) && !result?.coverage);
     if (lookupIncomplete && match.state === 'new') match = { state: 'unchecked',
-      possibleReason: 'Central lookup incomplete; this item has not been checked against the full library.' };
+      possibleReason: 'No local match found. Galactic Library could not complete the ownership check; this item may already be owned.' };
     match = { ...match, coverage, offered: resolved.item, localMatch: resolved.match, externalResult: result,
       externalPossibleMatches, lookupIncomplete, contentsLookupIncomplete, mappingConflicts: resolved.target.reason || '' };
     resolved.match = match;
@@ -1143,7 +1147,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
 
 function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
   const title = item.lookupTitle ?? item.title;
-  const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher), isFromCurrentBundle);
+  const identity = HumbleOwnership.exactCandidate(item, identityCandidates(item, matcher));
   const exact = identity.exact;
   const fallbackRecords = exact ? [] : ownershipFallbackCandidates(item, matcher, collectionMappings);
   const compatible = candidateLibrary(fallbackRecords.filter(record => HumbleOwnership.purchased(record) && !HumbleOwnership.conflicts(item, record, true).length));
@@ -1151,8 +1155,12 @@ function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
   const volumeRange = exact ? null : findOwnedVolumeRange(title, rangeCandidates);
   const bookVariant = exact || volumeRange || item.kind !== 'book' ? null : findOwnedBookVariant(title, createLibraryMatcher(compatible, item.kind), item);
   const collectionIssue = exact || volumeRange || bookVariant || item.kind !== 'book' ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item);
+  const possibleCollection = exact || volumeRange || bookVariant || collectionIssue || item.kind !== 'book'
+    ? null : findOwnedCollectionIssue(title, compatible, collectionMappings, item, false);
   const possible = exact || volumeRange || bookVariant || collectionIssue ? null : identity.possible.length
-    ? { items: identity.possible, reason: identity.reason } : findPossibleMatch(title, matcher, item.kind, item);
+    ? { items: identity.possible, reason: identity.reason } : possibleCollection
+      ? { items: possibleCollection.item, reason: `${possibleCollection.reason} Language needs confirmation before contents can prove ownership.` }
+      : findPossibleMatch(title, matcher, item.kind, item);
   const match = exact ? { state: 'owned', item: exact }
     : volumeRange ? { state: 'partial', item: volumeRange.items[0], range: volumeRange }
     : bookVariant ? { state: 'owned', item: bookVariant.item, ownedReason: bookVariant.reason }
@@ -1314,7 +1322,7 @@ function createLibraryMatcher(libraryByKey, itemKind) {
   const currentBundleBookVariants = [];
   for (const [, item] of libraryByKey) {
     add(byIdentityTitle, HumbleComicLibrary.titleKey(item.title), item);
-    add(byPresentationTitle, HumbleComicLibrary.presentationTitle(item.title, itemKind), item);
+    for (const key of globalThis.LibraryMatchingPolicy.ownershipTitleKeys(item.title,itemKind)) add(byPresentationTitle, key, item);
     for (const key of HumbleComicLibrary.candidateTitleKeys(item.title, itemKind)) add(byPossibleTitle, key, item);
     add(byCandidateBase, HumbleOwnership.editionParts(item.title, itemKind).base, item);
     const fields = HumbleComicLibrary.bibliographicFields(item);
@@ -1518,6 +1526,7 @@ function findOwnedBookVariant(title, libraryMatcher, offered = { title, kind: 'b
   const variants = libraryMatcher.bookVariantCandidates.get(target.key) ?? [];
   const ambiguous = variants.length > 1;
   if (formatVariant && (!ambiguous || HumbleOwnership.sharedIdentity(offered, formatVariant))
+    && globalThis.LibraryMatchingPolicy.fullTitleMatches(title, formatVariant.title, 'book')
     && (formatSuffix.test(String(title).trim()) || formatSuffix.test(String(formatVariant.title).trim()))
     && HumbleComicLibrary.normalizeTitle(title) !== HumbleComicLibrary.normalizeTitle(formatVariant.title)) return { item: formatVariant, reason: 'Matched after removing a book-format suffix.' };
   for (const { item, parts: candidate } of libraryMatcher.currentBundleBookVariants) {
@@ -1532,7 +1541,7 @@ function findOwnedBookVariant(title, libraryMatcher, offered = { title, kind: 'b
   return null;
 }
 
-function findOwnedCollectionIssue(title, libraryByKey, collectionMappings, offered = {}) {
+function findOwnedCollectionIssue(title, libraryByKey, collectionMappings, offered = {}, confirmedOnly = true) {
   const requested = HumbleCollectionMappings.titleContents(title, HumbleComicLibrary.bibliographicFields(offered));
   if (requested.length !== 1 || !requested[0].run) return null;
   const target = requested[0];
@@ -1545,6 +1554,7 @@ function findOwnedCollectionIssue(title, libraryByKey, collectionMappings, offer
       && HumbleCollectionMappings.scopeKey(entry.series) === HumbleCollectionMappings.scopeKey(target.series)
       && entry.run === target.run && entry.unitType === target.unitType
       && HumbleCollectionMappings.numberKey(entry.number) === HumbleCollectionMappings.numberKey(target.number)
+      && (!confirmedOnly || entry.language && target.language)
       && (!entry.language || !target.language || HumbleCollectionMappings.scopeKey(entry.language) === HumbleCollectionMappings.scopeKey(target.language)));
     if (containsIssue) {
       return {
@@ -1598,9 +1608,13 @@ function findCurrentBundlePurchases(purchaseSummaries) {
 }
 
 function isCurrentBundleName(sourceBundle) {
-  const currentBundle = HumbleComicLibrary.titleKey(document.title);
-  const source = HumbleComicLibrary.titleKey(sourceBundle);
-  return currentBundle.length >= 12 && source.length >= 12 && (currentBundle.includes(source) || source.includes(currentBundle));
+  // A publisher/title prefix can belong to several different bundles. Ignore
+  // only the storefront's trailing site name, never substantive bundle words.
+  const clean = value => globalThis.LibraryMatchingPolicy.presentationTitle(
+    String(value ?? '').replace(/\s*[|\u2013\u2014-]\s*Humble Bundle\s*$/iu, ''), 'bundle');
+  const currentBundle = clean(document.title);
+  const source = clean(sourceBundle);
+  return currentBundle.length >= 12 && currentBundle === source;
 }
 
 function numberedTitleBase(title) {
@@ -1690,7 +1704,7 @@ function annotateBundleItem(bundleItem, match) {
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchasedKey ? `Purchased${purchaseCount>1?` ×${purchaseCount}`:''}` : purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
-      : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Not checked' : 'New';
+      : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Check incomplete' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
     const button = document.createElement('button');
@@ -1993,12 +2007,17 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : itemKind === 'audiobook' ? 'audiobooks' : itemKind === 'mixed-books' ? 'books and audiobooks' : 'books';
   headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
   summary.append(headline);
-  if (counts.unchecked) headline.append(' · ' + counts.unchecked + ' not checked');
+  if (counts.unchecked) headline.append(' · ' + counts.unchecked + ' check incomplete');
+  if (counts.unchecked) {
+    const explanation = document.createElement('p');
+    explanation.textContent = 'Check incomplete: no local match found, but Galactic Library could not finish checking. These items may already be owned. Retry Galactic Library checks to resolve them.';
+    summary.append(explanation);
+  }
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
   appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
   legend.className = 'hcl-legend';
-  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span><span class="hcl-legend-unchecked">Not checked</span>';
+  legend.innerHTML = '<span class="hcl-legend-owned">Owned</span><span class="hcl-legend-elsewhere">Owned elsewhere</span><span class="hcl-legend-new">New</span><span class="hcl-legend-partial">Partial</span><span class="hcl-legend-possible">Possible</span><span class="hcl-legend-unchecked">Check incomplete</span>';
   summary.append(legend);
   if ((GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
@@ -2067,7 +2086,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     const detail = document.createElement('details');
     detail.className = 'hcl-title-list';
     const heading = document.createElement('summary');
-    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partial' : state === 'unchecked' ? 'Not checked' : 'Possible matches'} (${titlesByState[state].length})`;
+    heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partial' : state === 'unchecked' ? 'Check incomplete' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
     const list = document.createElement('ol');
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {

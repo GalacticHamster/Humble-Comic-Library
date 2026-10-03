@@ -25,7 +25,8 @@ test('legacy integer-range mappings retain their shape and curated issue matchin
   const legacy = { id: 'one', collectionTitle: 'Collection', sourceLabel: 'Custom mapping', contains: [{ series: 'Example', year: 2000, from: 1, to: 4 }] };
   assert.deepEqual(plain(rules.validateCustomMappings([legacy])), [legacy]);
   context.library = new Map([[context.HumbleComicLibrary.titleKey('Valiant Masters Rai: From Honor To Strength'), { title: 'Valiant Masters Rai: From Honor To Strength' }]]);
-  assert.ok(vm.runInContext("findOwnedCollectionIssue('Rai (1992) #3', library, HumbleCollectionMappings.builtIn)", context));
+  assert.equal(vm.runInContext("findOwnedCollectionIssue('Rai (1992) #3', library, HumbleCollectionMappings.builtIn)", context), null);
+  assert.ok(vm.runInContext("findOwnedCollectionIssue('Rai (1992) #3', library, HumbleCollectionMappings.builtIn, {}, false)", context));
   assert.equal(vm.runInContext("findOwnedCollectionIssue('Rai (2012) #3', library, HumbleCollectionMappings.builtIn)", context), null);
 });
 
@@ -64,7 +65,9 @@ test('excerpt and unverified mappings never establish full issue ownership', () 
   context.mappings = rules.validateCustomMappings([{ collectionTitle: 'Collection', contains: [{ series: 'Batman', year: 2011, number: '1/2', completeness: 'excerpt' }] }]);
   assert.equal(vm.runInContext("findOwnedCollectionIssue('Batman (2011) #1/2', library, mappings)", context), null);
   context.mappings[0].contains[0].completeness = 'full';
-  assert.ok(vm.runInContext("findOwnedCollectionIssue('Batman (2011) #0.5', library, mappings)", context));
+  assert.equal(vm.runInContext("findOwnedCollectionIssue('Batman (2011) #0.5', library, mappings)", context), null);
+  context.mappings[0].language = 'en';
+  assert.ok(vm.runInContext("findOwnedCollectionIssue('Batman (2011) #0.5', library, mappings, {title:'Batman (2011) #0.5', language:'en'})", context));
 });
 
 test('rich mappings and bibliographic fields survive full backup round trips without secrets', () => {

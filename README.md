@@ -99,7 +99,7 @@ Possible is deliberately broader: related editions, shortened/subtitled titles, 
 - On `https://www.humblebundle.com/bundles`, `/books`, `/games`, or `/software`, offers are sorted by their displayed time remaining. Use the lower-left **Catalogue filters** to hide purchased offers, limit the view to offers labelled seven days or fewer, or combine both filters. These choices persist only in the current browser profile.
 - In **Extension options**, enable **Show bundle and catalogue diagnostics** only when troubleshooting. It adds timing and sorting information without changing ownership results, and reveals the two local purchase-metadata discovery reports for diagnostics.
 
-When a configured central lookup fails, unmatched offers show **Not checked**, remain visible, and receive no confirmed-new item or unit value. Existing local Owned/Possible/Partial evidence remains available. A successful retry restores the completed result. Related central items with unknown ownership or temporary access remain Possible / **Check ownership**, naming the library item instead of treating it as absent.
+When a configured central lookup fails, unmatched offers show **Check incomplete**, remain visible, and receive no confirmed-new item or unit value. Existing local Owned/Possible/Partial evidence remains available. A successful retry restores the completed result. Related central items with unknown ownership or temporary access remain Possible / **Check ownership**, naming the library item instead of treating it as absent.
 
 ## Bundle value and wishlist
 
