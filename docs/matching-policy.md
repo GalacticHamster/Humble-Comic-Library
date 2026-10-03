@@ -10,7 +10,7 @@ The companions and Galactic Library use the same presentation and author rules a
 | Same title and compatible author; stored ISBN editions differ but the offer supplies no ISBN | Owned; do not invent a contradiction with an absent offered identifier |
 | Both sides supply disjoint validated ISBNs, different editions or different languages | Possible, with the actual library title and evidence |
 | Article change (`Room` / `The Room`), accent change, general Roman wording, typo or missing subtitle | Possible, not title-only ownership proof |
-| Author initials, omitted middle names or ambiguous name order | Possible; an arbitrary shared surname proves nothing |
+| Author initials, omitted middle names or ambiguous name order | Possible without independent edition proof; a shared validated edition identifier can resolve compatible name variants. An arbitrary shared surname proves nothing |
 | Explicit surname-comma-given order or recognized trailing creator-role decoration | Normalize the same person's name; other identity checks still apply |
 | Known writer roles and a mixed author/artist list | Compare writers when explicitly supplied; a shared artist cannot conceal different writers |
 | Different known authors, runs or numbered works | Separate works; do not infer ownership or title-based candidates |

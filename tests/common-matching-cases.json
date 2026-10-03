@@ -589,5 +589,25 @@
       }
     ],
     "expected": "new"
+  },
+  {
+    "label": "validated edition identifier resolves compatible author initials",
+    "offer": {
+      "title": "Shared Comic Title",
+      "authors": [
+        "Alan Moore"
+      ],
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "Shared Comic Title",
+        "authors": [
+          "A. Moore"
+        ],
+        "isbn": "9780306406157"
+      }
+    ],
+    "expected": "owned"
   }
 ]

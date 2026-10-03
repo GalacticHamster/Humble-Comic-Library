@@ -34,7 +34,9 @@
     const reasons = [];
     const authors = policy.authorRelation(left.authors, right.authors);
     if (authors === 'different') reasons.push('Different known authors');
-    if (exact && authors === 'variant') reasons.push('Author name variation needs review');
+    const sharedEdition = left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)
+      || left.asin && left.asin === right.asin || left.editionId && left.editionId === right.editionId;
+    if (exact && authors === 'variant' && !sharedEdition) reasons.push('Author name variation needs review');
     for (const field of ['seriesId', 'runId', 'run', 'volume', 'issue', 'unitType', ...(exact ? ['series'] : [])]) {
       const normalize = ['volume', 'issue'].includes(field) ? policy.unitKey : key;
       if (left[field] && right[field] && normalize(left[field]) !== normalize(right[field])) reasons.push(`Different ${field}`);
