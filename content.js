@@ -1984,14 +1984,14 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.purchaseCount > 1 ? ` — purchased ${item.purchaseCount} times` : ''}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
       row.title = item.provenance;
-      if(item.match)appendRelatedTitles(row,item.match);
       if (item.match) {
         const explain = document.createElement('button');
         explain.type = 'button';
-        explain.textContent = 'Explain';
+        explain.textContent = 'Explain';explain.setAttribute('aria-label','Explain '+item.title);
         explain.addEventListener('click', () => showMatchInspector(item.match));
         row.append(' ', explain);
       }
+      if(item.match)appendRelatedTitles(row,item.match);
       if (item.offered && comparison) appendWishlistControl(row, item.offered, comparison);
       list.append(row);
     }
