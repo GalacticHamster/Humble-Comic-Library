@@ -1,4 +1,4 @@
-(async () => {
+﻿(async () => {
   const checks = JSON.parse(sessionStorage.getItem('prior-summary-checks')||'[]');
   const check = (condition, label) => { if (!condition) throw new Error(label); checks.push(label); };
   const waitFor = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(done => setTimeout(done, 30)); } throw new Error('Timed out waiting for storefront'); };
@@ -10,6 +10,7 @@
     check(getComputedStyle(document.querySelector('.hcl-title-list summary')).display === 'list-item', 'Native disclosure arrows survive store CSS');
     check(document.querySelector('.hcl-wishlist-notice').textContent.includes('Wishlist: 1 matches'), 'Wishlist recognition is visible before opening ownership lists');
     if(sessionStorage.getItem('verify-summary-reload')){check(document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized')&&document.querySelector('#hcl-summary').dataset.position==='top-left','Saved summary size and corner survive a real page reload');document.querySelector('.hcl-summary-expand').click();await waitFor(()=>fixtureStored.bundleSummaryPreferences.minimized===false);check(!document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized'),'Reloaded summary can expand and persist');await fetch('/test-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checks})});return;}
+    await runAdvancedParityChecks(true,check);
     check(document.querySelectorAll('.hcl-status-button').length === 5, 'Every card has an accessible ownership explanation button');
     const partial = [...document.querySelectorAll('.hcl-status-button')].find(button => button.dataset.state === 'partial');
     check(partial?.textContent === 'Partial (3/4)', 'Reviewed local and GL contents combine into Partial coverage');
@@ -37,9 +38,9 @@
     check(!document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized'), 'Summary still expands');
     check(fixtureCalls.every(call => call.items.every(item => item.excludeProviders.includes('humble'))), 'GL requests consistently exclude stale Humble records');
     const goal = document.querySelector('#hcl-plan-goal');
-    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Product goal selects the lowest tier containing all confirmed-new items');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier satisfying this goal: $15.00'), 'Product goal selects the lowest tier containing all confirmed-new items');
     goal.value = 'contents'; goal.dispatchEvent(new Event('change'));
-    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $5.00'), 'Overlapping higher-tier collections do not raise the contents goal price');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier satisfying this goal: $5.00'), 'Overlapping higher-tier collections do not raise the contents goal price');
     check(document.querySelector('.hcl-plan-output').textContent.includes('1 new known units (0 added at this tier)'), 'Unit value is deduplicated across cumulative tiers');
     goal.value = 'wishlist'; goal.dispatchEvent(new Event('change'));
     check(document.querySelector('.hcl-plan-output').textContent.includes('wishlist priority 3 across 1 items'), 'Wishlist goal displays personal weighted value');
@@ -55,6 +56,10 @@
     await waitFor(()=>document.querySelector('.hcl-plan-output').textContent.includes('wishlist priority 18'));
     check(document.querySelector('.hcl-advanced').open&&document.querySelector('#hcl-bundle-plan').open,'Settings wishlist refresh preserves open disclosures');
     check(fixtureCalls.length===callsBeforeWishlist,'Settings wishlist refresh uses settled ownership evidence');
+    const priority=document.querySelector('[aria-label="Wishlist priority for New story"]');priority.value='5';
+    [...priority.parentElement.querySelectorAll('button')].find(button=>button.textContent==='Save priority').click();
+    await waitFor(()=>fixtureStored.wishlistItems.find(wish=>wish.title==='New story')?.weight===5);
+    check(document.querySelector('.hcl-plan-output').textContent.includes('wishlist priority 14'),'Advanced priority edits update wish-first plan value');
     await chrome.storage.local.set({wishlistItems:fixtureStored.wishlistItems.map(wish=>({...wish,weight:wish.title==='Wishlist book'?3:1}))});
     const uncertain = document.querySelector('#hcl-plan-uncertain'); uncertain.checked = true; uncertain.dispatchEvent(new Event('change'));
     check(document.querySelector('.hcl-plan-output').textContent.includes('uncertain selections'), 'Uncertain selections enter plans only through an explicit control');
@@ -63,12 +68,24 @@
     check(seriesPanel?.textContent.includes('Manga') && seriesPanel.textContent.includes('Gaps: 3'), 'Storefront series coverage displays reviewed gaps in the offered span');
     seriesPanel.open = true;
     const seriesGroup = seriesPanel.querySelector('details'); seriesGroup.open = true;
+    seriesGroup.querySelector('details').open=true;
     await waitFor(() => seriesGroup.querySelector('.hcl-reading-sequence'));
     const sequence = [...seriesGroup.querySelectorAll('.hcl-reading-sequence li')];
     check(sequence.length === 4 && sequence[0].textContent.includes('volume 1') && sequence[3].textContent.includes('volume 4'), 'Reading coverage is presented in numeric order');
     check(sequence[0].textContent.includes('Owned collection') && sequence[1].textContent.includes('GL collection'), 'Reading coverage names local and central ownership sources');
     check(sequence[2].dataset.coverage === 'gap', 'An uncovered volume remains a gap instead of becoming owned');
     check(fixtureCalls.some(call => call.items.some(item => item.title.startsWith('Series coverage:') && item.contentsComplete === false)), 'Series context is checked through the bounded central contents API');
+    fixtureCentralFailure=true;
+    const late=document.createElement('article');late.className='product';late.innerHTML='<img class="item-image" alt="Retry-only book"><h3>Retry-only book</h3>';document.querySelector('[data-tier="5"]').append(late);
+    await waitFor(()=>late.querySelector('[data-state="unchecked"]')&&document.querySelector('.hcl-retry-galactic'));
+    check(document.querySelectorAll('[data-state="partial"]').length===2&&document.querySelector('[data-state="possible"]'),'An incomplete new check preserves settled local and successful central evidence');
+    fixtureCentralFailure=false;const beforeRetry=fixtureCalls.length;document.querySelector('.hcl-retry-galactic').click();
+    await waitFor(()=>late.querySelector('[data-state="new"]')&&!document.querySelector('.hcl-retry-galactic'));
+    check(fixtureCalls.slice(beforeRetry).flatMap(call=>call.items).every(item=>item.title==='Retry-only book'),'Retry requests only the failed item and retains successful evidence');
+    const beforeRefresh=fixtureCalls.length;[...document.querySelectorAll('.hcl-galactic-details button')].find(button=>button.textContent==='Refresh central evidence').click();
+    await waitFor(()=>fixtureCalls.length>beforeRefresh&&!document.querySelector('#hcl-progress'));
+    check(fixtureCalls.slice(beforeRefresh).flatMap(call=>call.items).some(item=>item.title==='Dune, 2nd Edition'),'Refresh fetches previously successful central evidence');
+    late.remove();await waitFor(()=>!document.querySelector('#hcl-summary').textContent.includes('Retry-only book')&&!document.querySelector('#hcl-progress'));
     const keyItem={title:'Synthetic game',kind:'game',source:'humble',sourceBundle:'Synthetic bundle',purchaseKey:'synthetic',entitlement:'third-party-key',keyStatus:'revealed'};
     const host=document.createElement('div');const image=document.createElement('img');host.append(image);document.body.append(host);
     const offered={title:keyItem.title,kind:'game',container:host,element:image};
@@ -102,7 +119,7 @@
     await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
     check(!document.querySelector('.hcl-card-unchecked, .hcl-cover-unchecked, .hcl-unchecked-item'), 'A successful retry removes stale unchecked classes');
     check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'), 'A successful retry replaces Check incomplete badges');
-    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier for this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
+    check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier satisfying this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
     const historical = [{ title: 'New story', kind: 'book', source: 'humble', sourceBundle: 'Earlier Humble bundle', purchasedAt: '2026-09-01' }];
     const historyMatcher = createBundleLibraryMatcher(fixtureStored.libraryItems, 'book', historical);
     const localComparison = { job: 1, galactic: createGalacticLookup(''), wishlistItems: fixtureStored.wishlistItems };

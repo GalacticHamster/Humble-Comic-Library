@@ -247,7 +247,7 @@
     if(issues(item)&&issues(wanted)&&issues(item)!==issues(wanted))return 'none';
     const shared=Boolean(a.isbn?.some(id=>b.isbn?.includes(id))||a.asin&&a.asin===b.asin||a.editionId&&a.editionId===b.editionId);
     const sameTitle=policy.fullTitleMatches(item.title,wanted.title,kind);
-    const differences=conflicts(item,wanted,true);
+    const differences=conflicts(item,wanted,true).filter(reason=>reason!=='Author name variation needs review');
     const packageLabel=value=>kind==='game'?(String(value).match(/\b(base(?: game)?|standard|deluxe|gold|platinum|ultimate|complete|definitive|premium|goty|game of the year)(?: edition)?\s*$/iu)?.[0]||'').toLowerCase():'';
     const packageDifference=packageLabel(item.title)!==packageLabel(wanted.title);
     const strong=shared||sameTitle||Boolean((item.externalIds?.steamAppId||item.steamAppId)&&(item.externalIds?.steamAppId||item.steamAppId)===(wanted.externalIds?.steamAppId||wanted.steamAppId));
@@ -275,7 +275,8 @@
 
   function planBundle(resolved, wishlist = [], goal = 'items', includeUncertain = false) {
     const wants = planningWishes(wishlist);
-    const rows = resolved.map(({ item, match }) => ({ item, match, id: H.catalogItemKey(item), units: newUnits(match) }));
+    const verifiedUnits=new Set(bundleContents(resolved).additional.map(C.contentKey));
+    const rows = resolved.map(({ item, match }) => ({ item, match, id: H.catalogItemKey(item), units: newUnits(match).filter(unit=>verifiedUnits.has(C.contentKey(unit))) }));
     const eligible = rows.filter(row => !['owned', 'elsewhere'].includes(row.match.state)
       && !row.match.lookupIncomplete && (row.match.state === 'new' || goal === 'contents' && row.match.state === 'partial' && row.units.length > 0 || includeUncertain && row.match.state === 'possible'));
     const goals = new Map();
@@ -312,36 +313,92 @@
       excludedUncertain: rows.filter(row => row.match.state === 'possible' || row.match.state === 'partial' && !row.units.length).length };
   }
 
+
+  // Presentation analysis uses resolved explicit content evidence; it never
+  // feeds aggregate results back into the ownership matcher.
+  function bundleContents(resolved) {
+    resolved=resolved.map(row=>({...row,target:row.target||row.match.coverage?.target||{entries:[...(row.match.coverage?.covered||[]),...(row.match.coverage?.missing||[])],uncertain:false}}));
+    const covered=new Map(),uncertain=new Map(),additional=new Map(),perProduct=new Map();
+    let noContentsProducts=0,incompleteProducts=0;
+    for(const {match,target} of resolved){
+      for(const entry of match.coverage?.covered||[])covered.set(C.contentKey(entry),entry);
+      if(['owned','elsewhere'].includes(match.state)&&target?.mappings?.length&&!target.uncertain)
+        for(const entry of target.entries)if(entry.completeness==='full'&&entry.run&&entry.language)covered.set(C.contentKey(entry),entry);
+      for(const entry of match.coverage?.possibleCovered||[])uncertain.set(C.contentKey(entry),entry);
+    }
+    for(const {item,match,target={entries:[]}} of resolved){
+      if(!target.entries.length){noContentsProducts++;continue;}
+      const incomplete=match.lookupIncomplete||match.contentsLookupIncomplete||match.state==='unchecked'||target.uncertain;
+      if(incomplete)incompleteProducts++;
+      const units=perProduct.get(H.catalogItemKey(item))||new Set();
+      for(const entry of target.entries){
+        const id=C.contentKey(entry);if(entry.completeness!=='full'||covered.has(id))continue;
+        if(incomplete||!entry.run||!entry.language||uncertain.has(id))uncertain.set(id,entry);
+        else if(!['owned','elsewhere'].includes(match.state)){additional.set(id,entry);units.add(id);}
+        else uncertain.set(id,entry);
+      }
+      perProduct.set(H.catalogItemKey(item),units);
+    }
+    for(const id of covered.keys()){uncertain.delete(id);additional.delete(id);}
+    for(const id of uncertain.keys())additional.delete(id);
+    const prices=[...new Set(resolved.map(row=>row.item.tier?.price).filter(price=>Number.isFinite(price)&&price>=0))].sort((a,b)=>a-b);
+    const tiers=prices.map(price=>{const totals=new Set();for(const row of resolved.filter(row=>Number.isFinite(row.item.tier?.price)&&row.item.tier.price<=price))for(const id of perProduct.get(H.catalogItemKey(row.item))||[])if(additional.has(id))totals.add(id);return {price,additional:totals.size};});
+    return {additional:[...additional.values()],covered:[...covered.values()],uncertain:[...uncertain.values()],noContentsProducts,incompleteProducts,tiers};
+  }
+  function centralReminders(matches, now=Date.now()) {
+    const reminders=[],seen=new Set();
+    const add=(record,type,text)=>{const id=`${record.provider}:${record.itemRef||record.title}:${type}`;if(seen.has(id))return;seen.add(id);reminders.push({type,title:record.title||'Unnamed central item',provider:record.provider||'Galactic Library',text});};
+    for(const match of matches){
+      const result=match.externalResult;if(!result)continue;
+      const records=[...(result.matches||[]),...(result.possibleMatches||[]),...(result.partialMatches||[]),...(match.coverage?.covered||[]).flatMap(entry=>entry.evidence||[]),...(match.coverage?.possibleCovered||[]).flatMap(entry=>entry.evidence||[])];
+      for(const record of records){
+        if(record.provider==='humble')continue;
+        if(!permanent(record)&&!['owned','elsewhere'].includes(match.state))add(record,'ownership',`${record.ownership||'unknown'} ownership${['rental','borrowed','subscription'].includes(record.ownership)?'; temporary access does not establish permanent ownership. Expiry dates are unavailable here.':'; confirm purchase or permanent claim in Galactic Library.'}`);
+        const observed=Date.parse(record.evidence?.checkedAt||''),reviewed=Date.parse(record.verifiedAt||'');
+        if(!Number.isFinite(observed))add(record,'freshness','Observation date unavailable; check provider sync and ownership evidence in Galactic Library.');
+        else if(now-observed>30*86400000)add(record,'freshness',`Last observed ${record.evidence.checkedAt}; refresh provider sync. Age does not revoke a recorded permanent purchase.`);
+        if(Number.isFinite(reviewed)&&now-reviewed>30*86400000)add(record,'contents',`Contents reviewed ${record.verifiedAt}; review edition/contents if the offer differs.`);
+      }
+      if(match.coverage?.possibleCovered?.length)reminders.push({type:'scope',title:match.offered?.title,provider:'Galactic Library',text:'Possible coverage needs run/language confirmation; review its contents scope.'});
+      if(match.contentsLookupIncomplete)reminders.push({type:'coverage',title:match.offered?.title,provider:'Galactic Library',text:'Central contents coverage was not supplied. Refresh or update the paired library before treating units as absent.'});
+    }
+    return reminders;
+  }
+
   function seriesKey(entry) {
     return JSON.stringify([key(entry.series), key(entry.run), entry.unitType, key(entry.language), entry.seriesId || '', entry.runId || '']);
   }
 
   function readingTargets(resolved) {
-    const groups = new Map();
-    for (const { item, target } of resolved) {
-      if (item.kind !== 'book') continue;
-      for (const entry of target?.entries ?? []) {
-        if (entry.completeness !== 'full') continue;
-        const scope = seriesKey(entry);
-        const group = groups.get(scope) ?? { ...entry, entries: new Map() };
-        group.entries.set(C.contentKey(entry), entry); groups.set(scope, group);
+    const groups=new Map();let limited=false,budget=20000;
+    for(const {item,target}of resolved){
+      if(item.kind!=='book')continue;
+      for(const entry of target?.entries||[]){
+        if(entry.completeness!=='full')continue;
+        const scope=seriesKey(entry);if(!groups.has(scope)&&groups.size>=100){limited=true;continue;}
+        const group=groups.get(scope)||{...entry,entries:new Map(),unknownScope:Boolean(!entry.run||!entry.language||target.uncertain)};
+        group.unknownScope ||= Boolean(target.uncertain);
+        if(group.entries.size>=2000&&!group.entries.has(C.contentKey(entry))){limited=true;continue;}
+        group.entries.set(C.contentKey(entry),entry);groups.set(scope,group);
       }
     }
-    return [...groups.values()].map(group => {
-      const entries = new Map(group.entries);
-      const numeric = [...entries.values()].map(entry => Number(C.numberKey(entry.number))).filter(Number.isFinite);
-      const first = Math.ceil(Math.min(...numeric)); const last = Math.floor(Math.max(...numeric));
-      const bounded = ['issue', 'volume', 'annual'].includes(group.unitType) && numeric.length > 0 && last - first <= 1999;
-      if (bounded) for (let number = first; number <= last && entries.size < 2000; number++) {
-        const entry = { series: group.series, run: group.run, unitType: group.unitType, language: group.language, number: String(number), completeness: 'full',
-          ...(group.seriesId ? { seriesId: group.seriesId } : {}), ...(group.runId ? { runId: group.runId } : {}) };
-        if (!entries.has(C.contentKey(entry))) entries.set(C.contentKey(entry), entry);
+    const queries=[];
+    for(const group of groups.values()){
+      if(budget<=0){limited=true;break;}
+      const offeredKeys=new Set(group.entries.keys()),entries=new Map(group.entries);
+      const numeric=[...entries.values()].map(entry=>Number(C.numberKey(entry.number))).filter(Number.isFinite);
+      const first=Math.ceil(numeric.reduce((a,b)=>Math.min(a,b),Infinity)),last=Math.floor(numeric.reduce((a,b)=>Math.max(a,b),-Infinity));
+      const sequence=['issue','volume'].includes(group.unitType)&&!group.unknownScope&&numeric.length===entries.size;
+      const bounded=sequence&&last-first<2000&&last-first<budget;
+      if(bounded)for(let number=first;number<=last&&entries.size<Math.min(2000,budget);number++){
+        const entry={...group,number:String(number),completeness:'full'};delete entry.entries;delete entry.unknownScope;
+        if(!entries.has(C.contentKey(entry)))entries.set(C.contentKey(entry),entry);
       }
-      return { item: { title: `Series coverage: ${group.series}${group.run ? ` (${group.run})` : ''} ${group.unitType} [${group.language || 'unknown language'}]`,
-          kind: 'book', series: group.series, run: group.run, language: group.language },
-        match: { state: 'new' }, target: { entries: [...entries.values()], complete: false, uncertain: false },
-        enumerationLimited: numeric.length > 0 && !bounded };
-    });
+      const targetEntries=[...entries.values()].slice(0,Math.min(2000,budget));budget-=targetEntries.length;
+      const enumerationLimited=Boolean(sequence&&!bounded||targetEntries.length<entries.size);limited ||= enumerationLimited;
+      queries.push({item:{title:`Series coverage: ${group.series}${group.run?` (${group.run})`:''} ${group.unitType} [${group.language||'unknown language'}]`,kind:'book',series:group.series,run:group.run,language:group.language},match:{state:'new'},target:{entries:targetEntries,complete:false,uncertain:group.unknownScope},offeredKeys,unknownScope:group.unknownScope,enumerationLimited});
+    }
+    queries.limited=limited;return queries;
   }
 
   function seriesCoverage(queries, local, resultsByKey = new Map(), centralEnabled = false) {
@@ -353,19 +410,19 @@
       const possible = new Map(coverage.possibleCovered.map(entry => [C.contentKey(entry), entry]));
       const first = query.target.entries[0];
       const entries = query.target.entries.map(entry => ({ ...entry,
-        state: covered.has(C.contentKey(entry)) ? 'covered' : lookupIncomplete || possible.has(C.contentKey(entry)) || !entry.run || !entry.language ? 'uncertain' : 'gap',
+        state: covered.has(C.contentKey(entry)) ? 'covered' : query.unknownScope || lookupIncomplete || possible.has(C.contentKey(entry)) || !entry.run || !entry.language ? 'uncertain' : 'gap',
         evidence: covered.get(C.contentKey(entry))?.evidence ?? possible.get(C.contentKey(entry))?.evidence ?? []
       })).sort((a, b) => {
         const left = Number(C.numberKey(a.number)); const right = Number(C.numberKey(b.number));
         return Number.isFinite(left) && Number.isFinite(right) ? left - right : a.number.localeCompare(b.number, undefined, { numeric: true });
       });
       return { series: first.series, run: first.run, language: first.language, unitType: first.unitType,
-        entries, covered: coverage.owned, gaps: entries.filter(entry => entry.state === 'gap'), uncertain: entries.filter(entry => entry.state === 'uncertain'),
+        entries, offeredKeys: query.offeredKeys, externalResult: result, coverage, offered: query.item, covered: coverage.owned, gaps: entries.filter(entry => entry.state === 'gap'), uncertain: entries.filter(entry => entry.state === 'uncertain'),
         enumerationLimited: query.enumerationLimited, lookupIncomplete };
-    }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || a.run.localeCompare(b.run));
+    }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || String(a.run||'').localeCompare(String(b.run||'')));
   }
 
-  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
+  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, bundleContents, centralReminders, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
 
 /* Purchasing summary presentation only: consumes, never changes, match states. */

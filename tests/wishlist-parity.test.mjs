@@ -15,11 +15,17 @@ const relationCases=[
  ['conflicting ISBN',item('A story',{isbn:['9780306406157']}),item('A story',{isbn:['9780140328721']}),'related'],
  ['strong ISBN renamed',item('Original',{isbn:['9780306406157']}),item('Renamed',{isbn:['9780306406157']}),'match'],
  ['conflicting authors',item('A story',{authors:['Alan Moore']}),item('A story',{authors:['Neil Gaiman']}),'related'],
+ ['compatible author variation is independent of ownership uncertainty',item('A story',{authors:['Alan Moore']}),item('A story',{authors:['A. Moore']}),'match'],
+ ['shared ISBN cannot overrule contradictory authors',item('A story',{authors:['Alan Moore'],isbn:['9780306406157']}),item('A story',{authors:['Neil Gaiman'],isbn:['9780306406157']}),'related'],
  ['different volume',item('Saga Volume 1'),item('Saga Volume 2'),'none'],
  ['game package',item('Space Adventure',{kind:'game',mediaType:'game',externalIds:{steamAppId:'42'}}),item('Space Adventure Deluxe Edition',{kind:'game',mediaType:'game',externalIds:{steamAppId:'42'}}),'related'],
  ['different media',item('A story'),item('A story',{kind:'audiobook',mediaType:'audiobook'}),'none']
 ];
 for(const [name,wish,offer,expected] of relationCases)test('wishlist parity: '+name,()=>{assert.equal(O.wishlistRelation(wish,offer),expected);});
+test('wishlist parity: round trips preserve every validated ISBN for renamed fulfillment candidates',()=>{
+ const wishes=(hb?ctx.HumbleComicLibrary:O).normalizeWishlist([item('Original',{isbn:['9780140328721','9780306406157']})]);
+ assert.equal(O.wishlistRelation(wishes[0],item('Renamed',{isbn:['9780306406157']})),'match');
+});
 function plan(products,states,wishes,include=false,goal='wishlist',pool=false){
  if(hb)return O.planBundle(products.map((p,n)=>({item:{...p,tier:{price:n?10:1}},match:{state:states[n]}})),wishes,goal==='products'?'items':goal,include);
  const rows=products.map((p,n)=>({...p,sourceItemId:'product-'+n,availability:{regionAvailable:true}}));
