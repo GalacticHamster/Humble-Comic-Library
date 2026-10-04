@@ -6,7 +6,7 @@ import vm from 'node:vm';
 function load({ pathname = '/books/example-books', heading = '', bundleData = {}, malformed = false, cards = [] } = {}) {
   const images = cards.map(({ title, format }) => {
     const container = { getAttribute: (name) => name === 'data-format' ? format : null };
-    return { alt: title, container, getAttribute: () => null };
+    return { alt: title, container, getAttribute: () => null, closest: () => null };
   });
   const document = {
     title: '',

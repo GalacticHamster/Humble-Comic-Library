@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>IGN tier-switch regression fixture</title><link rel="stylesheet" href="/content.css">
+<style>
+.desktop-tier-collection-view { display:flex; flex-wrap:wrap; align-items:flex-start; width:660px; gap:20px; }
+.tier-item-view { width:200px; height:180px; }
+.tier-item-view img { width:200px; height:120px; }
+.expanded-info-view { width:100%; height:0; overflow:hidden; }
+</style></head><body>
+<h1>IGN 30th anniversary bundle</h1>
+<nav><a href="#" class="js-tier-filter" data-tier="7">7 Item Bundle</a> <a href="#" class="js-tier-filter" data-tier="4">4 Item Bundle</a> <a href="#" class="js-tier-filter" data-tier="2">2 Item Bundle</a></nav>
+<section data-tier="15"><h3 class="js-tier-header">Pay at least $15 for these 7 items</h3><div class="tier-collection"><div class="desktop-tier-collection-view"></div></div></section>
+<script src="/tests/bundle-fixture.js"></script><script src="/tests/tier-switch-fixture.js"></script>
+<script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script>
+<script src="/tests/tier-switch-checks.js"></script></body></html>

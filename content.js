@@ -134,7 +134,11 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     })().catch(showComparisonFailure);
   };
   window.addEventListener('resize', () => refresh('resize'), { passive: true });
+  document.addEventListener('click', event => {
+    if (event.target instanceof Element && event.target.closest('.js-tier-filter[data-tier]')) refresh('tier changed');
+  });
   let metadataFingerprint = bundleMetadataFingerprint();
+  let bundleCovers = new Set([...document.querySelectorAll(HCL_COVER_SELECTOR)].filter(isBundleCover));
   new MutationObserver((records) => {
     // Humble renders covers lazily. Look only at the added/changed local
     // subtree, rather than re-querying every cover after every React update.
@@ -142,15 +146,33 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
     const nextFingerprint = metadataChanged ? bundleMetadataFingerprint() : metadataFingerprint;
     const changedAttribute = records.some(record => record.type === 'attributes' && recordHasBundleMetadataChange(record)
       && record.oldValue !== record.target.getAttribute(record.attributeName));
-    if (records.some(recordHasUnannotatedCover) || metadataChanged && (nextFingerprint !== metadataFingerprint || changedAttribute)) {
+    const coversChanged = records.some(record => recordHasUnannotatedCover(record, bundleCovers));
+    const tierAnimationFinished = records.some(record => record.type === 'attributes' && record.attributeName === 'class'
+      && record.target.matches('.tier-item-view') && /(?:^|\s)flipping(?:\s|$)/u.test(record.oldValue ?? '')
+      && !record.target.classList.contains('flipping'));
+    // Humble detaches and reuses annotated views when switching tiers. Track
+    // mounted covers, so a returning card is processed even with old badges.
+    bundleCovers = new Set([...bundleCovers].filter(cover => cover.isConnected));
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      if (node.matches(HCL_COVER_SELECTOR) && isBundleCover(node)) bundleCovers.add(node);
+      for (const cover of node.querySelectorAll(HCL_COVER_SELECTOR)) if (isBundleCover(cover)) bundleCovers.add(cover);
+    }
+    if (coversChanged || tierAnimationFinished || metadataChanged && (nextFingerprint !== metadataFingerprint || changedAttribute)) {
       metadataFingerprint = nextFingerprint;
       refresh('bundle data updated');
     }
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true,
-    attributeFilter: ['alt', 'data-tier', 'data-content-type', 'data-product-type', 'data-format', 'data-isbn', 'data-asin', 'data-edition', 'data-edition-id', 'data-language', 'data-series', 'data-series-id', 'data-run', 'data-run-id', 'data-volume', 'data-issue', 'data-author'] });
+    attributeFilter: ['alt', 'class', 'data-tier', 'data-content-type', 'data-product-type', 'data-format', 'data-isbn', 'data-asin', 'data-edition', 'data-edition-id', 'data-language', 'data-series', 'data-series-id', 'data-run', 'data-run-id', 'data-volume', 'data-issue', 'data-author'] });
 }()).catch((error) => showComparisonFailure(error));
 
 const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
+
+function isBundleCover(cover) {
+  // This full-width sibling is Humble's expandable details carousel. Its
+  // preview image is not a purchasable card or a sortable grid slot.
+  return !cover.closest('.expanded-info-view');
+}
 
 function bundleMetadataFingerprint() {
   return JSON.stringify([document.querySelector('#webpack-bundle-page-data')?.textContent ?? '', document.querySelector('h1')?.textContent ?? '']);
@@ -158,8 +180,8 @@ function bundleMetadataFingerprint() {
 
 function recordHasBundleMetadataChange(record) {
   const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
-  if (target?.closest('[id^="hcl-"], .hcl-summary')) return false;
-  if (record.type === 'attributes') return record.attributeName !== 'alt'
+  if (target?.closest('[id^="hcl-"], .hcl-summary, .expanded-info-view')) return false;
+  if (record.type === 'attributes') return !['alt', 'class'].includes(record.attributeName)
     && Boolean(target?.matches(HCL_COVER_SELECTOR) || target?.querySelector(HCL_COVER_SELECTOR));
   if (target?.closest('#webpack-bundle-page-data, h1')) return true;
   return [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === Node.ELEMENT_NODE
@@ -197,8 +219,8 @@ function runWhenIdle(callback, timeout) {
   }
 }
 
-function recordHasUnannotatedCover(record) {
-  const uiSelector = '[id^="hcl-"], .hcl-summary, .hcl-progress, .hcl-status-button, .hcl-related-titles, details[data-hcl-related], .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge';
+function recordHasUnannotatedCover(record, mountedCovers = null) {
+  const uiSelector = '[id^="hcl-"], .hcl-summary, .hcl-progress, .hcl-status-button, .hcl-related-titles, details[data-hcl-related], .hcl-owned-badge, .hcl-new-badge, .hcl-possible-badge, .hcl-partial-badge, .expanded-info-view';
   const isOwnUi = node => (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest?.(uiSelector);
   if (isOwnUi(record.target)) return false;
   const changed = [...record.addedNodes, ...record.removedNodes];
@@ -216,7 +238,8 @@ function recordHasUnannotatedCover(record) {
     const covers = [];
     if (root.matches?.(HCL_COVER_SELECTOR)) covers.push(root);
     covers.push(...(root.querySelectorAll?.(HCL_COVER_SELECTOR) ?? []));
-    return covers.some((cover) => likelyItemTitle({ textContent: cover.alt }) && !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial') && !cover.classList.contains('hcl-cover-unchecked'));
+    return covers.some((cover) => isBundleCover(cover) && likelyItemTitle({ textContent: cover.alt }) && (mountedCovers && !mountedCovers.has(cover)
+      || !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial') && !cover.classList.contains('hcl-cover-unchecked')));
   });
 }
 
@@ -1068,6 +1091,13 @@ function clearBundleAnnotations() {
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
   if (comparison && comparison.job !== job) return;
+  // Humble's FLIP transition owns the departing/returning card positions.
+  // Reparenting during it interrupts native cleanup. Resume on its class
+  // removal/mount events instead of racing a guessed animation duration.
+  if (document.querySelector('.desktop-tier-collection-view > .tier-item-view.flipping')) {
+    showComparisonProgress('Waiting for tier changes…');
+    return;
+  }
   const media = bundleMediaContext(itemKind);
   const items = collectBundleItems(media);
   if (!items.length) {
@@ -1239,6 +1269,7 @@ function yieldToBrowser() {
 
 function annotateAllCoverCopies(matchesByTitleKey, media) {
   for (const image of document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')) {
+    if (!isBundleCover(image)) continue;
     const item = describeBundleItem({ title: image.alt, element: image, container: productContainer(image) }, media);
     const match = matchesByTitleKey.get(bundleItemKey(item));
     if (!match) continue;
@@ -1272,6 +1303,7 @@ function collectBundleItems(media = bundleMediaContext()) {
 
   const byKey = new Map();
   for (const element of candidates) {
+    if (element.closest('.expanded-info-view')) continue;
     const title = likelyItemTitle(element);
     if (!title) continue;
     const item = describeBundleItem({ title, element, container: productContainer(element), tier: findTier(element) }, media);
@@ -1291,6 +1323,7 @@ function collectCoverImageItems(media = bundleMediaContext()) {
   const byKey = new Map();
   const images = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
   for (const image of images) {
+    if (!isBundleCover(image)) continue;
     const title = String(image.alt ?? '').replace(/\s+/gu, ' ').trim();
     if (!likelyItemTitle({ textContent: title })) continue;
     if (!HumbleComicLibrary.titleKey(title)) continue;
