@@ -58,7 +58,7 @@ test('wishlist validation bounds priorities and preserves media/edition identity
   assert.equal(wanted[0].purchaseKey, undefined);
   assert.equal(O.wishlistMatches(wanted[0], { title: 'Work', kind: 'book', isbn: ['9780306406157'] }), false);
   assert.equal(O.wishlistMatches(wanted[0], { title: 'Work', kind: 'audiobook', isbn: ['9780140328721'] }), false);
-  assert.equal(O.wishlistMatches(wanted[0], { title: 'Work', kind: 'audiobook' }), false);
+  assert.equal(O.wishlistMatches(wanted[0], { title: 'Work', kind: 'audiobook' }), true);
   assert.equal(O.wishlistMatches(wanted[0], { title: 'Work', kind: 'audiobook', isbn: ['9780306406157'] }), true);
   for (const invalid of [{ title: '' }, { title: 'X', weight: 0 }, { title: 'X', weight: 101 }, { title: 'X', weight: 1.5 }, { title: 'X', kind: 'unknown' }]) assert.throws(() => H.normalizeWishlist([invalid]));
 });

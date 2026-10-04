@@ -236,14 +236,36 @@
     return lines;
   }
 
-  function wishlistMatches(wanted, item) {
-    if ((wanted.kind ?? 'book') !== item.kind || H.normalizeTitle(wanted.title) !== H.normalizeTitle(item.title) || conflicts(wanted, item, true).length) return false;
-    const left = H.bibliographicFields(wanted); const right = H.bibliographicFields(item);
-    if (left.isbn?.length && !left.isbn.some(isbn => right.isbn?.includes(isbn))) return false;
-    for (const field of ['asin', 'editionId', 'language', 'run']) if (left[field] && key(left[field]) !== key(right[field])) return false;
-    if (left.authors?.length && !left.authors.some(author => right.authors?.map(key).includes(key(author)))) return false;
-    return true;
+
+  function wishlistRelation(wanted, item) {
+    const kind=(item.kind??item.mediaType??'book'), wantedKind=(wanted.kind??wanted.mediaType??'book');
+    if(kind!==wantedKind)return 'none';
+    const a=H.bibliographicFields(wanted), b=H.bibliographicFields(item), policy=global.LibraryMatchingPolicy;
+    const hard=conflicts(item,wanted,false);
+    if(hard.some(reason=>/issue|volume|unitType|seriesId|runId|Different run/iu.test(reason)))return 'none';
+    const issues=value=>{const match=/(?:#|\bvol(?:ume)?s?\.?\s*)(\d+(?:\.\d+|\/\d+)?)/iu.exec(value.title||'');return match?policy.unitKey(match[1]):'';};
+    if(issues(item)&&issues(wanted)&&issues(item)!==issues(wanted))return 'none';
+    const shared=Boolean(a.isbn?.some(id=>b.isbn?.includes(id))||a.asin&&a.asin===b.asin||a.editionId&&a.editionId===b.editionId);
+    const sameTitle=policy.fullTitleMatches(item.title,wanted.title,kind);
+    const differences=conflicts(item,wanted,true);
+    const packageLabel=value=>kind==='game'?(String(value).match(/\b(base(?: game)?|standard|deluxe|gold|platinum|ultimate|complete|definitive|premium|goty|game of the year)(?: edition)?\s*$/iu)?.[0]||'').toLowerCase():'';
+    const packageDifference=packageLabel(item.title)!==packageLabel(wanted.title);
+    const strong=shared||sameTitle||Boolean((item.externalIds?.steamAppId||item.steamAppId)&&(item.externalIds?.steamAppId||item.steamAppId)===(wanted.externalIds?.steamAppId||wanted.steamAppId));
+    if(strong&&!differences.length&&!packageDifference)return 'match';
+    if(strong||H.possibleTitleRelation(wanted.title,item.title,kind))return 'related';
+    return 'none';
   }
+  function wishlistIntentKey(item) {
+    const data=H.bibliographicFields(item);
+    return JSON.stringify([(item.kind??item.mediaType??'book'),global.LibraryMatchingPolicy.presentationTitle(item.title,(item.kind??item.mediaType??'book')),Object.fromEntries(Object.entries(data).sort(([a],[b])=>a.localeCompare(b)).map(([key,value])=>[key,Array.isArray(value)?[...value].sort():value]))]);
+  }
+  function planningWishes(wishlist) {
+    const unique=new Map();
+    for(const wish of H.normalizeWishlist(wishlist)){const id=wishlistIntentKey(wish),previous=unique.get(id);if(!previous||wish.weight>previous.weight)unique.set(id,wish);}
+    return [...unique.values()];
+  }
+
+  const wishlistMatches=(wanted,item)=>wishlistRelation(wanted,item)==='match';
 
   function newUnits(match) {
     if (['owned', 'elsewhere', 'unchecked'].includes(match.state) || match.lookupIncomplete || match.contentsLookupIncomplete) return [];
@@ -252,10 +274,10 @@
   }
 
   function planBundle(resolved, wishlist = [], goal = 'items', includeUncertain = false) {
-    const wants = H.normalizeWishlist(wishlist);
+    const wants = planningWishes(wishlist);
     const rows = resolved.map(({ item, match }) => ({ item, match, id: H.catalogItemKey(item), units: newUnits(match) }));
     const eligible = rows.filter(row => !['owned', 'elsewhere'].includes(row.match.state)
-      && (row.match.state === 'new' || row.match.state === 'partial' && row.units.length > 0 || includeUncertain && ['possible', 'partial'].includes(row.match.state)));
+      && !row.match.lookupIncomplete && (row.match.state === 'new' || goal === 'contents' && row.match.state === 'partial' && row.units.length > 0 || includeUncertain && row.match.state === 'possible'));
     const goals = new Map();
     if (goal === 'contents') {
       for (const row of eligible) for (const unit of row.units) goals.set(`unit:${C.contentKey(unit)}`, new Set([`unit:${C.contentKey(unit)}`]));
@@ -265,7 +287,7 @@
         if (candidates.length) goals.set(`wish:${H.catalogItemKey(wanted)}`, new Set(candidates.map(row => `item:${row.id}`)));
       }
     } else {
-      for (const row of eligible) if (row.match.state === 'new' || includeUncertain && ['possible', 'partial'].includes(row.match.state)) goals.set(`item:${row.id}`, new Set([`item:${row.id}`]));
+      for (const row of eligible) if (row.match.state === 'new' || includeUncertain && row.match.state === 'possible') goals.set(`item:${row.id}`, new Set([`item:${row.id}`]));
     }
     const prices = [...new Set(rows.map(row => row.item.tier?.price).filter(price => Number.isFinite(price) && price >= 0))].sort((a, b) => a - b);
     let previousUnits = 0; let previousPrice = 0;
@@ -343,7 +365,7 @@
     }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || a.run.localeCompare(b.run));
   }
 
-  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
+  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
 
 /* Purchasing summary presentation only: consumes, never changes, match states. */

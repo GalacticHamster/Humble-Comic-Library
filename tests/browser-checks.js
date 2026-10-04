@@ -48,6 +48,14 @@
     toggle.checked = true; toggle.dispatchEvent(new Event('change'));
     await waitFor(() => fixtureStored.wishlistItems.length === 2);
     check(fixtureStored.wishlistItems.some(item => item.title === 'New story'), 'Bundle wishlist edits persist without losing existing wishes');
+    const advanced=document.querySelector('.hcl-advanced');advanced.open=true;
+    document.querySelector('#hcl-bundle-plan').open=true;
+    const callsBeforeWishlist=fixtureCalls.length;
+    await chrome.storage.local.set({wishlistItems:fixtureStored.wishlistItems.map(wish=>({...wish,weight:9}))});
+    await waitFor(()=>document.querySelector('.hcl-plan-output').textContent.includes('wishlist priority 18'));
+    check(document.querySelector('.hcl-advanced').open&&document.querySelector('#hcl-bundle-plan').open,'Settings wishlist refresh preserves open disclosures');
+    check(fixtureCalls.length===callsBeforeWishlist,'Settings wishlist refresh uses settled ownership evidence');
+    await chrome.storage.local.set({wishlistItems:fixtureStored.wishlistItems.map(wish=>({...wish,weight:wish.title==='Wishlist book'?3:1}))});
     const uncertain = document.querySelector('#hcl-plan-uncertain'); uncertain.checked = true; uncertain.dispatchEvent(new Event('change'));
     check(document.querySelector('.hcl-plan-output').textContent.includes('uncertain selections'), 'Uncertain selections enter plans only through an explicit control');
     check([...document.querySelectorAll('.hcl-status-button')].some(button => button.dataset.state === 'possible'), 'Planning leaves Possible ownership unchanged');

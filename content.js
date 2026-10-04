@@ -90,6 +90,7 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
   refresh('initial');
   let libraryRevision = 0;
   chrome.storage.onChanged?.addListener((changes, area) => {
+    if (area === 'local' && changes.wishlistItems) { comparison.wishlistItems=HumbleComicLibrary.normalizeWishlist(changes.wishlistItems.newValue||[]); comparison.renderSummary?.(); }
     if(area==='local'&&changes.bundleSummaryPreferences){bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));}
     if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
     const revision = ++libraryRevision;
@@ -103,6 +104,7 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
       currentBundlePurchases = findCurrentBundlePurchases(latest.purchaseSummaries);
       collectionMappings = [...HumbleCollectionMappings.builtIn, ...latest.customCollectionMappings];
+      comparison.wishlistItems = latest.wishlistItems;
       comparison.libraryCount = libraryItems.length;
       comparison.galactic = createGalacticLookup(latest.galacticLibraryExtensionId);
       refresh('library updated');
@@ -2005,6 +2007,8 @@ function appendBundleSummaryControls(summary) {
 }
 
 function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
+  const viewState=captureSummaryState(document.querySelector('#hcl-summary'));
+  if(comparison) comparison.renderSummary=()=>renderComparisonSummary(counts,tiers,titlesByState,itemKind,currentBundlePurchases,comparison);
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
@@ -2077,7 +2081,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible', 'unchecked']) {
     if (!titlesByState[state]?.length) continue;
     const detail = document.createElement('details');
-    detail.className = 'hcl-title-list';
+    detail.className = 'hcl-title-list'; detail.dataset.section=state;
     const heading = document.createElement('summary');
     heading.textContent = `${state === 'owned' ? 'Owned' : state === 'elsewhere' ? 'Owned elsewhere' : state === 'new' ? 'New' : state === 'partial' ? 'Partial' : state === 'unchecked' ? 'Check incomplete' : 'Possible matches'} (${titlesByState[state].length})`;
     detail.append(heading);
@@ -2130,6 +2134,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   const previous = document.querySelector('#hcl-summary');
   if (previous) previous.replaceWith(summary);
   else document.body.append(summary);
+  restoreSummaryState(summary,viewState);
 }
 
 function appendBuyRecommendation(summary, tiers) {
@@ -2290,19 +2295,24 @@ function appendWishlistControl(row, offered, comparison) {
   const label = document.createElement('label');
   label.className = 'hcl-wishlist-control';
   const toggle = document.createElement('input');
-  toggle.type = 'checkbox';
+  toggle.type = 'checkbox'; toggle.setAttribute('aria-label','Wishlist '+offered.title);
   toggle.disabled = offered.kind === 'unknown';
   toggle.checked = (comparison.wishlistItems ?? []).some(item => HumbleOwnership.wishlistMatches(item, offered));
   toggle.addEventListener('change', async () => {
     try {
       const entry={title:offered.title,kind:offered.kind==='unknown'?'book':offered.kind,weight:1,...HumbleComicLibrary.bibliographicFields(offered)};
-      const wanted=await HumbleComicLibrary.storageRequest('wishlist',toggle.checked?'add':'remove',toggle.checked?[entry]:HumbleComicLibrary.catalogItemKey(entry));
+      toggle.disabled=true;
+      const matches=(comparison.wishlistItems||[]).filter(wish=>HumbleOwnership.wishlistMatches(wish,offered));
+      let wanted=comparison.wishlistItems;
+      if(toggle.checked)wanted=await HumbleComicLibrary.storageRequest('wishlist','add',[matches[0]||entry]);
+      else for(const wish of matches)wanted=await HumbleComicLibrary.storageRequest('wishlist','remove',HumbleComicLibrary.catalogItemKey(wish));
       comparison.wishlistItems = wanted;
       document.querySelector('#hcl-bundle-plan')?.dispatchEvent(new Event('hcl-plan-update'));
-    } catch (error) { toggle.checked = !toggle.checked; label.title = error.message; }
+    } catch (error) { toggle.checked = !toggle.checked; status.textContent=error.message; } finally { toggle.disabled=false; }
   });
+  const status=document.createElement('small');status.setAttribute('role','status');
   label.append(toggle, ' Wishlist');
-  row.append(' ', label);
+  row.append(' ', label,status);
 }
 
 function appendBundlePlan(summary, comparison) {
@@ -2324,7 +2334,7 @@ function appendBundlePlan(summary, comparison) {
   label.append(goal); panel.append(label);
   const uncertainLabel = document.createElement('label');
   const uncertain = document.createElement('input'); uncertain.type = 'checkbox'; uncertain.id = 'hcl-plan-uncertain'; uncertain.checked = Boolean(comparison.planIncludeUncertain);
-  uncertainLabel.append(uncertain, ' Include uncertain matches in this plan');
+  uncertainLabel.append(uncertain, ' Include Possible items');
   panel.append(uncertainLabel);
   const output = document.createElement('div'); output.className = 'hcl-plan-output'; output.setAttribute('aria-live', 'polite'); panel.append(output);
   const update = () => {
@@ -3518,11 +3528,24 @@ function hasAudiobookDownload(product) {
 
 function appendWishlistNotice(summary, comparison) {
   if (!comparison?.resolvedItems) return;
-  const rows=comparison.resolvedItems.map(({item,match})=>({item,match,relation:(comparison.wishlistItems||[]).some(w=>HumbleOwnership.wishlistMatches(w,item))?'match':(comparison.wishlistItems||[]).some(w=>(w.kind||'book')===item.kind&&HumbleComicLibrary.possibleTitleRelation(w.title,item.title,item.kind))?'related':''})).filter(row=>row.relation);
+  const rows=comparison.resolvedItems.map(({item,match})=>({item,match,relation:(comparison.wishlistItems||[]).some(w=>HumbleOwnership.wishlistRelation(w,item)==='match')?'match':(comparison.wishlistItems||[]).some(w=>HumbleOwnership.wishlistRelation(w,item)==='related')?'related':''})).filter(row=>row.relation);
+  document.querySelectorAll('.hcl-wish-marker').forEach(node=>node.remove());
   if(!rows.length)return;
   const details=document.createElement('details'); details.className='hcl-wishlist-notice'; const heading=document.createElement('summary');
   heading.textContent=`Wishlist: ${rows.filter(row=>row.relation==='match').length} matches · ${rows.filter(row=>row.relation==='related').length} related`;details.append(heading);
   const list=document.createElement('ul');for(const row of rows){const li=document.createElement('li');li.textContent=`${row.item.title} — ${row.relation==='match'?'Wishlist match':'Related wishlist item'}`;list.append(li);}details.append(list);summary.append(details);
   document.querySelectorAll('.hcl-wish-marker').forEach(node=>node.remove());
   for(const row of rows){const host=row.item.container;if(!host)continue;const marker=document.createElement('span');marker.className='hcl-wish-marker';marker.textContent=row.relation==='match'?'♥ Wishlist':'♡ Related wish';host.append(marker);}
+}
+
+function captureSummaryState(panel) {
+  if(!panel)return null;
+  const active=panel.contains(document.activeElement)?document.activeElement:null;
+  return {open:[...panel.querySelectorAll('details')].filter(node=>node.open).map(node=>node.dataset.section||node.id||node.className||node.querySelector('summary')?.textContent),scroll:panel.scrollTop,focus:active?.getAttribute('aria-label')||active?.id};
+}
+function restoreSummaryState(panel, state) {
+  if(!state)return;
+  for(const node of panel.querySelectorAll('details'))node.open=state.open.includes(node.dataset.section||node.id||node.className||node.querySelector('summary')?.textContent);
+  panel.scrollTop=state.scroll;
+  if(state.focus)[...panel.querySelectorAll('button,input,select')].find(node=>node.getAttribute('aria-label')===state.focus||node.id===state.focus)?.focus({preventScroll:true});
 }
