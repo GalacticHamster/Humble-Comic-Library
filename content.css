@@ -143,7 +143,7 @@
 .hcl-bundle-filter { display: block; margin-top: 0.55rem; cursor: pointer; font-size: 0.8rem; }
 .hcl-bundle-filter input { vertical-align: middle; }
 .hcl-bundle-filtered { display: none !important; }
-.hcl-summary p { margin: 0.45rem 0; color: #f4cc73; }
+.hcl-summary p { margin: 0.45rem 0; color: #f2f2f2; }
 .hcl-summary .hcl-buy-recommendation { padding: 0.4rem 0.5rem; border-radius: 0.3rem; background: #0a7a42; color: #fff; font-weight: 700; }
 .hcl-summary .hcl-purchased-bundle { padding: 0.4rem 0.5rem; border-radius: 0.3rem; color: #fff; font-weight: 700; }
 .hcl-summary .hcl-purchased-full { background: #0a7a42; }
@@ -302,3 +302,53 @@
 
 .hcl-reading-sequence { max-height:none; overflow:visible; }
 .hcl-unit-pages { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+
+
+/* Canonical companion panel components. Keep this block identical in both
+   companions apart from their scoped roots and class prefixes. Storefront
+   font/reset rules must not control extension readability. */
+:is(#hcl-summary, #hcl-match-inspector) { background:#171717!important; color:#f2f2f2!important; font:400 14px/21px Arial,sans-serif!important; padding:12px 16px; }
+:is(#hcl-summary, #hcl-match-inspector) :is(p,div,span,small,strong,label,details,summary,ul,ol,li) { font-family:Arial,sans-serif!important; font-size:14px!important; line-height:21px!important; letter-spacing:normal!important; text-transform:none!important; text-shadow:none!important; }
+:is(#hcl-summary, #hcl-match-inspector) :is(p,div,span,small,label,details,ul,ol,li) { font-weight:400!important; }
+:is(#hcl-summary, #hcl-match-inspector) :is(p,div,span,small,label,details,summary,ul,ol,li) { color:#f2f2f2!important; }
+:is(#hcl-summary, #hcl-match-inspector) p { margin:8px 0!important; padding:0!important; }
+:is(#hcl-summary, #hcl-match-inspector) strong, :is(#hcl-summary, #hcl-match-inspector) summary { font-weight:700!important; color:#f2f2f2!important; }
+:is(#hcl-summary, #hcl-match-inspector) > strong:not([class]), :is(#hcl-summary, #hcl-match-inspector) h2 { font:700 16px/24px Arial,sans-serif!important; color:#f2f2f2!important; margin:0 0 4px!important; }
+:is(#hcl-summary, #hcl-match-inspector) details { margin:8px 0!important; padding:0!important; border:0!important; background:transparent!important; }
+:is(#hcl-summary, #hcl-match-inspector) details > summary { margin:0!important; padding:0!important; border:0!important; background:transparent!important; display:list-item!important; list-style:disclosure-closed inside!important; cursor:pointer; }
+:is(#hcl-summary, #hcl-match-inspector) details[open] > summary { list-style-type:disclosure-open!important; }
+:is(#hcl-summary, #hcl-match-inspector) summary::before, :is(#hcl-summary, #hcl-match-inspector) summary::after { content:none!important; }
+:is(#hcl-summary, #hcl-match-inspector) summary::marker { content:normal!important; }
+:is(#hcl-summary, #hcl-match-inspector) summary::-webkit-details-marker { display:inline!important; }
+:is(#hcl-summary, #hcl-match-inspector) ul, :is(#hcl-summary, #hcl-match-inspector) ol { margin:8px 0!important; padding:0 0 0 20px!important; list-style-position:outside!important; }
+:is(#hcl-summary, #hcl-match-inspector) ul { list-style-type:disc!important; }
+:is(#hcl-summary, #hcl-match-inspector) ol { list-style-type:decimal!important; }
+:is(#hcl-summary, #hcl-match-inspector) li { display:list-item!important; margin:4px 0!important; padding:0!important; }
+:is(#hcl-summary, #hcl-match-inspector) label { margin:8px 0!important; }
+:is(#hcl-summary, #hcl-match-inspector) :is(button,select,input) { box-sizing:border-box!important; font:400 14px/21px Arial,sans-serif!important; letter-spacing:normal!important; text-transform:none!important; color:#f2f2f2!important; background:#333!important; border:1px solid #aaa!important; border-radius:4px!important; padding:4px 8px!important; }
+:is(#hcl-summary, #hcl-match-inspector) button { cursor:pointer!important; margin:4px 4px 4px 0!important; }
+:is(#hcl-summary, #hcl-match-inspector) button:disabled { cursor:default!important; opacity:.65; }
+:is(#hcl-summary, #hcl-match-inspector) select { max-width:100%!important; }
+:is(#hcl-summary, #hcl-match-inspector) input[type="number"] { width:64px!important; margin:0 4px!important; }
+:is(#hcl-summary, #hcl-match-inspector) input[type="checkbox"] { appearance:auto!important; width:14px!important; height:14px!important; padding:0!important; margin:0 6px 0 0!important; vertical-align:middle!important; accent-color:#1769aa; }
+:is(#hcl-summary, #hcl-match-inspector) :is(button,select,input,summary):focus-visible { outline:2px solid #fff!important; outline-offset:2px!important; }
+:is(#hcl-summary, #hcl-match-inspector) [hidden] { display:none!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-muted { color:#c5cbd3!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-warning { color:#f4cc73!important; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-legend { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0!important; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-legend span { font:700 12px/18px Arial,sans-serif!important; color:#fff!important; padding:2px 6px; border-radius:999px; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-legend-possible { background:#8e5700; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-summary-controls { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin:0 0 8px; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-summary-controls :is(button,select) { font:400 12px/18px Arial,sans-serif!important; padding:4px 6px!important; margin:0!important; }
+:is(#hcl-summary, #hcl-match-inspector) .hcl-related-titles { color:#f4cc73!important; font:400 12px/18px Arial,sans-serif!important; }
+
+:is(#hcl-summary, #hcl-match-inspector) :is(p,small,label,summary,li,ul,ol) { background:transparent!important; }
+
+:is(#hcl-summary, #hcl-match-inspector) [data-coverage="covered"] { color:#9ce4b7!important; }
+:is(#hcl-summary, #hcl-match-inspector) [data-coverage="uncertain"] { color:#f4cc73!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-status-owned, :is(#hcl-summary, #hcl-match-inspector) .library-ui-status-partial { padding:6px 8px!important; border-radius:4px; color:#fff!important; font-weight:700!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-status-owned { background:#0a7a42!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-status-partial { background:#7c3fb0!important; }
+
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-planning select { width:100%!important; margin:4px 0!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-planning > label { display:block; }

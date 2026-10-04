@@ -1,4 +1,5 @@
 async function runAdvancedParityChecks(hb,check) {
+  await runPanelPresentationChecks(hb,check);
   const prefix=hb?'hcl':'fanatical-library',advanced=document.querySelector('.'+prefix+'-advanced');
   const sections=[...advanced.children].filter(node=>node.tagName==='DETAILS');
   check(!advanced.open&&sections.every(node=>!node.open),'Advanced and all analysis subsections default closed');

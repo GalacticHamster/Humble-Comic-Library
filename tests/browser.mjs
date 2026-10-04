@@ -14,6 +14,8 @@ const importer = process.argv.includes('--importer');
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
+const lifecycle = process.argv.includes('--lifecycle');
+const lifecycleGame = process.argv.includes('--game');
 const storeFirefox = firefox && process.platform === 'win32' ? await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', '(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'], {windowsHide:true}).then(({stdout})=>stdout.trim() ? [join(stdout.trim(),'VFS/ProgramFiles/Firefox Package Root/firefox.exe')] : [],()=>[]) : [];
 const candidates = (firefox ? [process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...storeFirefox] : [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium']).filter(Boolean);
 let browser;
@@ -33,12 +35,17 @@ const server = createServer(async (request, response) => {
       response.setHeader('Content-Type','text/html; charset=utf-8');
       response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
     }
-    if (pathname === '/books/test') pathname = '/tests/bundle-fixture.html';
+    if (pathname === '/books/test' || pathname === '/games/test') pathname = '/tests/bundle-fixture.html';
     if (pathname === '/books') pathname = '/tests/catalogue-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
     response.setHeader('Content-Type', ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css' })[extname(target)] || 'application/octet-stream');
-    let body=await readFile(target);
+    let body=process.env.HCL_TEST_CONTENT_REF && pathname === '/content.js'
+      ? (await promisify(execFile)('git', ['show', `${process.env.HCL_TEST_CONTENT_REF}:content.js`], {cwd:root,windowsHide:true,maxBuffer:4*1024*1024})).stdout
+      : await readFile(target);
+    if(lifecycle&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
+      .replace('<script src="/shared.js">',`<script>window.lifecycleWarm=${process.argv.includes('--warm')};</script><script src="/tests/lifecycle-fixture.js"></script><script src="/shared.js">`)
+      .replace('/tests/browser-checks.js','/tests/lifecycle-checks.js');
     if(refreshLoop&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=250;window.fixtureCentralFailure=true;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};fixtureStored.showDiagnostics=true;</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/summary-refresh-checks.js');
@@ -51,7 +58,7 @@ const server = createServer(async (request, response) => {
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 try {
   let child;
-  const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':catalogue?'/books':'/books/test'}`;
+  const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':catalogue?'/books':lifecycleGame?'/games/test':'/books/test'}`;
   const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
   const exited=new Promise(resolve=>{child=execFile(browser,args,{windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
   let timeout;try{await Promise.race([finished,exited,new Promise(resolve=>{timeout=setTimeout(resolve,25000);})]);}finally{clearTimeout(timeout);child.kill();await exited;}

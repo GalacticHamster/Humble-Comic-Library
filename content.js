@@ -55,7 +55,24 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
   const storageDefaults = { libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
-  const storage = await chrome.storage.local.get(storageDefaults);
+  // Subscribe before the first await. An import/profile restore can finish
+  // while a cold storage read is still returning its older snapshot.
+  let storageRevision = 0;
+  let storageChanged;
+  chrome.storage.onChanged?.addListener((changes, area) => {
+    if (area !== 'local') return;
+    storageRevision++;
+    storageChanged?.(changes, area);
+  });
+  const readCurrentStorage = async () => {
+    let snapshot, revision;
+    do {
+      revision = storageRevision;
+      snapshot = await chrome.storage.local.get(storageDefaults);
+    } while (revision !== storageRevision);
+    return snapshot;
+  };
+  const storage = await readCurrentStorage();
   bundleSummaryPreferences = HumbleComicLibrary.normalizeSummaryPreferences(storage.bundleSummaryPreferences);
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
@@ -91,17 +108,20 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
   window.addEventListener('hcl-refresh-central',()=>comparison.refreshGalactic());
   refresh('initial');
   let libraryRevision = 0;
-  chrome.storage.onChanged?.addListener((changes, area) => {
+  storageChanged = (changes, area) => {
     if(area==='local'&&changes.showDiagnostics){comparison.showDiagnostics=Boolean(changes.showDiagnostics.newValue);comparison.renderSummary?.();}
     if (area === 'local' && changes.wishlistItems) { comparison.wishlistItems=HumbleComicLibrary.normalizeWishlist(changes.wishlistItems.newValue||[]); comparison.renderSummary?.(); }
     if(area==='local'&&changes.bundleSummaryPreferences){bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));}
     if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
     const revision = ++libraryRevision;
     ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
+    comparison.summaryView = changes.humbleProfileLabel ? null
+      : captureSummaryState(document.querySelector('#hcl-summary')) ?? comparison.summaryView;
+    comparison.renderSummary = null; // A UI-only update must not revive old ownership during hydration.
     clearBundleAnnotations();
     document.querySelector('#hcl-summary')?.remove(); // Do not display the previous account's ownership.
     (async () => {
-      const latest = await chrome.storage.local.get(storageDefaults);
+      const latest = await readCurrentStorage();
       if (revision !== libraryRevision) return;
       libraryItems = latest.libraryItems.filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook'));
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
@@ -112,16 +132,39 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
       comparison.galactic = createGalacticLookup(latest.galacticLibraryExtensionId);
       refresh('library updated');
     })().catch(showComparisonFailure);
-  });
+  };
   window.addEventListener('resize', () => refresh('resize'), { passive: true });
+  let metadataFingerprint = bundleMetadataFingerprint();
   new MutationObserver((records) => {
     // Humble renders covers lazily. Look only at the added/changed local
     // subtree, rather than re-querying every cover after every React update.
-    if (records.some(recordHasUnannotatedCover)) refresh('new bundle items');
-  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['alt'] });
+    const metadataChanged = records.some(recordHasBundleMetadataChange);
+    const nextFingerprint = metadataChanged ? bundleMetadataFingerprint() : metadataFingerprint;
+    const changedAttribute = records.some(record => record.type === 'attributes' && recordHasBundleMetadataChange(record)
+      && record.oldValue !== record.target.getAttribute(record.attributeName));
+    if (records.some(recordHasUnannotatedCover) || metadataChanged && (nextFingerprint !== metadataFingerprint || changedAttribute)) {
+      metadataFingerprint = nextFingerprint;
+      refresh('bundle data updated');
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true,
+    attributeFilter: ['alt', 'data-tier', 'data-content-type', 'data-product-type', 'data-format', 'data-isbn', 'data-asin', 'data-edition', 'data-edition-id', 'data-language', 'data-series', 'data-series-id', 'data-run', 'data-run-id', 'data-volume', 'data-issue', 'data-author'] });
 }()).catch((error) => showComparisonFailure(error));
 
 const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
+
+function bundleMetadataFingerprint() {
+  return JSON.stringify([document.querySelector('#webpack-bundle-page-data')?.textContent ?? '', document.querySelector('h1')?.textContent ?? '']);
+}
+
+function recordHasBundleMetadataChange(record) {
+  const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
+  if (target?.closest('[id^="hcl-"], .hcl-summary')) return false;
+  if (record.type === 'attributes') return record.attributeName !== 'alt'
+    && Boolean(target?.matches(HCL_COVER_SELECTOR) || target?.querySelector(HCL_COVER_SELECTOR));
+  if (target?.closest('#webpack-bundle-page-data, h1')) return true;
+  return [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === Node.ELEMENT_NODE
+    && (node.matches('#webpack-bundle-page-data, h1') || node.querySelector('#webpack-bundle-page-data, h1')));
+}
 
 function recordHasExternalAddition(record) {
   return [...record.addedNodes].some((node) => {
@@ -2011,7 +2054,8 @@ function appendBundleSummaryControls(summary) {
 }
 
 function renderComparisonSummary(counts, tiers, titlesByState, itemKind, currentBundlePurchases = [], comparison = null) {
-  const viewState=captureSummaryState(document.querySelector('#hcl-summary'));
+  const viewState=captureSummaryState(document.querySelector('#hcl-summary')) ?? comparison?.summaryView;
+  if (comparison) comparison.summaryView = null;
   if(comparison) comparison.renderSummary=()=>renderComparisonSummary(counts,tiers,titlesByState,itemKind,currentBundlePurchases,comparison);
   const summary = document.createElement('aside');
   summary.id = 'hcl-summary';
@@ -2029,6 +2073,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   summary.append(legend);
   if ((GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
+    galactic.className = comparison.galactic.error ? 'library-ui-warning' : 'library-ui-muted';
     galactic.textContent = comparison.galactic.error
       ? 'Galactic Library: check incomplete. Local results are retained.'
       : comparison.galactic.resultsByKey.size ? 'Galactic Library: checked linked libraries.' : 'Galactic Library: linked; no central checks completed on this page.';
@@ -2047,7 +2092,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       summary.append(retry);
     }
   }
-  if (!comparison?.galactic?.enabled) { const status=document.createElement('p'); status.textContent='Galactic Library: not linked — local library only.'; summary.append(status); }
+  if (!comparison?.galactic?.enabled) { const status=document.createElement('p'); status.className='library-ui-muted';status.textContent='Galactic Library: not linked — local library only.'; summary.append(status); }
   appendWishlistNotice(summary, comparison);
   appendBundleNewItemsOnlyFilter(summary, comparison);
   if (tiers.size > 1 || [...tiers.values()][0]?.price !== null) {
@@ -2220,7 +2265,7 @@ function appendPurchasedBundleStatus(summary, purchases, highestTierPrice = null
   const paidAmounts = purchases.map((purchase) => Number(purchase.pricePaid)).filter(Number.isFinite);
   const hasTopTier = highestTierPrice === null || !paidAmounts.length || paidAmounts.some((amount) => amount >= highestTierPrice);
   const status = document.createElement('p');
-  status.className = `hcl-purchased-bundle ${hasTopTier ? 'hcl-purchased-full' : 'hcl-purchased-partial'}`;
+  status.className = `hcl-purchased-bundle ${hasTopTier ? 'hcl-purchased-full library-ui-status-owned' : 'hcl-purchased-partial library-ui-status-partial'}`;
   const label = hasTopTier ? 'Already purchased' : 'Partially purchased';
   status.textContent = `${label}${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${purchases.map(formatBundlePurchase).join(' · ')}`;
   summary.append(status);
@@ -2325,7 +2370,7 @@ function appendWishlistControl(row, offered, comparison) {
 function appendBundlePlan(summary, comparison) {
   const panel = document.createElement('details');
   panel.id = 'hcl-bundle-plan';
-  panel.className = 'hcl-bundle-plan';
+  panel.className = 'hcl-bundle-plan library-ui-planning';
   panel.open = false;
   const heading = document.createElement('summary');
   heading.textContent = 'Wishlist and purchase planning';
@@ -2417,8 +2462,8 @@ function appendGalacticDetails(summary, comparison) {
   if(!comparison?.galactic?.enabled)return;
   const details=document.createElement('details');details.className='hcl-galactic-details';details.dataset.section='galactic';
   const heading=document.createElement('summary');heading.textContent='Galactic Library details';details.append(heading);
-  const status=document.createElement('p');status.textContent=comparison.galactic.error||`${comparison.galactic.resultsByKey.size} checks completed. Humble copies in Galactic Library are excluded.`;details.append(status);
-  const hint=document.createElement('p');hint.textContent='Retry checks missing or failed results. Refresh fetches fresh central evidence, including successful checks. Local evidence is retained.';details.append(hint);
+  const status=document.createElement('p');status.className=comparison.galactic.error?'library-ui-warning':'library-ui-muted';status.textContent=comparison.galactic.error||`${comparison.galactic.resultsByKey.size} checks completed. Humble copies in Galactic Library are excluded.`;details.append(status);
+  const hint=document.createElement('p');hint.className='library-ui-muted';hint.textContent='Retry checks missing or failed results. Refresh fetches fresh central evidence, including successful checks. Local evidence is retained.';details.append(hint);
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh central evidence';refresh.addEventListener('click',()=>comparison.refreshGalactic?.());details.append(refresh);
   if(comparison.galactic.error&&comparison.retryGalactic){const retry=document.createElement('button');retry.type='button';retry.textContent='Retry Galactic Library checks';retry.addEventListener('click',()=>comparison.retryGalactic());details.append(retry);}
   const review=document.createElement('button');review.type='button';review.textContent='Review in Galactic Library';const output=document.createElement('p');output.setAttribute('role','status');
@@ -2437,7 +2482,7 @@ function appendSeriesCoverage(summary, comparison) {
     const heading=document.createElement('summary');heading.textContent=`${group.series} · ${group.run||'unknown run'} · ${group.language||'unknown language'} · ${group.unitType}: ${group.covered}/${group.entries.length} covered`;section.append(heading);
     const described=[['Compared range',group.entries],['Offered here',group.entries.filter(entry=>group.offeredKeys?.has(HumbleCollectionMappings.contentKey(entry)))],['Owned elsewhere',group.entries.filter(entry=>entry.state==='covered'&&entry.evidence.some(record=>record.provider!=='humble'))],['Missing in compared range',group.gaps]];
     for(const [label,entries]of described)if(entries.length){const text=document.createElement('p');text.textContent=`${label}: ${conciseUnitNumbers(entries)}${label==='Missing in compared range'?` (Gaps: ${conciseUnitNumbers(entries)})`:''}`;section.append(text);}
-    if(group.lookupIncomplete||group.uncertain.length){const text=document.createElement('p');text.textContent=`Needs review: ${group.uncertain.length} units. Unconfirmed scope or incomplete checks cannot establish gaps.`;section.append(text);}
+    if(group.lookupIncomplete||group.uncertain.length){const text=document.createElement('p');text.className='library-ui-warning';text.textContent=`Needs review: ${group.uncertain.length} units. Unconfirmed scope or incomplete checks cannot establish gaps.`;section.append(text);}
     if(group.enumerationLimited){const text=document.createElement('p');text.textContent='Large spans show only the bounded explicit units; missing numbers outside the compared range are unknown.';section.append(text);}
     appendPagedUnits(section,group.entries,entry=>{const row=document.createElement('li');row.dataset.coverage=entry.state;row.textContent=`${entry.unitType} ${entry.number}: ${entry.state==='covered'?'Owned':entry.state==='uncertain'?'Needs review':'Gap'}${group.offeredKeys?.has(HumbleCollectionMappings.contentKey(entry))?' · offered here':' · not offered here'}`;const sources=[...new Set(entry.evidence.map(record=>`${record.title} (${displayProviderName(record.provider)})`))];if(sources.length)row.append(' — '+sources.join('; '));return row;},section.dataset.section+'-units');panel.append(section);
   }

@@ -17,3 +17,8 @@ Both Advanced planners expose the same goals, Include Possible items, and a page
 Use semantic keyboard-accessible controls, protected native disclosure markers, text as well as color and scoped announcements. Preserve same-bundle disclosure/focus/scroll on updates. Wishlist remains separate from ownership colors.
 
 FAN Pick & Mix selection, exact quantities, availability and bounded search remain store-specific. Acquisition, importers and native DOM adapters remain separate. Every user-facing change must assess applicability to the other store; new analytics default to Advanced. Common synthetic fixtures protect parity; ownership matching follows MATCHING_PHILOSOPHY.md. Shared-renderer extraction is a separate, gated Phase 4.
+
+
+The first-load correction subscribes to dependencies before asynchronous hydration, discards stale snapshots, and refreshes applicability when local/central/metadata evidence changes. Keeping a stable panel visible must not freeze its analysis. UI-only changes retain valid ownership lookup results. New cold-lifecycle browser fixtures start without final library/analysis state; games retain conditional applicability.
+
+Canonical companion typography is Arial 14px/21px regular body, 16px/24px bold heading, bold body-size disclosure headings/counts, and 12px/18px legend/panel controls. Body #f2f2f2, muted #c5cbd3 and explicit warnings #f4cc73 on #171717 meet readable contrast. Shared scoped components use 8px paragraph/disclosure spacing, 20px list indentation, consistent dark controls and native arrows. No divider separates ordinary Advanced subsections. Browser presentation checks protect these values against host CSS. See UI_LIFECYCLE_CORRECTION.md for reproduced defects, testing and the authenticated manual sequence.
