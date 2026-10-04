@@ -345,3 +345,38 @@
 
   global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, newUnits, planBundle, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
+
+/* Purchasing summary presentation only: consumes, never changes, match states. */
+(function(global) {
+  const providerName = value => ({steam:'Steam',gog:'GOG',epic:'Epic Games',humble:'Humble Bundle',fanatical:'Fanatical',kindle:'Kindle',kobo:'Kobo',audible:'Audible','amazon-games':'Amazon Games'}[value] || String(value || 'another library').replaceAll('-', ' ').replace(/^./u, c=>c.toUpperCase()));
+  function records(match) {
+    return [match.item,match.localMatch?.item,...(match.historicalItems||[]),...(match.candidates||[]),...(match.externalMatches||[]),...(match.externalPossibleMatches||[]),...(match.externalResult?.matches||[]),...(match.externalResult?.possibleMatches||[]),...(match.externalResult?.partialMatches||[])].flat(Infinity).filter(Boolean);
+  }
+  function row(item, match) {
+    const state = match.state === 'elsewhere' ? 'owned-elsewhere' : match.state;
+    const candidates = records(match);
+    const related = [...new Set(candidates.map(record=>(record.item||record).title).filter(Boolean))];
+    const providers = state==='owned-elsewhere' ? [...new Set(candidates.filter(record=>record.provider).map(record=>providerName(record.provider)))] : [];
+    const owned=match.range?.owned ?? match.owned ?? match.coverage?.owned;
+    const total=match.range?.total ?? match.total ?? match.coverage?.total;
+    return {title:item.title,state,providers,relatedTitle:related[0]||'',relatedTitles:related,
+      fraction:state==='partial'&&Number.isFinite(owned)&&Number.isFinite(total)?`${owned}/${total} owned`:'',
+      why:['possible','partial','unchecked'].includes(state)||Boolean(match.lookupIncomplete && state!=='owned'||match.mappingConflicts),
+      ownershipReview:Boolean(match.ownershipReview)};
+  }
+  function summary(rows) {
+    const items=rows.map(({item,match})=>row(item,match));
+    const counts=Object.fromEntries(['owned','owned-elsewhere','new','partial','possible','unchecked'].map(state=>[state,items.filter(item=>item.state===state).length]));
+    return {counts,items,sections:Object.keys(counts).filter(state=>counts[state]>0)};
+  }
+  function explanation(item, match) {
+    const view=row(item,match), title=item.title||'this item', related=view.relatedTitle||'a related item';
+    if(view.state==='unchecked')return 'No local match was found, but Galactic Library could not finish checking. This item may already be owned. Retry the checks before treating it as new.';
+    if(view.state==='partial')return `You own some of the known contents of ${title}${view.fraction?` (${view.fraction})`:''}. Check the remaining contents before buying.`;
+    if(view.state==='possible')return view.ownershipReview?`Your library has ${related}, but its ownership or current access needs review.`:`Your library has ${related}. This bundle item may be a different edition or version; check before buying.`;
+    if(view.state==='owned-elsewhere')return `You own ${title} in ${view.providers.length?`your ${view.providers.join(' / ')} library`:'another linked library'}. It matches this bundle item.`;
+    if(view.state==='owned')return `Your local purchase library already includes ${title}.`;
+    return 'No matching title was found in the libraries that were successfully checked.';
+  }
+  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation};
+}(globalThis));

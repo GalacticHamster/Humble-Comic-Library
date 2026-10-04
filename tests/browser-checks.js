@@ -5,6 +5,10 @@
   let error;
   try {
     await waitFor(() => document.querySelector('#hcl-summary'));
+    check(!document.querySelector('.hcl-advanced').open && document.querySelector('.hcl-advanced').contains(document.querySelector('#hcl-bundle-plan')), 'Closed Advanced contains all goal selection');
+    check(document.querySelector('.hcl-summary-counts').textContent.includes('Possible 1'), 'Possible appears in complete headline counts');
+    check(getComputedStyle(document.querySelector('.hcl-title-list summary')).display === 'list-item', 'Native disclosure arrows survive store CSS');
+    check(document.querySelector('.hcl-wishlist-notice').textContent.includes('Wishlist: 1 matches'), 'Wishlist recognition is visible before opening ownership lists');
     if(sessionStorage.getItem('verify-summary-reload')){check(document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized')&&document.querySelector('#hcl-summary').dataset.position==='top-left','Saved summary size and corner survive a real page reload');document.querySelector('.hcl-summary-expand').click();await waitFor(()=>fixtureStored.bundleSummaryPreferences.minimized===false);check(!document.querySelector('#hcl-summary').classList.contains('hcl-summary-minimized'),'Reloaded summary can expand and persist');await fetch('/test-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checks})});return;}
     check(document.querySelectorAll('.hcl-status-button').length === 5, 'Every card has an accessible ownership explanation button');
     const partial = [...document.querySelectorAll('.hcl-status-button')].find(button => button.dataset.state === 'partial');
@@ -19,8 +23,8 @@
     [...dialog.querySelectorAll('button')].find(button => button.textContent === 'Close').click();
     await waitFor(() => !document.querySelector('#hcl-match-inspector'));
     check(!document.querySelector('#hcl-match-inspector'), 'Closing removes the evidence dialog');
-    check([...document.querySelectorAll('.hcl-title-list li')].some(row=>row.textContent.includes('Related library item: Dune, 1st Edition')),'Possible summary names the actual library edition without opening an inspector');
-    const otherCandidates=[...document.querySelectorAll('.hcl-title-list details[data-hcl-related]')].find(node=>node.textContent.includes('Dune, 3rd Edition'));check(Boolean(otherCandidates)&&otherCandidates.textContent.includes('Kindle')&&otherCandidates.textContent.includes('owned'),'Additional Possible editions retain titles, providers and ownership in an expandable summary');
+    check([...document.querySelectorAll('.hcl-title-list li')].some(row=>row.textContent.includes('Possible match: Dune, 1st Edition')),'Possible summary names the actual library edition without opening an inspector');
+    check(!document.querySelector('.hcl-title-list details[data-hcl-related]'),'Ordinary rows keep extra bibliographic evidence in Technical details');
     const possible = [...document.querySelectorAll('.hcl-status-button')].find(button => button.dataset.state === 'possible');
     possible.click();
     check(document.querySelector('#hcl-match-inspector').textContent.includes('Dune, 1st Edition'), 'Possible explains the actual different owned edition');
@@ -80,7 +84,7 @@
     const unchecked = document.querySelector('.hcl-status-button[data-state="unchecked"]');
     check(unchecked?.textContent === 'Check incomplete', 'A failed central lookup renders a distinct Check incomplete badge');
     check(getComputedStyle(unchecked).backgroundColor === 'rgb(102, 102, 102)', 'Check incomplete has a neutral status color');
-    check(document.querySelector('#hcl-summary strong').textContent.includes('check incomplete'), 'Unchecked items are counted separately in the summary');
+    check(document.querySelector('.hcl-summary-counts').textContent.includes('Check incomplete'), 'Unchecked items are counted separately in the summary');
     check(document.querySelector('.hcl-plan-output').textContent.includes('0 confirmed-new items'), 'Failed lookups do not inflate confirmed-new purchase value');
     check(comparison.seriesCoverage.every(group => group.lookupIncomplete && group.gaps.length === 0), 'Failed series lookups do not invent confirmed gaps');
     unchecked.click();

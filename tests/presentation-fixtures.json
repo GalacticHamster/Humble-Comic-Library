@@ -1,0 +1,317 @@
+[
+  {
+    "name": "new",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "new",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "owned",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "owned",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "owned-elsewhere",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "owned-elsewhere",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "possible",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "possible",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "partial",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "partial",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "unchecked",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "unchecked",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "rows": []
+  },
+  {
+    "name": "mixture",
+    "rows": [
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "new",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      },
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "owned",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      },
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "owned-elsewhere",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      },
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "possible",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      },
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "partial",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      },
+      {
+        "item": {
+          "title": "Test title"
+        },
+        "match": {
+          "state": "unchecked",
+          "item": {
+            "title": "Related title"
+          },
+          "externalMatches": [
+            {
+              "provider": "steam",
+              "title": "Related title"
+            }
+          ],
+          "range": {
+            "owned": 7,
+            "total": 10
+          },
+          "owned": 7,
+          "total": 10
+        }
+      }
+    ]
+  }
+]

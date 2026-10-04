@@ -288,3 +288,14 @@
 .account-manager select, .account-manager input:not([type="checkbox"]) { max-width:100%; padding:.35rem; }
 .account-manager .account-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
 .account-manager [data-account-status] { display:block; margin-top:.5rem; overflow-wrap:anywhere; }
+
+/* Native disclosure and compact purchasing hierarchy, protected from storefront resets. */
+.hcl-summary details > summary, .hcl-match-inspector details > summary { display:list-item!important; list-style:disclosure-closed inside!important; cursor:pointer; }
+.hcl-summary details[open] > summary, .hcl-match-inspector details[open] > summary { list-style-type:disclosure-open!important; }
+.hcl-summary summary::marker { content:normal!important; }
+.hcl-summary summary::-webkit-details-marker { display:inline!important; }
+.hcl-advanced, .hcl-wishlist-notice { margin-top:.65rem; }
+.hcl-summary li { overflow-wrap:anywhere; font-weight:400; }
+.hcl-wishlist-control { white-space:nowrap; font-weight:400; }
+.hcl-wish-marker { position:absolute; right:.4rem; top:2.6rem; z-index:5; padding:.2rem .4rem; border:1px solid #fff; border-radius:.25rem; background:#171717; color:#fff; font:700 12px Arial,sans-serif; pointer-events:none; }
+.hcl-summary .hcl-buy-recommendation { background:transparent; font-weight:400; }

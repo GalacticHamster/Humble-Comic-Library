@@ -1806,13 +1806,15 @@ function showMatchInspector(match, trigger = document.activeElement) {
   close.autofocus=true;
   close.addEventListener('click', () => dialog.close());
   dialog.append(close);
+  const plain=document.createElement('p'); plain.className='hcl-explanation'; plain.textContent=HumbleOwnership.presentation.explanation(match.offered || {}, match); dialog.append(plain);
+  const technical=document.createElement('details'); technical.className='hcl-technical-details'; const technicalTitle=document.createElement('summary'); technicalTitle.textContent='Technical details'; technical.append(technicalTitle);
   const list = document.createElement('ul');
   for (const line of HumbleOwnership.explanationLines(match)) {
     const row = document.createElement('li');
     row.textContent = line;
     list.append(row);
   }
-  dialog.append(list);
+  technical.append(list); dialog.append(technical);
   const review = document.createElement('button');
   review.type = 'button';
   review.textContent = 'Review in Galactic Library';
@@ -1825,7 +1827,7 @@ function showMatchInspector(match, trigger = document.activeElement) {
       status.textContent = response?.ok ? 'Opened Galactic Library. Use its ownership inspector or series coverage to review these titles.' : response?.error || 'Configure the Galactic Library link in Extension options.';
     } catch (error) { status.textContent = `Could not open review: ${error.message}`; }
   });
-  dialog.append(review, refreshEvidence, status);
+  if (match.externalResult || match.lookupIncomplete || match.contentsLookupIncomplete || match.state === 'elsewhere') technical.append(review, refreshEvidence, status);
   dialog.addEventListener('close', () => {dialog.remove();if(trigger?.isConnected)trigger.focus();});
   document.body.append(dialog);
   dialog.showModal();
@@ -1953,11 +1955,11 @@ function applyBundleNewItemsOnlyFilter(enabled) {
 }
 
 function appendRelatedTitles(host, match) {
-  if(!['possible','partial'].includes(match.state))return;
-  const records=[...matchLibraryItems(match.localMatch??match),...(match.historicalItems??[]),...(match.externalPossibleMatches??[]),...(match.externalMatches??[]),...(match.externalResult?.partialMatches??[]),...(match.coverage?.covered??[]).flatMap(entry=>entry.evidence??[])].flat(Infinity).filter(Boolean);
-  const titles=[...new Set(records.filter(record=>record.title).map(record=>{const evidence=record.evidence??record,provider=displayProviderName(record.provider??record.source??'humble');const access=record.historical?'previously recorded; access unconfirmed':record.provider?record.ownership??'ownership unconfirmed':HumbleOwnership.purchased(record)?'local purchase':'ownership needs review';return [record.title,provider,access,evidence.edition,evidence.isbn?.length?'ISBN '+[evidence.isbn].flat().join(', '):''].filter(Boolean).join(' - ');}))];if(!titles.length)return;
-  const note=document.createElement('small');note.className='hcl-related-titles';note.textContent=(match.ownershipReview?'Check ownership: ':'Related library item: ')+titles[0];note.title=titles.join('; ');host.append(note);
-  if(titles.length>1){const details=document.createElement('details'),heading=document.createElement('summary');details.dataset.hclRelated='';heading.textContent='Other related items ('+(titles.length-1)+')';details.append(heading);const list=document.createElement('ul');for(const title of titles.slice(1)){const row=document.createElement('li');row.textContent=title;list.append(row);}details.append(list);host.append(details);}
+  if (!['possible','partial'].includes(match.state)) return;
+  const titles=HumbleOwnership.presentation.row(match.offered||{},match).relatedTitles;
+  if (!titles.length) return;
+  const note=document.createElement('small'); note.className='hcl-related-titles';
+  note.textContent=(match.ownershipReview?'Ownership needs review: ':'Possible match: ')+titles[0]; host.append(note);
 }
 
 function appendBundleSummaryControls(summary) {
@@ -2007,15 +2009,10 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   summary.id = 'hcl-summary';
   summary.className = 'hcl-summary';
   const headline = document.createElement('strong');
-  const itemLabel = itemKind === 'game' ? 'games' : itemKind === 'software' ? 'software items' : itemKind === 'audiobook' ? 'audiobooks' : itemKind === 'mixed-books' ? 'books and audiobooks' : 'books';
-  headline.textContent = `Your ${itemLabel}: ${counts.owned} owned${counts.elsewhere ? ` · ${counts.elsewhere} elsewhere` : ''} · ${counts.new} new${counts.partial ? ` · ${counts.partial} partial` : ''}`;
+  const title = document.createElement('strong'); title.textContent = 'Bundle ownership'; summary.append(title);
+  headline.className = 'hcl-summary-counts';
+  headline.textContent = `Owned ${counts.owned} · Owned elsewhere ${counts.elsewhere} · New ${counts.new} · Partial ${counts.partial} · Possible ${counts.possible}${counts.unchecked ? ` · Check incomplete ${counts.unchecked}` : ''}`;
   summary.append(headline);
-  if (counts.unchecked) headline.append(' · ' + counts.unchecked + ' check incomplete');
-  if (counts.unchecked) {
-    const explanation = document.createElement('p');
-    explanation.textContent = 'Check incomplete: no local match found, but Galactic Library could not finish checking. These items may already be owned. Retry Galactic Library checks to resolve them.';
-    summary.append(explanation);
-  }
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
   appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
@@ -2025,8 +2022,8 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   if ((GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books') && comparison?.galactic?.enabled) {
     const galactic = document.createElement('p');
     galactic.textContent = comparison.galactic.error
-      ? `Some Galactic Library checks are unavailable; using local evidence and any completed central results. (${comparison.galactic.error})`
-      : `Galactic Library: ${comparison.galactic.status}`;
+      ? 'Galactic Library: check incomplete. Local results are retained.'
+      : 'Galactic Library: checked linked libraries.';
     galactic.title = 'GL receives current bundle titles, media types, available catalog evidence, and explicit requested contents. Exact confirmed ownership and full reviewed contents are distinct from related editions or uncertain access.';
     summary.append(galactic);
     if ((comparison.galactic.error || comparison.galactic.softwareCapabilityFailed) && comparison.retryGalactic) {
@@ -2042,17 +2039,9 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       summary.append(retry);
     }
   }
+  if (!comparison?.galactic?.enabled) { const status=document.createElement('p'); status.textContent='Galactic Library: not linked — local library only.'; summary.append(status); }
+  appendWishlistNotice(summary, comparison);
   appendBundleNewItemsOnlyFilter(summary, comparison);
-  if (counts.partial) {
-    const partial = document.createElement('p');
-    partial.textContent = `${counts.partial} grouped range${counts.partial === 1 ? ' is' : 's are'} only partly owned — not counted as owned or new.`;
-    summary.append(partial);
-  }
-  if (counts.possible) {
-    const possible = document.createElement('p');
-    possible.textContent = `${counts.possible} possible match${counts.possible === 1 ? '' : 'es'} — not counted as owned.`;
-    summary.append(possible);
-  }
   if (tiers.size > 1 || [...tiers.values()][0]?.price !== null) {
     const tierList = document.createElement('ul');
     const orderedTiers = [...tiers.values()].sort((left, right) => (left.price ?? Number.POSITIVE_INFINITY) - (right.price ?? Number.POSITIVE_INFINITY));
@@ -2075,15 +2064,16 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       const newItems = confirmedNewItemCount({ total: cumulativeTotal, owned: cumulativeOwned, elsewhere: cumulativeElsewhere, partial: cumulativePartial, possible: cumulativePossible, unchecked: cumulativeUnchecked });
       const row = document.createElement('li');
       const priceText = tier.price === null ? tier.label : `${tier.label}: `;
-      const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)} per confirmed-new item` : '';
-      row.textContent = `${priceText}${newItems} confirmed new / ${cumulativeTotal} items${perNew}`;
+      const perNew = tier.price !== null && newItems ? ` · $${(tier.price / newItems).toFixed(2)}/new` : '';
+      row.textContent = `${priceText}${newItems} new / ${cumulativeTotal}${perNew}`;
       tierList.append(row);
     }
     summary.append(tierList);
   }
-  if (comparison?.resolvedItems) appendBundlePlan(summary, comparison);
-  else appendBuyRecommendation(summary, tiers);
-  if (comparison?.seriesCoverage?.length) appendSeriesCoverage(summary, comparison);
+  const advanced=document.createElement('details'); advanced.className='hcl-advanced'; advanced.dataset.section='advanced';
+  const advancedHeading=document.createElement('summary'); advancedHeading.textContent='Advanced'; advanced.append(advancedHeading);
+  if (comparison?.resolvedItems) appendBundlePlan(advanced, comparison);
+  if (comparison?.seriesCoverage?.length) appendSeriesCoverage(advanced, comparison);
   for (const state of ['owned', 'elsewhere', 'new', 'partial', 'possible', 'unchecked']) {
     if (!titlesByState[state]?.length) continue;
     const detail = document.createElement('details');
@@ -2095,11 +2085,12 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     for (const item of titlesByState[state].sort((left, right) => naturalTitleCompare(left.title, right.title))) {
       const row = document.createElement('li');
       row.textContent = `${displayTitle(item.title)}${item.purchaseCount > 1 ? ` — purchased ${item.purchaseCount} times` : ''}${item.range && !item.range.complete ? ` — ${item.range.owned}/${item.range.total} volumes owned` : ''}`;
-      row.title = item.provenance;
-      if (item.match) {
+      const view = HumbleOwnership.presentation.row(item.offered || item, item.match || {state});
+      if (state === 'elsewhere' && view.providers.length) row.append(' — '+view.providers.join(', '));
+      if (item.match && view.why) {
         const explain = document.createElement('button');
         explain.type = 'button';
-        explain.textContent = 'Explain';explain.setAttribute('aria-label','Explain '+item.title);
+        explain.textContent = 'Why?';explain.setAttribute('aria-label','Why '+item.title);
         explain.addEventListener('click', () => showMatchInspector(item.match));
         row.append(' ', explain);
       }
@@ -2110,9 +2101,11 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     detail.append(list);
     summary.append(detail);
   }
+  if (comparison?.showDiagnostics) appendComparisonDiagnostics(advanced, comparison);
+  if (advanced.children.length > 1) summary.append(advanced);
   const diagnostic = document.createElement('button');
   diagnostic.className = 'hcl-diagnostic-button';
-  diagnostic.textContent = 'Download complete tier list';
+  diagnostic.textContent = 'Download complete item list';
   diagnostic.title = 'Downloads Humble’s complete tier data without changing your selected tier.';
   diagnostic.addEventListener('click', async () => {
     diagnostic.disabled = true;
@@ -2131,7 +2124,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
     diagnostic.disabled = false;
   });
   summary.append(diagnostic);
-  if (comparison?.showDiagnostics) appendComparisonDiagnostics(summary, comparison);
+
   appendBundleSummaryControls(summary);
   removeComparisonProgress();
   const previous = document.querySelector('#hcl-summary');
@@ -2168,7 +2161,7 @@ function appendBundleNewItemsOnlyFilter(summary, comparison) {
     HumbleComicLibrary.storageSet({ showNewItemsOnly: input.checked }).catch(() => {});
     applyBundleNewItemsOnlyFilter(input.checked);
   });
-  label.append(input, ' Show new items only');
+  label.append(input, ' Hide owned items');
   label.title = 'Hides confirmed-owned items. Possible and partially owned items stay visible for review.';
   summary.append(label);
 }
@@ -2316,9 +2309,9 @@ function appendBundlePlan(summary, comparison) {
   const panel = document.createElement('details');
   panel.id = 'hcl-bundle-plan';
   panel.className = 'hcl-bundle-plan';
-  panel.open = true;
+  panel.open = false;
   const heading = document.createElement('summary');
-  heading.textContent = 'Bundle value and purchase goal';
+  heading.textContent = 'Wishlist and purchase planning';
   panel.append(heading);
   const label = document.createElement('label');
   label.textContent = 'Goal ';
@@ -2362,7 +2355,7 @@ function appendBundlePlan(summary, comparison) {
 function appendSeriesCoverage(summary, comparison) {
   const panel = document.createElement('details');
   panel.id = 'hcl-series-coverage'; panel.className = 'hcl-series-coverage';
-  const heading = document.createElement('summary'); heading.textContent = `Series coverage (${comparison.seriesCoverage.length} scopes)`; panel.append(heading);
+  const heading = document.createElement('summary'); heading.textContent = 'Series coverage and gaps'; panel.append(heading);
   const note = document.createElement('p');
   note.textContent = 'Number order within the offered span. Runs, languages, issues, volumes, annuals, and specials are kept separate. This is not a publisher reading order or a complete series bibliography. Gaps mean no reviewed full-unit ownership found in the checked sources.';
   panel.append(note);
@@ -3521,4 +3514,15 @@ function hasAudiobookDownload(product) {
   const serialized = JSON.stringify(product);
   return /\.(?:mp3|m4a|m4b|aac|flac|ogg|opus|wav)(?:["?\\]|$)/iu.test(serialized)
     || /"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:audio|audiobook|audio[ _-]?book|mp3|m4a|m4b|aac|flac|ogg|opus|wav)"/iu.test(serialized);
+}
+
+function appendWishlistNotice(summary, comparison) {
+  if (!comparison?.resolvedItems) return;
+  const rows=comparison.resolvedItems.map(({item,match})=>({item,match,relation:(comparison.wishlistItems||[]).some(w=>HumbleOwnership.wishlistMatches(w,item))?'match':(comparison.wishlistItems||[]).some(w=>(w.kind||'book')===item.kind&&HumbleComicLibrary.possibleTitleRelation(w.title,item.title,item.kind))?'related':''})).filter(row=>row.relation);
+  if(!rows.length)return;
+  const details=document.createElement('details'); details.className='hcl-wishlist-notice'; const heading=document.createElement('summary');
+  heading.textContent=`Wishlist: ${rows.filter(row=>row.relation==='match').length} matches · ${rows.filter(row=>row.relation==='related').length} related`;details.append(heading);
+  const list=document.createElement('ul');for(const row of rows){const li=document.createElement('li');li.textContent=`${row.item.title} — ${row.relation==='match'?'Wishlist match':'Related wishlist item'}`;list.append(li);}details.append(list);summary.append(details);
+  document.querySelectorAll('.hcl-wish-marker').forEach(node=>node.remove());
+  for(const row of rows){const host=row.item.container;if(!host)continue;const marker=document.createElement('span');marker.className='hcl-wish-marker';marker.textContent=row.relation==='match'?'♥ Wishlist':'♡ Related wish';host.append(marker);}
 }
