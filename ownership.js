@@ -13,7 +13,7 @@
   const intersect = (left, right) => left.some(value => right.includes(value));
   const localContentsIndexes = new WeakMap();
   const mappingIndexes = new WeakMap();
-  const unitKey = entry => JSON.stringify([key(entry.series), entry.unitType, C.numberKey(entry.number)]);
+  const unitKey = entry => JSON.stringify([key(entry.series), entry.unitType, C.numberKey(entry.number, entry.unitType)]);
   function indexContents(entries) {
     const index = new Map();
     for (const entry of entries) { const token = unitKey(entry); const group = index.get(token) ?? []; group.push(entry); index.set(token, group); }
@@ -141,12 +141,14 @@
       const confirmed = []; const possible = [];
       for (const candidate of [...(localIndex.get(unitKey(unit)) ?? []), ...(externalIndex.get(unitKey(unit)) ?? [])]) {
         if (candidate.completeness === 'excerpt' || key(candidate.series) !== key(unit.series)
-          || candidate.unitType !== unit.unitType || C.numberKey(candidate.number) !== C.numberKey(unit.number)) continue;
+          || candidate.unitType !== unit.unitType || C.numberKey(candidate.number, candidate.unitType) !== C.numberKey(unit.number, unit.unitType)) continue;
         if (unit.seriesId && candidate.seriesId && unit.seriesId !== candidate.seriesId || unit.runId && candidate.runId && unit.runId !== candidate.runId) continue;
         if (unit.run && candidate.run && key(unit.run) !== key(candidate.run) || unit.language && candidate.language && key(unit.language) !== key(candidate.language)) continue;
         const evidence = (candidate.evidence ?? []).filter(record => permanent(record) && (record.provider !== 'humble' || record.item));
         if (!evidence.length) continue;
-        if (!candidate.uncertain && unit.run && candidate.run && unit.language && candidate.language && C.contentKey(unit) === C.contentKey(candidate)) confirmed.push(...evidence);
+        // Legacy mappings/central rows have no trusted parent identity for
+        // named components; equality cannot establish full ownership.
+        if (unit.unitType !== 'component' && !candidate.uncertain && unit.run && candidate.run && unit.language && candidate.language && C.contentKey(unit) === C.contentKey(candidate)) confirmed.push(...evidence);
         else possible.push(...evidence);
       }
       if (confirmed.length) covered.push({ ...unit, evidence: confirmed });

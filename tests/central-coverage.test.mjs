@@ -15,6 +15,23 @@ const unit = (number, overrides = {}) => ({ series: '漫画', run: '2020', unitT
 const external = (number, overrides = {}) => ({ ...unit(number), evidence: [{ provider: 'kindle', ownership: 'owned', title: 'Other omnibus', relationship: 'contains', ...overrides }] });
 const mapping = { id: 'one', collectionTitle: 'Owned omnibus', verified: true, contentsComplete: true, language: 'ja', contains: [{ series: '漫画', run: '2020', unitType: 'volume', from: 1, to: 2 }] };
 
+test('central named components retain literal titles and numbered controls remain equivalent', () => {
+  const a=unit('01',{unitType:'component'}),b=unit('1',{unitType:'component'});
+  assert.notEqual(C.contentKey(a),C.contentKey(b));assert.equal(C.contentKey(unit('01')),C.contentKey(unit('1')));
+  const names=['01','1','Alpha','alpha','Alpha: Special Edition'];
+  const request=O.request({title:'Offered collection',kind:'book'},[],{entries:names.map(number=>unit(number,{unitType:'component'})),complete:true});
+  assert.deepEqual(plain(request.contents.map(entry=>entry.number)),names);
+});
+test('central parent-local Possible stays non-promoting and cannot cover another literal name', () => {
+  const entry=unit('01',{unitType:'component'}),result={coverage:{covered:[],possibleCovered:[{...entry,evidence:[{provider:'kindle',title:'Other collection',ownership:'owned',relationship:'contains'}]}],complete:false}};
+  const coverage=O.coverageFor({entries:[entry],complete:true},[],result);
+  assert.equal(coverage.owned,0);assert.equal(coverage.complete,false);assert.equal(coverage.possibleCovered.length,1);
+  assert.equal(O.coverageFor({entries:[{...entry,number:'1'}],complete:true},[],result).possibleCovered.length,0);
+  const local=[{...entry,evidence:[{provider:'humble',title:'Different owned parent',ownership:'owned',item:{title:'Different owned parent'}}]}];
+  const combined=O.coverageFor({entries:[entry],complete:true},local,result);
+  assert.equal(combined.owned,0);assert.equal(combined.complete,false);assert.equal(combined.possibleCovered.length,1);
+});
+
 test('Unicode normalization preserves distinct Japanese, Cyrillic, accented and composed titles', () => {
   assert.notEqual(H.titleKey('進撃の巨人'), H.titleKey('鋼の錬金術師'));
   assert.notEqual(H.titleKey('Книга'), '');

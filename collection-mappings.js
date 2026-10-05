@@ -121,8 +121,9 @@
     return entries;
   }
 
-  function numberKey(value) {
+  function numberKey(value, unitType) {
     const number = String(value); const fraction = /^(\d+)\/(\d+)$/u.exec(number);
+    if (unitType === 'component') return number.replace(/\s+/gu, ' ').trim();
     return fraction ? String(Number(fraction[1]) / Number(fraction[2]))
       : /^\d+(?:\.\d+)?$/u.test(number) ? String(Number(number)) : number;
   }
@@ -132,7 +133,7 @@
   }
 
   function contentKey(entry) {
-    return JSON.stringify([scopeKey(entry.series), scopeKey(entry.run), entry.unitType, numberKey(entry.number), scopeKey(entry.language)]);
+    return JSON.stringify([scopeKey(entry.series), scopeKey(entry.run), entry.unitType, numberKey(entry.number, entry.unitType), scopeKey(entry.language)]);
   }
 
   function mappingMatches(mapping, item) {
