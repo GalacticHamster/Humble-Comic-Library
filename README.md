@@ -204,6 +204,8 @@ Firefox central integration: from the adjacent GalacticLibrary repo, run `node t
 
 ## Companion interface
 
+GL checks include a random timing correlation ID and sender timestamp. Updated GL builds acknowledge it so the companion can report when the response arrives; that report is best effort and never delays ownership results or changes the 30-second deadline. GL keeps at most 50 timing rows in worker memory for its local timing export. The added diagnostic fields contain no titles, library records or account labels. Older GL builds continue matching; missing timing acknowledgements or rejected callback reports are ignored.
+
 Bundle summaries use the same status vocabulary, Explain action, evidence dialog sizing, and compact panel controls. Possible and Partial items show the actual related library title, with other candidates available in the summary. Use the corner selector to move the panel; Minimize/Expand and the corner are saved across visits. Settings contains the same display preferences. These device preferences survive ownership restore and clear and stay outside backups. HB key purchases still say Purchased because a key purchase cannot prove destination activation. FAN edition/package captions retain warnings about unverified extras.
 
 Wishlist priorities range from 1 to 100 and affect planning without establishing ownership. FAN full backups include the wishlist; HB exports/restores its wishlist separately and preserves it during ownership restore. Clearing the ownership library preserves wishes in both extensions. Settings begins with imports, wishlist and Galactic Library linking, followed by provider-specific reminders, display, and backup/recovery.

@@ -10,6 +10,18 @@ const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'soft
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 let purchaseFocusTimer;
 let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
+let galacticDiagnosticSequence=0;
+const galacticDiagnosticPrefix=(globalThis.crypto?.randomUUID?.().replaceAll('-','')??Math.random().toString(16).slice(2).padEnd(12,'0')).slice(0,12);
+const galacticDiagnosticNow=()=>Number.isFinite(globalThis.performance?.timeOrigin)?performance.timeOrigin+performance.now():Date.now();
+async function sendGalacticMatch(extensionId,request){
+  const id='lookup-'+galacticDiagnosticPrefix+'-'+String(++galacticDiagnosticSequence).padStart(3,'0');
+  const response=await chrome.runtime.sendMessage(extensionId,{...request,diagnosticLookupId:id,diagnosticSentEpochMs:galacticDiagnosticNow()});
+  const callback=galacticDiagnosticNow();
+  // Builds without timing support omit performance. Reporting is best effort and must
+  // never delay, reject or change the ownership response, even after a timeout.
+  if(response?.performance?.id===id){try{Promise.resolve(chrome.runtime.sendMessage(extensionId,{type:'MATCH_ITEMS_DIAGNOSTIC_CALLBACK',apiVersion:1,diagnosticLookupId:id,diagnosticCallbackEpochMs:callback})).catch(()=>{});}catch{}}
+  return response;
+}
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
@@ -575,7 +587,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
     }
     if (batch.length) batches.push(batch);
     for (const entries of batches) {
-      const response = await waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId, {
+      const response = await waitForGalacticResponse(sendGalacticMatch(lookup.extensionId, {
         type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: entries
       }));
       if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
