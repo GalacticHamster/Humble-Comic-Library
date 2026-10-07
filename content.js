@@ -13,14 +13,24 @@ let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
 let galacticDiagnosticSequence=0;
 const galacticDiagnosticPrefix=(globalThis.crypto?.randomUUID?.().replaceAll('-','')??Math.random().toString(16).slice(2).padEnd(12,'0')).slice(0,12);
 const galacticDiagnosticNow=()=>Number.isFinite(globalThis.performance?.timeOrigin)?performance.timeOrigin+performance.now():Date.now();
-async function sendGalacticMatch(extensionId,request){
+const galacticPageStartedEpochMs=galacticDiagnosticNow();
+async function sendGalacticMatch(extensionId,request,diagnostic=null){
   const id='lookup-'+galacticDiagnosticPrefix+'-'+String(++galacticDiagnosticSequence).padStart(3,'0');
-  const response=await chrome.runtime.sendMessage(extensionId,{...request,diagnosticLookupId:id,diagnosticSentEpochMs:galacticDiagnosticNow()});
+  const sent=galacticDiagnosticNow();
+  const response=await chrome.runtime.sendMessage(extensionId,{...request,diagnosticLookupId:id,diagnosticSentEpochMs:sent,
+    ...(diagnostic?{diagnosticHb:{beforeSendMs:Math.max(0,sent-galacticPageStartedEpochMs),localStorageMs:diagnostic.storageMs,preparationMs:Math.max(0,diagnostic.ready-diagnostic.started),previousFlightMs:diagnostic.previousFlightMs??0}}:{})});
   const callback=galacticDiagnosticNow();
   // Builds without timing support omit performance. Reporting is best effort and must
   // never delay, reject or change the ownership response, even after a timeout.
-  if(response?.performance?.id===id){try{Promise.resolve(chrome.runtime.sendMessage(extensionId,{type:'MATCH_ITEMS_DIAGNOSTIC_CALLBACK',apiVersion:1,diagnosticLookupId:id,diagnosticCallbackEpochMs:callback})).catch(()=>{});}catch{}}
+  if(response?.performance?.id===id){
+    diagnostic?.requests.push({extensionId,id,callback});
+    try{Promise.resolve(chrome.runtime.sendMessage(extensionId,{type:'MATCH_ITEMS_DIAGNOSTIC_CALLBACK',apiVersion:1,diagnosticLookupId:id,diagnosticCallbackEpochMs:callback})).catch(()=>{});}catch{}
+  }
   return response;
+}
+function finishGalacticRendering(diagnostic){
+  const rendered=galacticDiagnosticNow();
+  for(const {extensionId,id,callback} of diagnostic.requests){try{Promise.resolve(chrome.runtime.sendMessage(extensionId,{type:'MATCH_ITEMS_DIAGNOSTIC_RENDER',apiVersion:1,diagnosticLookupId:id,diagnosticCallbackEpochMs:callback,diagnosticHb:{postResponseMs:Math.max(0,rendered-callback),pageToRenderedMs:Math.max(0,rendered-galacticPageStartedEpochMs),renderOutcome:diagnostic.renderOutcome??'incomplete'}})).catch(()=>{});}catch{}}
 }
 
 (async function initialiseHumbleComicLibrary() {
@@ -535,7 +545,7 @@ function possibleOutsideHumble(result) {
     .filter((match) => match?.provider && match.provider !== 'humble');
 }
 
-async function queryGalacticLibrary(items, itemKind, comparison, job) {
+async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic=null) {
   const lookup = comparison?.galactic;
   if (!lookup?.enabled) return;
   if(items.some(({item,match})=>(item.kind??itemKind)==='software'&&match.state!=='owned')){
@@ -577,8 +587,11 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
   // GL bounds both item count and aggregate contents. Keep one in-flight
   // promise across batches so lazy cards/resize refreshes share the cache.
   const previousFlight = lookup.inFlight;
+  if(diagnostic)diagnostic.ready=galacticDiagnosticNow();
   const responsePromise = (async () => {
+    const waiting=galacticDiagnosticNow();
     if (previousFlight) await previousFlight.catch(() => {});
+    if(diagnostic)diagnostic.previousFlightMs=previousFlight?Math.max(0,galacticDiagnosticNow()-waiting):0;
     const batches = []; let batch = []; let units = 0;
     for (const fields of requested.values()) {
       const count = fields.contents?.length ?? 0;
@@ -589,7 +602,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job) {
     for (const entries of batches) {
       const response = await waitForGalacticResponse(sendGalacticMatch(lookup.extensionId, {
         type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: entries
-      }));
+      },diagnostic));
       if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
         throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
       }
@@ -1102,6 +1115,8 @@ function clearBundleAnnotations() {
 }
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
+  const diagnostic={started:galacticDiagnosticNow(),ready:0,storageMs:comparison?.storageMs,requests:[]};
+  try {
   if (comparison && comparison.job !== job) return;
   // Humble's FLIP transition owns the departing/returning card positions.
   // Reparenting during it interrupts native cleanup. Resume on its class
@@ -1161,7 +1176,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     }
   }
   const seriesQueries = HumbleOwnership.readingTargets(resolvedItems);
-  await queryGalacticLibrary([...resolvedItems, ...seriesQueries.filter(query=>!query.unknownScope)], itemKind, comparison, job);
+  await queryGalacticLibrary([...resolvedItems, ...seriesQueries.filter(query=>!query.unknownScope)], itemKind, comparison, job,diagnostic);
   if (comparison?.job !== job) return;
   // Retain the settled labels while awaiting GL or yielding CPU time. Clearing
   // them earlier makes our own card moves look like unprocessed lazy content.
@@ -1237,6 +1252,8 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   const summaryKind = items.every((item) => item.kind === 'audiobook') ? 'audiobook'
     : itemKind === 'book' && items.some((item) => item.kind === 'audiobook') ? 'mixed-books' : itemKind;
   renderComparisonSummary(counts, tiers, titlesByState, summaryKind, currentBundlePurchases, comparison);
+  diagnostic.renderOutcome='rendered';
+  } finally {if(comparison?.job!==job)diagnostic.renderOutcome='superseded';finishGalacticRendering(diagnostic);}
 }
 
 function classifyLocalBundleItem(item, matcher, collectionMappings = []) {
