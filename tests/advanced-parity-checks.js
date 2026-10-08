@@ -24,7 +24,7 @@ async function runAdvancedParityChecks(hb,check) {
   check(!document.querySelector(selector),'Disabling Diagnostics immediately removes it from the active summary');
   if(hb){
     const current=document.querySelector('#hcl-summary'),counts=Object.fromEntries(['owned','elsewhere','new','partial','possible','unchecked'].map(key=>[key,0])),titles=Object.fromEntries(Object.keys(counts).map(key=>[key,[]]));
-    renderComparisonSummary(counts,new Map(),titles,'book',[],{resolvedItems:[],galactic:createGalacticLookup('')});
+    renderComparisonSummary(counts,new Map(),titles,'book',[],{resolvedItems:[],galactic:{enabled:false,resultsByKey:new Map()}});
     check(!document.querySelector('.hcl-advanced'),'No applicable analysis leaves Advanced absent');document.querySelector('#hcl-summary').replaceWith(current);
   }
 }

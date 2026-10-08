@@ -352,3 +352,12 @@
 
 :is(#hcl-summary, #hcl-match-inspector) .library-ui-planning select { width:100%!important; margin:4px 0!important; }
 :is(#hcl-summary, #hcl-match-inspector) .library-ui-planning > label { display:block; }
+
+/* Compact candidate explanations: scoped to extension surfaces. */
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-match-status { display:block; margin:12px 0 4px!important; font:700 16px/24px Arial,sans-serif!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-candidates { display:grid; gap:8px; margin:12px 0; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate { min-width:0; padding:10px 12px; border:1px solid #616974; border-radius:6px; background:#22262c; overflow-wrap:anywhere; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate h3 { margin:0 0 4px!important; color:#c5cbd3!important; font:700 12px/18px Arial,sans-serif!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate p { margin:4px 0 0!important; }
+:is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate strong { display:block; }
+:is(#hcl-summary, #hcl-match-inspector) :is(h2,p,strong,summary) { overflow-wrap:anywhere; }

@@ -1849,52 +1849,9 @@ function annotateBundleItem(bundleItem, match) {
 }
 
 function matchProvenance(match) {
-  if (match.offered) return HumbleOwnership.explanationLines(match).join('\n');
-  if (match.state === 'elsewhere') {
-    const lines = ['Owned through Galactic Library:'];
-    const seen = new Set();
-    for (const record of match.externalMatches ?? []) {
-      const label = `${displayProviderName(record.provider)}: ${displayTitle(record.title)}`;
-      if (!seen.has(label)) {
-        seen.add(label);
-        lines.push(`• ${label}`);
-      }
-    }
-    return lines.join('\n');
-  }
-  if (match.state === 'possible' && match.externalPossibleMatches?.length) {
-    const lines = [`${match.ownershipReview ? 'Ownership review' : 'Possible external match'}: ${match.possibleReason ?? 'similar library title.'}`];
-    const seen = new Set();
-    for (const record of match.externalPossibleMatches) {
-      const label = `${displayProviderName(record.provider)}: ${displayTitle(record.title)}`;
-      if (!seen.has(label)) {
-        seen.add(label);
-        lines.push(`\u2022 ${label}`);
-      }
-    }
-    return lines.join('\n');
-  }
-  const records = matchLibraryItems(match).flatMap((item) => itemProvenance(item));
-  if (!records.length) return '';
-  const purchaseCount = matchPurchaseCount(match);
-  const heading = match.state === 'possible'
-    ? `Possible match: ${match.possibleReason ?? 'similar library title.'}`
-    : match.state === 'partial'
-      ? `Partially owned: ${match.range.owned} of ${match.range.total} volumes found.`
-      : match.ownedReason
-        ? `Owned in your library${purchaseCount > 1 ? ` (${purchaseCount} Humble purchases)` : ''}: ${match.ownedReason}`
-        : `Owned in your library${purchaseCount > 1 ? ` (${purchaseCount} Humble purchases)` : ''}:`;
-  const seen = new Set();
-  const lines = [heading];
-  for (const record of records) {
-    const identity = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}\u0000${record.sourceBundle ?? ''}\u0000${record.purchasedAt ?? ''}`;
-    if (seen.has(identity)) continue;
-    seen.add(identity);
-    const source = record.sourceBundle ? `Humble bundle: ${record.sourceBundle}` : 'Imported library title';
-    const purchased = formatPurchaseDate(record.purchasedAt);
-    lines.push(`• ${displayTitle(record.title)} — ${source}${purchased ? ` (${purchased})` : ''}`);
-  }
-  return lines.join('\n');
+  const tooltip=HumbleOwnership.presentation.tooltip(match.offered || {},match);
+  const purchases=matchPurchaseCount(match);
+  return tooltip+(purchases>1?`\nRecorded purchases: ${purchases} Humble purchases.`:'');
 }
 
 function matchLibraryItems(match) {
@@ -1919,7 +1876,8 @@ function showMatchInspector(match, trigger = document.activeElement) {
   close.addEventListener('click', () => dialog.close());
   dialog.append(close);
   const plain=document.createElement('p'); plain.className='hcl-explanation'; plain.textContent=HumbleOwnership.presentation.explanation(match.offered || {}, match); dialog.append(plain);
-  const technical=document.createElement('details'); technical.className='hcl-technical-details'; const technicalTitle=document.createElement('summary'); technicalTitle.textContent='Technical details'; technical.append(technicalTitle);
+  HumbleOwnership.presentation.renderCandidates(dialog,match.offered||{},match);
+  const technical=document.createElement('details'); technical.className='hcl-technical-details'; const technicalTitle=document.createElement('summary'); technicalTitle.textContent='Match details'; technical.append(technicalTitle);
   const list = document.createElement('ul');
   for (const line of HumbleOwnership.explanationLines(match)) {
     const row = document.createElement('li');
@@ -1939,7 +1897,7 @@ function showMatchInspector(match, trigger = document.activeElement) {
       status.textContent = response?.ok ? 'Opened Galactic Library. Use its ownership inspector or series coverage to review these titles.' : response?.error || 'Configure the Galactic Library link in Extension options.';
     } catch (error) { status.textContent = `Could not open review: ${error.message}`; }
   });
-  if (match.externalResult || match.lookupIncomplete || match.contentsLookupIncomplete || match.state === 'elsewhere') technical.append(review, refreshEvidence, status);
+  if (match.externalResult || match.lookupIncomplete || match.contentsLookupIncomplete || match.state === 'elsewhere') dialog.append(review, refreshEvidence, status);
   dialog.addEventListener('close', () => {dialog.remove();if(trigger?.isConnected)trigger.focus();});
   document.body.append(dialog);
   dialog.showModal();
@@ -2068,10 +2026,10 @@ function applyBundleNewItemsOnlyFilter(enabled) {
 
 function appendRelatedTitles(host, match) {
   if (!['possible','partial'].includes(match.state)) return;
-  const titles=HumbleOwnership.presentation.row(match.offered||{},match).relatedTitles;
-  if (!titles.length) return;
+  const caption=HumbleOwnership.presentation.relatedCaption(match.offered||{},match);
+  if (!caption) return;
   const note=document.createElement('small'); note.className='hcl-related-titles';
-  note.textContent=(match.ownershipReview?'Ownership needs review: ':'Possible match: ')+titles[0]; host.append(note);
+  note.textContent=(match.state==='partial'?'Overlap: ':match.ownershipReview?'Check ownership: ':'Possible match: ')+caption; host.append(note);
 }
 
 function appendBundleSummaryControls(summary) {
@@ -2128,6 +2086,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
   headline.className = 'hcl-summary-counts';
   headline.textContent = `Owned ${counts.owned} · Owned elsewhere ${counts.elsewhere} · New ${counts.new} · Partial ${counts.partial} · Possible ${counts.possible}${counts.unchecked ? ` · Check incomplete ${counts.unchecked}` : ''}`;
   summary.append(headline);
+    const countHelp=document.createElement('p');countHelp.className='library-ui-muted';countHelp.textContent='Possible needs review; Partial overlaps some known contents. New means no match in available data.';summary.append(countHelp);
   const highestTierPrice = Math.max(...[...tiers.values()].map((tier) => tier.price ?? 0));
   appendPurchasedBundleStatus(summary, currentBundlePurchases, highestTierPrice || null);
   const legend = document.createElement('div');
@@ -2538,7 +2497,7 @@ function appendGalacticDetails(summary, comparison) {
 function appendSeriesCoverage(summary, comparison) {
   const panel=document.createElement('details');panel.id='hcl-series-coverage';panel.className='hcl-series-coverage';panel.dataset.section='series';
   const heading=document.createElement('summary');heading.textContent='Series coverage and gaps';panel.append(heading);
-  const note=document.createElement('p');note.textContent='Compared numeric range within a known series/run/language; this is not a publisher reading order. Annuals and specials are listed only when explicit, without filling numbered gaps.';panel.append(note);
+  const note=document.createElement('p');note.textContent='Issues and volumes are compared within the same series version and language. Gaps describe this range, not a complete reading order. Annuals and specials appear only when explicitly identified.';panel.append(note);
   if(comparison.seriesLimited){const note=document.createElement('p');note.textContent='Comparison bounded to 100 series, 2,000 units per series and 20,000 units total. Unchecked ranges need review.';panel.append(note);}
   for(const group of comparison.seriesCoverage){
     const section=document.createElement('details');section.dataset.section='series-'+HumbleOwnership.seriesKey(group);

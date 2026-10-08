@@ -450,14 +450,127 @@
     const counts=Object.fromEntries(['owned','owned-elsewhere','new','partial','possible','unchecked'].map(state=>[state,items.filter(item=>item.state===state).length]));
     return {counts,items,sections:Object.keys(counts).filter(state=>counts[state]>0)};
   }
-  function explanation(item, match) {
-    const view=row(item,match), title=item.title||'this item', related=view.relatedTitle||'a related item';
-    if(view.state==='unchecked')return 'No local match was found, but Galactic Library could not finish checking. This item may already be owned. Retry the checks before treating it as new.';
-    if(view.state==='partial')return `You own some of the known contents of ${title}${view.fraction?` (${view.fraction})`:''}. Check the remaining contents before buying.`;
-    if(view.state==='possible')return view.ownershipReview?`Your library has ${related}, but its ownership or current access needs review.`:`Your library has ${related}. This bundle item may be a different edition or version; check before buying.`;
-    if(view.state==='owned-elsewhere')return `You own ${title} in ${view.providers.length?`your ${view.providers.join(' / ')} library`:'another linked library'}. It matches this bundle item.`;
-    if(view.state==='owned')return `Your local purchase library already includes ${title}.`;
-    return 'No matching title was found in the libraries that were successfully checked.';
+  // Display adapters only. No result objects, ownership decisions or storage are modified.
+  const localProvider = "humble";
+  const permanentRecord = record => ['owned','claimed'].includes(record.ownership);
+  function status(item, match) {
+    const state=match.state==='elsewhere'?'owned-elsewhere':match.state;
+    if(state==='possible')return match.ownershipReview?'Check ownership':'Possible';
+    if(state==='partial')return 'Partial';
+    if(state==='unchecked')return 'Check incomplete';
+    if(state==='owned-elsewhere')return 'Owned elsewhere';
+    if(state==='owned')return localProvider==='humble' && [match.item].flat(Infinity).filter(Boolean).some(r=>(r.provenance?.length?r.provenance:[r]).some(p=>p.entitlement==='third-party-key')||r.kind==='game'&&r.source==='humble')?'Purchased':'Owned';
+    return 'New';
   }
-  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation};
+  function access(record, local=false) {
+    const evidence=record.evidence||{};
+    if(record.historical)return 'Previously recorded — current access needs review';
+    if(evidence.ownershipBasis==='user-assumed-owned')return 'Treated as owned by your preference';
+    const origins=record.provenance?.length?record.provenance:[record];
+    if(local && origins.some(p=>p.entitlement==='third-party-key'))return 'Purchased key — activation not confirmed';
+    if(record.ownership==='subscription')return 'Subscription access';
+    if(record.ownership==='borrowed')return 'Borrowed access';
+    if(record.ownership==='rental')return 'Rental access';
+    if(record.ownership==='unknown')return 'Ownership not confirmed';
+    if(local && (record.source===localProvider || origins.some(origin=>origin.purchaseKey || origin.sourceBundle || origin.bundle?.title)))return 'Purchased';
+    if(permanentRecord(record))return 'Owned';
+    return local?'Marked as owned locally':'Ownership not confirmed';
+  }
+  function readableDate(value) {
+    if(!value)return '';
+    const date=new Date(value);
+    return Number.isNaN(date.valueOf())?'':date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  }
+  function candidateViews(item, match) {
+    const entries=[], seenObjects=new Set(), seenRefs=new Set();
+    const add=(values,local=false,confirmed=false,componentTitle='')=>{
+      for(const wrapper of [values].flat(Infinity).filter(Boolean)){
+        const record=wrapper.item||wrapper;
+        if(!record.title || seenObjects.has(record))continue;
+        const isLocal=local && (!record.provider || record.provider===localProvider) || !record.provider && (record.source===localProvider || Boolean(record.purchaseKey||record.sourceBundle||record.bundle));
+        // Repeated references to the same response record are one card; distinct
+        // accounts/access/provenance records are never merged by title.
+        const ref=record.itemRef && JSON.stringify([record,wrapper.item?wrapper.reason:'']);
+        if(ref && seenRefs.has(ref))continue;
+        seenObjects.add(record);if(ref)seenRefs.add(ref);
+        const provider=providerName(record.provider || (isLocal?localProvider:record.source||'another library'));
+        const account=isLocal && (record.profileLabel||wrapper.profileLabel) ? String(record.profileLabel||wrapper.profileLabel):'';
+        const basis=String(wrapper.reason||record.reason||'');
+        const differences=global.HumbleOwnership.conflicts(item,record,true);
+        let uncertainty='';
+        if(differences.some(x=>/ISBN/iu.test(x)))uncertainty='The ISBNs differ; check which edition you want.';
+        else if(differences.some(x=>/language/iu.test(x)))uncertainty='The languages differ; check before buying.';
+        else if(differences.some(x=>/author/iu.test(x)))uncertainty='The author details differ; check the title and edition.';
+        else if(differences.some(x=>/issue|volume|run|series|unitType/iu.test(x)))uncertainty='The series, run or numbered contents differ; check the overlap.';
+        else if(differences.some(x=>/revision|edition|package/iu.test(x)) || /revision|different edition|edition\/package|version wording/iu.test(basis))uncertainty='May be a different edition or version.';
+        else if(/subtitle|article|related.*title/iu.test(basis))uncertainty='The titles differ; check whether they refer to the same work.';
+        const sameEdition=record.relationship==='same-edition' || confirmed && isLocal;
+        const contains=record.relationship==='contains';
+        const label=access(record,isLocal);
+        if(!uncertainty && !sameEdition && !contains && !confirmed)uncertainty='The relationship to this offer needs review.';
+        const accessNote=record.historical?'This record was not observed in the latest completed import.':
+          ['subscription','rental','borrowed'].includes(record.ownership)?'Permanent ownership is not confirmed.':record.ownership==='unknown'?'Confirm ownership before buying.':'';
+        const origin=isLocal?(record.provenance?.[0]||record):{};
+        const purchaseDate=readableDate(origin.purchasedAt||origin.purchaseDate||record.purchasedAt||record.purchaseDate);
+        const bundle=origin.sourceBundle||origin.bundle?.title||record.sourceBundle||record.bundle?.title||'';
+        const context=[bundle,purchaseDate?'Purchased '+purchaseDate:''].filter(Boolean).join(' · ');
+        const annotations=[];
+        if(!isLocal && record.provider===localProvider)annotations.push('Central copy; compare with this extension’s current purchases.');
+        if(isLocal && record.provenance?.length>1)annotations.push('Additional purchase context is in Match details.');
+        if(record.evidence?.ownershipBasis==='user-assumed-owned' && record.evidence.observedOwnership)annotations.push('Original access: '+access({ownership:record.evidence.observedOwnership}));
+        if(record.evidence?.ownershipBasis==='dated-manual-confirmation')annotations.push('Your ownership review'+(readableDate(record.evidence.ownershipConfirmedAt)?' on '+readableDate(record.evidence.ownershipConfirmedAt):'')+'.');
+        if(record.evidence?.availability==='not-observed-in-last-full-scan')annotations.push('Not observed in the latest full scan; current availability needs review.');
+        if(['expired','unavailable'].includes(record.keyStatus||record.evidence?.keyStatus))annotations.push('Purchase recorded; key '+(record.keyStatus||record.evidence.keyStatus)+'.');
+        entries.push({title:record.title,provider,account,access:label,heading:componentTitle?'Listed component':contains?'Included contents':sameEdition?'Same title found':isLocal && label.startsWith('Purchased')?'Possibly related purchase':'Library candidate',
+          relationship:componentTitle?'Compared component: '+componentTitle+'.':contains?'Contains some of the compared contents.':sameEdition?'Matches this offer.':record.relationship==='same-work'?'Related work; edition is not confirmed.':'',uncertainty,accessNote,context,annotations});
+      }
+    };
+    add(match.externalMatches,false,match.state==='elsewhere'||match.state==='owned-elsewhere');
+    add(match.externalPossibleMatches);add(match.externalResult?.matches);add(match.externalResult?.possibleMatches);add(match.externalResult?.partialMatches);
+    add(match.item,true,match.state==='owned');add(match.localMatch?.item,true,match.localMatch?.state==='owned');
+    add(match.candidates,true);add(match.localMatch?.candidates,true);add(match.historicalItems,true);add(match.localMatch?.historicalItems,true);add(match.range?.items,true);add(match.localMatch?.range?.items,true);
+    for(const entry of [...(match.coverage?.covered||[]),...(match.coverage?.possibleCovered||[])])add(entry.evidence);
+    for(const component of match.componentMatches||[]){const title=component.offered?.title||component.item?.title||'listed component';add(component.item,true,component.state==='owned',title);add(component.externalMatches,false,false,title);add(component.externalPossibleMatches,false,false,title);add(component.externalResult?.matches,false,false,title);add(component.externalResult?.possibleMatches,false,false,title);}
+    return entries;
+  }
+  function conclusion(item,match) {
+    const view=row(item,match);
+    if(view.state==='unchecked')return 'Galactic Library could not finish checking. No local match was found; retry before treating this item as new.';
+    if(view.state==='partial')return (match.componentMatches?.length?'Some listed components are already in your library':'Some known contents are already in your library')+(view.fraction?' ('+view.fraction+')':'')+'. Check what remains; this does not establish ownership of the whole edition.';
+    if(view.state==='possible') {
+      const sameTitleAccess=candidateViews(item,match).find(candidate=>candidate.heading==='Same title found' && ['Subscription access','Borrowed access','Rental access'].includes(candidate.access));
+      if(match.ownershipReview && sameTitleAccess)return 'You have '+sameTitleAccess.access.toLowerCase()+' to a matching title, but permanent ownership is not confirmed.';
+      return match.ownershipReview?'A library item needs an ownership check. Review its access and any related editions before buying.':'A related library item was found. Check the edition or included contents before buying.';
+    }
+    if(view.state==='owned-elsewhere')return 'A linked library records a matching item as owned.';
+    if(view.state==='owned')return status(item,match)==='Purchased'?'This item is in your local purchases. A purchased key does not confirm activation.':'This item is marked as owned in your local library.';
+    return 'No match was found in the available library data.';
+  }
+  function tooltip(item,match) {
+    const candidates=candidateViews(item,match);
+    return [status(item,match),conclusion(item,match),...candidates.slice(0,2).map(c=>c.title+' · '+c.provider+' · '+c.access),candidates.length>2?'+'+(candidates.length-2)+' more candidates':'','Open the explanation for candidates and match details.'].filter(Boolean).join('\n');
+  }
+  function relatedCaption(item,match) {
+    const candidates=candidateViews(item,match);if(!candidates.length)return '';
+    const first=candidates[0];
+    return first.title+' · '+first.provider+' · '+first.access+(candidates.length>1?' · +'+(candidates.length-1)+' more':'');
+  }
+  function renderCandidates(host,item,match) {
+    const doc=host.ownerDocument;
+    const primary=doc.createElement('strong');primary.className='library-ui-match-status';primary.textContent=status(item,match);host.insertBefore(primary,host.querySelector('.hcl-explanation, .fanatical-library-explanation'));
+    const cards=doc.createElement('div');cards.className='library-ui-candidates';
+    for(const view of candidateViews(item,match)){
+      const card=doc.createElement('section');card.className='library-ui-candidate';
+      const heading=doc.createElement('h3');heading.textContent=view.heading;card.append(heading);
+      const title=doc.createElement('strong');title.textContent=view.title;card.append(title);
+      const meta=doc.createElement('p');meta.className='library-ui-muted';meta.textContent=[view.provider,view.account,view.access].filter(Boolean).join(' · ');card.append(meta);
+      for(const text of [view.uncertainty||view.relationship,view.accessNote,view.context,...view.annotations].filter(Boolean)){const p=doc.createElement('p');p.textContent=text;card.append(p);}
+      cards.append(card);
+    }
+    if(cards.children.length)host.append(cards);
+    if(match.lookupIncomplete||match.contentsLookupIncomplete){const note=doc.createElement('p');note.className='library-ui-warning';note.textContent='Some checks are incomplete. These results include available evidence; missing results do not prove an item is new.';host.append(note);}
+    if(match.coverage?.scopeUncertain){const note=doc.createElement('p');note.textContent='The contents comparison needs series/run or language confirmation.';host.append(note);}
+  }
+
+  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation:conclusion,status,access,candidateViews,tooltip,relatedCaption,renderCandidates};
 }(globalThis));

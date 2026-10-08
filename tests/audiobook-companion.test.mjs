@@ -112,7 +112,7 @@ test('audio exact companion ownership renders elsewhere with audible provenance 
   assert.equal(result.counts.elsewhere, 1);
   assert.equal(result.counts.owned, 0, 'an ebook is not an owned audiobook');
   assert.deepEqual(plain(context.calls[0].items), [{ requestId: 'audiobook:shared work', mediaType: 'audiobook', title: 'Shared Work', excludeProviders: ['humble'] }]);
-  assert.equal(run(context, "matchProvenance({state:'elsewhere',externalMatches:galacticOwnedMatches('audiobook','Shared Work',comparison)}).includes('Audible: Shared Work')"), true);
+  assert.equal(run(context, "matchProvenance({state:'elsewhere',externalMatches:galacticOwnedMatches('audiobook','Shared Work',comparison)}).includes('Shared Work · Audible · Owned')"), true);
 });
 
 test('Humble audiobook exact ownership wins and legacy book ownership stays separate', async () => {

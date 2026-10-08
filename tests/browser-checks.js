@@ -122,7 +122,7 @@
     check(document.querySelector('.hcl-plan-output').textContent.includes('Lowest tier satisfying this goal: $15.00'), 'Confirmed-new recommendations recover after a successful retry');
     const historical = [{ title: 'New story', kind: 'book', source: 'humble', sourceBundle: 'Earlier Humble bundle', purchasedAt: '2026-09-01' }];
     const historyMatcher = createBundleLibraryMatcher(fixtureStored.libraryItems, 'book', historical);
-    const localComparison = { job: 1, galactic: createGalacticLookup(''), wishlistItems: fixtureStored.wishlistItems };
+    const localComparison = { job: 1, galactic: {enabled:false,resultsByKey:new Map()}, wishlistItems: fixtureStored.wishlistItems };
     await renderBundleComparison(historyMatcher, 'book', [], fixtureStored.customCollectionMappings, localComparison, 1);
     const previous = [...document.querySelectorAll('.hcl-status-button')].find(button => button.textContent === 'Check ownership');
     check(Boolean(previous), 'A missing local historical purchase renders Check ownership');
