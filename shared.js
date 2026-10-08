@@ -531,6 +531,43 @@
     return { ...LIBRARY_STATE_DEFAULTS, libraryItems: [...unique.values()], hclPurchaseFocus: null };
   }
 
+  // Store identities stay separate from user-saved pairing configuration.
+  const COMPANION_IDENTITIES=Object.freeze({
+    hb:Object.freeze({name:'Humble Comic Library',chrome:'bjjpfofmcmiipeghcbhdfjedpldmkcii',firefox:'humble-comic-library@galactichamster.com'}),
+    gl:Object.freeze({name:'Galactic Library',chrome:'pdknncacndkicpogbebdfanniibnnpic',firefox:'galactic-library@galactichamster.com'}),
+    fan:Object.freeze({name:'Fanatical Library',chrome:'ieoobffekgbfjfoiheejkfihneooiadb',firefox:'fanatical-library@galactichamster.com'})
+  });
+  function companionBrowser(runtime=globalThis.chrome?.runtime){return runtime?.getURL?.('').startsWith('moz-extension:')||runtime?.getManifest?.().browser_specific_settings?.gecko?'firefox':'chrome';}
+  function builtinGalacticId(runtime=globalThis.chrome?.runtime){return COMPANION_IDENTITIES.gl[companionBrowser(runtime)];}
+  function resolveGalacticId(saved,runtime=globalThis.chrome?.runtime){return String(saved??'').trim()||builtinGalacticId(runtime);}
+  function trustedGalacticSender(senderId,saved,runtime=globalThis.chrome?.runtime){return senderId===builtinGalacticId(runtime)||isExtensionId(saved)&&senderId===String(saved).trim();}
+  function companionTargetProblem(id,runtime=globalThis.chrome?.runtime){
+    const browser=companionBrowser(runtime);
+    if(!isExtensionId(id))return 'Enter a valid Chrome extension ID or Firefox add-on ID.';
+    if(browser==='chrome'&&!/^[a-p]{32}$/u.test(id))return 'This saved add-on ID is not a Chrome target. It is preserved; use a Chrome ID in Advanced settings.';
+    // This is the sender manifest, not the receiver policy. Receiver restrictions
+    // cannot be inferred locally; failed sends never prove the target is absent.
+    return '';
+  }
+
+  async function testGalacticLink(send){
+    const call=async message=>{
+      let timer;
+      try{
+        const response=await Promise.race([send(message),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Connection timed out.')),30000);})]);
+        if(response?.ok!==true)throw Error('Galactic Library rejected the request. Check Advanced pairing or update both extensions.');
+        if(response.apiVersion!==1)throw Error('Incompatible Galactic Library API version. Update both extensions.');
+        return response;
+      }catch(error){if(/^(Connection timed out|Incompatible Galactic|Galactic Library rejected)/u.test(error.message))throw error;throw Error('Connection not verified. Install or enable Galactic Library, update both extensions, or check Advanced pairing. A receiver manifest may block custom IDs.');}
+      finally{clearTimeout(timer);}
+    };
+    const ping=await call({type:'PING'}),status=await call({type:'GET_STATUS'});
+    if(status.ready===false)throw Error('Galactic Library is not ready.');
+    const mediaTypes=status.capabilities?.mediaTypes;
+    if(mediaTypes!==undefined&&(!Array.isArray(mediaTypes)||!mediaTypes.every(type=>['game','book','audiobook','software'].includes(type))))throw Error('Incompatible Galactic Library capabilities.');
+    return {appVersion:typeof ping.appVersion==='string'?ping.appVersion.slice(0,40):'',advertised:Array.isArray(mediaTypes),mediaTypes:mediaTypes??[]};
+  }
+
   function isExtensionId(value) {
     const id = String(value ?? '').trim();
     const chromeId = /^[a-p]{32}$/u;
@@ -628,7 +665,7 @@
       }
       if(operation==='verifyShareSnapshot'){
         const [scope,targetId]=args,stored=await area.get({[shareScopeKey]:null,galacticLibraryExtensionId:''});const active=stored[shareScopeKey];
-        if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||stored.galacticLibraryExtensionId!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
+        if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||resolveGalacticId(stored.galacticLibraryExtensionId)!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
       if(operation==='patch'){
         const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences'];
@@ -661,7 +698,7 @@
 
   global.HumbleComicLibrary = {
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove,
-    normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
+    COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields
   };

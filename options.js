@@ -91,11 +91,10 @@
     return HumbleComicLibrary.isExtensionId(value);
   }
 
-  async function testGalacticLibraryLink(id = galacticLibraryExtensionId.value.trim()) {
+  async function testGalacticLibraryLink(id = HumbleComicLibrary.resolveGalacticId(galacticLibraryExtensionId.value,chrome.runtime)) {
     if (!isExtensionId(id)) throw new Error('Enter a valid Chrome extension ID or Firefox add-on ID for Galactic Library.');
-    const response = await chrome.runtime.sendMessage(id, { type: 'PING' });
-    if (!response?.ok || response.apiVersion !== 1) throw new Error(response?.error ?? 'Galactic Library did not return a compatible response.');
-    return response;
+    const problem=HumbleComicLibrary.companionTargetProblem(id,chrome.runtime);if(problem)throw Error(problem);
+    const response=await HumbleComicLibrary.testGalacticLink(message=>chrome.runtime.sendMessage(id,message));return response;
   }
 
   async function library() {
@@ -137,10 +136,11 @@
     showDiagnostics.checked = diagnosticsEnabled;
     openDirectPurchaseLinks.checked = directPurchaseLinksEnabled;
     humbleExtensionId.textContent = chrome.runtime.id;
-    galacticLibraryExtensionId.value = isExtensionId(savedGalacticLibraryExtensionId) ? savedGalacticLibraryExtensionId : '';
+    galacticLibraryExtensionId.value = savedGalacticLibraryExtensionId;
+    document.querySelector('#builtin-galactic-id').textContent=HumbleComicLibrary.builtinGalacticId(chrome.runtime);
     galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
-      ? 'Link saved. In Galactic Library, allow the Humble Comic Library extension ID shown above.'
-      : 'No Galactic Library link configured.';
+      ? 'Saved override retained. Connection not yet verified; check the connection.'
+      : 'Automatic Galactic Library pairing ready. Connection not yet verified; check the connection.';
     renderKeyReminders(keyReminders, keyReminderScan);
   }
 
@@ -328,13 +328,13 @@
       return;
     }
     await HumbleComicLibrary.storageSet({ galacticLibraryExtensionId: id });
-    galacticLibraryLinkStatus.textContent = 'Link saved. In Galactic Library, allow the Humble Comic Library extension ID shown above.';
+    galacticLibraryLinkStatus.textContent = 'Override saved. For development builds, allow this extension in Galactic Library Advanced settings, then check the connection.';
   });
 
   document.querySelector('#test-galactic-library-link').addEventListener('click', async () => {
     try {
       const response = await testGalacticLibraryLink();
-      galacticLibraryLinkStatus.textContent = `Connected to Galactic Library ${response.appVersion}.`;
+      galacticLibraryLinkStatus.textContent = `Connected to Galactic Library ${response.appVersion}. ${response.advertised?'Supported media: '+response.mediaTypes.join(', ')+'.':'Capabilities not advertised; newer features remain unconfirmed.'}`;
     } catch (error) {
       galacticLibraryLinkStatus.textContent = `Could not connect: ${error.message}`;
     }
@@ -343,7 +343,7 @@
   document.querySelector('#clear-galactic-library-link').addEventListener('click', async () => {
     await HumbleComicLibrary.storageRemove('galacticLibraryExtensionId');
     galacticLibraryExtensionId.value = '';
-    galacticLibraryLinkStatus.textContent = 'Galactic Library link removed.';
+    galacticLibraryLinkStatus.textContent = 'Override removed. Automatic Galactic Library pairing remains available; check the connection.';
   });
 
   document.querySelector('#open-purchases').addEventListener('click', () => {

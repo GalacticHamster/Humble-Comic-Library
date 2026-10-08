@@ -26,13 +26,18 @@
         <p id="wishlist-status" role="status"></p>
       </section>
       <section>
-        <h2>Galactic Library link</h2>
-        <p>Optionally check bundle items against your linked Galactic Library. Results can include owned items, possible matches with their library titles, and partial matches from reviewed collection contents. Books/comics, audiobooks, games, and supported software are checked separately.</p><p>In Galactic Library, allow this extension's ID shown below. Then paste Galactic Library's extension ID here, save, and test the link. Checks send the bundle title and available identity/contents evidence; they never transfer either full library.</p>
-        <p>Your Humble Comic Library extension ID: <code id="humble-extension-id">Loading…</code></p>
-        <label for="galactic-library-extension-id">Galactic Library extension ID</label>
+        <h2>Galactic Library connection</h2>
+        <p>Official GalacticHamster extensions connect automatically. Check the connection, then refresh your bundle page. Checks send bundle titles and available identity/contents evidence; results contain matching titles and safe reminders, never the full library. Books/comics, audiobooks, games and supported software are checked separately.</p>
+        <div class="actions"><button id="test-galactic-library-link" type="button">Check connection</button></div><p id="galactic-library-link-status" role="status"></p>
+        <details class="settings-help"><summary>Advanced / Developer pairing</summary>
+        <p>Built-in Galactic Library ID: <code id="builtin-galactic-id"></code></p>
+        <p>Your extension ID: <code id="humble-extension-id">Loading...</code></p>
+        <p>For unpacked builds, enter a Galactic Library ID here and allow this extension's ID in Galactic Library's Advanced settings. This authorizes data exchange for the supported operations. A saved override takes precedence for outgoing requests; the built-in identity remains trusted. Removing the override restores automatic pairing.</p>
+        <label for="galactic-library-extension-id">Additional Galactic Library ID (outgoing override)</label>
         <input id="galactic-library-extension-id" type="text" autocomplete="off" maxlength="255" spellcheck="false" placeholder="Chrome extension ID or Firefox add-on ID">
-        <div class="actions"><button id="save-galactic-library-link" type="button">Save link</button><button id="test-galactic-library-link" type="button">Test link</button><button id="clear-galactic-library-link" type="button">Remove link</button></div>
-        <p id="galactic-library-link-status" role="status"></p>
+        <div class="actions"><button id="save-galactic-library-link" type="button">Save override</button><button id="clear-galactic-library-link" type="button">Remove override</button></div>
+        <p>A Chrome target must use a Chrome ID. Firefox uses its separately configured add-on ID, not a moz-extension page URL. Receiver manifest restrictions can block custom IDs; a settings entry cannot override them. These releases accept extension transport and enforce exact sender trust at runtime.</p>
+        </details>
       </section>
       <section>
         <h2>Key and access reminders</h2>

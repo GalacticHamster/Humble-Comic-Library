@@ -493,6 +493,7 @@ function isExtensionId(value) {
 }
 
 function createGalacticLookup(extensionId) {
+  extensionId=HumbleComicLibrary.resolveGalacticId(extensionId,chrome.runtime);
   const id = String(extensionId ?? '').trim();
   return {
     enabled: isExtensionId(id),

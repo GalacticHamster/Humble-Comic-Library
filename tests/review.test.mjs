@@ -33,7 +33,7 @@ test('review navigation uses only the saved extension ID and accepts only intern
 });
 
 test('missing/invalid links and Firefox stable IDs give actionable feedback without inventing URLs', async () => {
-  for (const id of ['', 'https://untrusted.example', 'galactic-library@example.org']) {
+  for (const id of ['https://untrusted.example', 'galactic-library@example.org']) {
     const worker = background(id);
     const result = await worker.request();
     assert.equal(result.ok, false);

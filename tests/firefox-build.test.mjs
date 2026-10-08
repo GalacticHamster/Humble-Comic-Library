@@ -61,7 +61,8 @@ function inspectZip(zipPath) {
       $entry = $archive.GetEntry('manifest.json')
       $reader = [System.IO.StreamReader]::new($entry.Open())
       try {
-        [ordered]@{ entries = @($archive.Entries | ForEach-Object { $_.FullName }); manifest = $reader.ReadToEnd() } | ConvertTo-Json -Compress
+        $sharedReader = [System.IO.StreamReader]::new($archive.GetEntry('shared.js').Open())
+        try { [ordered]@{ entries = @($archive.Entries | ForEach-Object { $_.FullName }); manifest = $reader.ReadToEnd(); shared = $sharedReader.ReadToEnd() } | ConvertTo-Json -Compress } finally { $sharedReader.Dispose() }
       } finally { $reader.Dispose() }
     } finally { $archive.Dispose(); $stream.Dispose() }
   `;
@@ -95,6 +96,7 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
 
     assert.equal(path.basename(chromePath), `Humble-Comic-Library-${chromeManifest.version}.zip`);
     assert.equal(path.basename(firefoxPath), `Humble-Comic-Library-${chromeManifest.version}-firefox.zip`);
+    for(const artifact of [chrome,firefox]){for(const id of ['bjjpfofmcmiipeghcbhdfjedpldmkcii','pdknncacndkicpogbebdfanniibnnpic','ieoobffekgbfjfoiheejkfihneooiadb'])assert(artifact.shared.includes(id));const manifest=JSON.parse(artifact.manifest);assert.equal(manifest.externally_connectable,undefined);assert.equal(manifest.key,undefined);assert.deepEqual(manifest.permissions,['storage']);}
     assert.deepEqual(chrome.entries, runtimeFiles);
     assert.deepEqual(firefox.entries, runtimeFiles);
     assert.equal(chrome.manifest, chromeManifestText);

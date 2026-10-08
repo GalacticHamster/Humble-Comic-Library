@@ -2,11 +2,12 @@
 if (typeof importScripts === 'function') importScripts('shared.js','collection-mappings.js','entitlement-share.js');
 const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local);
 chrome.runtime.onMessageExternal?.addListener((message,sender,respond)=>{
-  if(message?.type!=='OPEN_REVIEW')return false;
+  if(!['PING','GET_STATUS','OPEN_REVIEW'].includes(message?.type))return false;
   (async()=>{
     const {galacticLibraryExtensionId:id=''}=await chrome.storage.local.get({galacticLibraryExtensionId:''});
-    if(!HumbleComicLibrary.isExtensionId(id)||sender.id!==id)return {ok:false,error:'Companion is not allowed.'};
-    if(message.apiVersion!==1)return {ok:false,error:'Unsupported companion API version.'};
+    if(!HumbleComicLibrary.trustedGalacticSender(sender.id,id,chrome.runtime))return {ok:false,error:'Companion is not allowed.'};
+    if(message.apiVersion!==1&&!(message.apiVersion===undefined&&['PING','GET_STATUS'].includes(message.type)))return {ok:false,error:'Unsupported companion API version.'};
+    if(message.type!=='OPEN_REVIEW')return {ok:true,apiVersion:1,appVersion:chrome.runtime.getManifest?.().version??'0.1.0',ready:true,capabilities:{centralReview:true}};
     await chrome.runtime.openOptionsPage();return {ok:true,apiVersion:1};
   })().then(respond,()=>respond({ok:false,error:'Could not open source review.'}));return true;
 });
@@ -28,7 +29,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const ownPage=sender.id===chrome.runtime.id&&typeof sender.url==='string'&&sender.url.startsWith(chrome.runtime.getURL(''));
   if(!ownPage||message.confirmed!==true){respond({ok:false,error:'Open Extension options and confirm the Humble account before sharing.'});return false;}
   (async()=>{
-    const stored=await chrome.storage.local.get({galacticLibraryExtensionId:''}),id=stored.galacticLibraryExtensionId;
+    const stored=await chrome.storage.local.get({galacticLibraryExtensionId:''}),id=HumbleComicLibrary.resolveGalacticId(stored.galacticLibraryExtensionId,chrome.runtime);
     if(!HumbleComicLibrary.isExtensionId(id))throw new Error('Configure the Galactic Library link first.');
     if(message.type==='HCL_REMOVE_SHARED_ENTITLEMENTS'){
       const response=await HumbleEntitlements.request(chrome.runtime,id,{type:'REMOVE_ENTITLEMENT_FEED',apiVersion:1});if(!response?.ok||response.apiVersion!==1)throw new Error(response?.error??'Could not remove shared reminders.');return {ok:true,count:0};
@@ -42,7 +43,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'HCL_OPEN_GALACTIC_REVIEW' || sender.id !== chrome.runtime.id) return false;
   (async () => {
     const { galacticLibraryExtensionId: rawId = '' } = await chrome.storage.local.get({ galacticLibraryExtensionId: '' });
-    const id = String(rawId).trim();
+    const id = HumbleComicLibrary.resolveGalacticId(rawId,chrome.runtime);
     if (!HumbleComicLibrary.isExtensionId(id)) return { ok: false, error: 'Configure the Galactic Library link in Extension options first.' };
     if (!/^[a-p]{32}$/u.test(id)) {
       try{const response=await HumbleEntitlements.request(chrome.runtime,id,{type:'OPEN_REVIEW',apiVersion:1});if(response?.ok&&response.apiVersion===1)return {ok:true};}catch{}
