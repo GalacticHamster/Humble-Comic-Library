@@ -32,3 +32,5 @@ html.gh-app[data-gh-theme="light"] :is(.library-items > li,.contents-collection-
 [data-purchase-handoff] label { display:grid; gap:4px; margin:8px 0; }
 [data-purchase-handoff] .ownership-choice { display:flex; align-items:flex-start; }
 [data-purchase-handoff] progress { width:100%; accent-color:var(--gh-accent); }
+
+[data-purchase-handoff] [hidden] { display:none !important; }

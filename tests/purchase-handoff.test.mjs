@@ -27,3 +27,8 @@ test('HB same-title distinct native products remain distinct; native identity wi
  const first=A.hbMerge([],data);assert.equal(first.items.length,2);
  const again=A.hbMerge(first.items,data);assert.equal(again.items.length,2);assert.equal(again.stats.unchanged,2);
 });
+
+test('Named legacy v9 account, restored older archive and empty/manual accounts are visible without native IDs',async()=>{
+ const rows=Array.from({length:6321},(_,n)=>({kind:'book',title:'Legacy book '+n,source:'humble',purchaseKey:'legacy_'+Math.floor(n/20),sourceBundle:'Legacy bundle',purchasedAt:null,provenance:[{title:'Legacy book '+n,purchaseKey:'legacy_'+Math.floor(n/20),sourceBundle:'Legacy bundle',purchasedAt:null}]}));
+ const archived=H.createLibraryBackup({...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'Old',libraryItems:[{title:'Manual book',kind:'book'}]});const state={humbleProfileLabel:'Personal',libraryItems:rows,profileArchives:[{profileLabel:'Old',backup:archived},{profileLabel:'Empty',backup:H.createLibraryBackup({...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'Empty'})}]};const area=memory(state),store=H.createSyncStore(area);const start=performance.now(),accounts=await store.execute('handoffAccounts');console.log(JSON.stringify({historicalHB:6321,enumerationMs:performance.now()-start}));assert.equal(accounts.length,3);assert.equal(accounts[0].count,6321);assert.equal(accounts[0].eligibleCount,6321);assert.match(accounts[0].limitations.join(' '),/6321 older records/);assert.equal(accounts[1].eligibleCount,0);assert.equal(accounts[2].count,0);const snapshot=await store.execute('handoffSnapshot',[accounts[0].accountRef]);assert(snapshot.records.every(row=>row.providerItemId===null));assert.equal(snapshot.records.length,6321);assert.equal(area.sets,0);
+});

@@ -3,8 +3,14 @@
  const S=root.GalacticPurchaseSnapshot,TTL=10*60*1000;
  function createService({runtime,area,authorize,peer,accounts,snapshot,commit,bind=async()=>{},now=()=>Date.now()}){
  const exports=new Map();let preparing=0,running=false;const prefix='GH_PURCHASE_',key='galacticPurchaseOffer';
+ function targetIntent(value){
+  if(!value||Object.getPrototypeOf(value)!==Object.prototype||Object.keys(value).some(k=>!['accountRef','stamp','newLabel','expectedActiveLabel','expectedActiveId'].includes(k)))throw Error('Invalid destination account choice.');
+  for(const [key,text] of Object.entries(value))if(text!==null&&(typeof text!=='string'||text.length>(key==='newLabel'||key==='expectedActiveLabel'?100:255)))throw Error('Invalid destination account choice.');
+  if(Boolean(value.accountRef)===Boolean(value.newLabel?.trim()))throw Error('Choose an existing account or name a new separate account.');
+  return value;
+ }
  const expired=()=>{for(const [id,value]of exports)if(value.until<=now())exports.delete(id);};
- async function request(id,value){let timer;try{const response=await Promise.race([runtime.sendMessage(id,{...value,protocolVersion:1}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Purchase transfer timed out. Retry; no partial import is applied.')),30000);})]);if(response?.ok!==true||response.protocolVersion!==1)throw Error(response?.error??'Update/link both extensions before transferring purchases.');return response;}finally{clearTimeout(timer);}}
+ async function request(id,value){let timer;try{const response=await Promise.race([runtime.sendMessage(id,{...value,protocolVersion:1}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Purchase transfer timed out. Retry; no partial import is applied.')),30000);})]);if(response?.ok===true&&response.protocolVersion!==1)throw Error('Incompatible purchase-sharing protocol. Update both extensions.');if(response?.ok!==true)throw Error(response?.error??'Companion returned an unexpected purchase-sharing response. Update and check pairing.');return response;}finally{clearTimeout(timer);}}
  async function prepare(provider,accountRef,client){expired();if(exports.size+preparing>=2)throw Error('Two outgoing transfers are already prepared. Finish or retry after they expire.');preparing++;try{const data=S.validate(await snapshot(provider,accountRef));if(data.provider!==provider)throw Error('Wrong provider snapshot.');
  const chunks=[];let rows=[],bytes=2;for(const row of data.records){const count=S.size(row)+1;if(count+2>S.CHUNK_BYTES)throw Error('One purchase record exceeds the chunk limit.');if(bytes+count>S.CHUNK_BYTES||rows.length>=250){chunks.push(rows);rows=[];bytes=2;}rows.push(row);bytes+=count;}if(rows.length)chunks.push(rows);
  const token=crypto.randomUUID(),digest=await S.hash(JSON.stringify(data));const header={...data};delete header.records;
@@ -14,7 +20,7 @@
  S.validate({...m.header,records:[]});return m;
  }
  async function external(message,sender){expired();if(message.protocolVersion!==1)throw Error('Unsupported purchase handoff protocol.');if(!await authorize(sender.id,message.provider))throw Error('Purchase handoff peer/provider is not authorized.');
- if(message.type===prefix+'CAPABILITIES')return {maxRecords:S.MAX_RECORDS,maxBytes:S.MAX_BYTES,chunkBytes:S.CHUNK_BYTES};
+ if(message.type===prefix+'CAPABILITIES')return {provider:message.provider,maxRecords:S.MAX_RECORDS,maxBytes:S.MAX_BYTES,chunkBytes:S.CHUNK_BYTES};
  if(message.type===prefix+'ACCOUNTS')return {accounts:await accounts(message.provider)};
  if(message.type===prefix+'BEGIN')return {manifest:await prepare(message.provider,message.accountRef,sender.id)};
  if(message.type===prefix+'CHUNK'||message.type===prefix+'ACK'||message.type===prefix+'CANCEL'){
@@ -22,13 +28,14 @@
  if(message.type!==prefix+'CHUNK'){if(message.type===prefix+'ACK'&&message.digest!==pending.manifest.digest)throw Error('Invalid commit acknowledgement.');exports.delete(message.token);return {};}
  if(!Number.isInteger(message.index)||message.index<0||message.index>=pending.chunks.length)throw Error('Invalid purchase chunk order.');const records=pending.chunks[message.index];return {index:message.index,records,digest:await S.hash(JSON.stringify(records))};}
  if(message.type===prefix+'OFFER'){
- const m=validateManifest(message.manifest,message.provider);await area.set({[key]:{peerId:sender.id,provider:message.provider,manifest:m}});await runtime.openOptionsPage();return {offered:true};}
+ const m=validateManifest(message.manifest,message.provider);const target=message.target?targetIntent(message.target):null;await area.set({[key]:{peerId:sender.id,provider:message.provider,manifest:m,...(target?{target}:{} )}});await runtime.openOptionsPage();return {offered:true};}
  throw Error('Unsupported purchase handoff operation.');}
  const notify=value=>{try{Promise.resolve(runtime.sendMessage({type:'GH_PURCHASE_PROGRESS',...value})).catch(()=>{});}catch{}};
  async function local(message){if(message.action==='pending'){const offer=(await area.get({[key]:null}))[key];return {offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}if(message.action==='state'){const offer=(await area.get({[key]:null}))[key];return {accounts:await accounts(message.provider),offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}
  const id=await peer(message.provider,message.peerId);await bind(id,message.provider);
+ if(message.action==='connection'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return {peerId:id,status:'Connected (API 1); purchase sharing supported. No purchases transferred.'};}
  if(message.action==='remoteAccounts'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return request(id,{type:prefix+'ACCOUNTS',provider:message.provider});}
- if(message.action==='send'){const manifest=await prepare(message.provider,message.accountRef,id);try{await request(id,{type:prefix+'OFFER',provider:message.provider,manifest});return {offered:true,count:manifest.count};}catch(error){exports.delete(manifest.token);throw error;}}
+ if(message.action==='send'){if(message.confirmed!==true)throw Error('Confirm the source and destination store accounts before sending.');const target=targetIntent(message.target);const manifest=await prepare(message.provider,message.accountRef,id);try{await request(id,{type:prefix+'OFFER',provider:message.provider,manifest,target});return {offered:true,count:manifest.count};}catch(error){exports.delete(manifest.token);throw error;}}
  if(message.action!=='import'||message.confirmed!==true)throw Error('Confirm the source and destination store accounts before importing.');if(running)throw Error('A purchase handoff is already importing. Wait for it to finish.');running=true;let manifest,committed=false;const transferStarted=now();
  try{
  notify({stage:'Preparing purchase records',done:0,total:0});
