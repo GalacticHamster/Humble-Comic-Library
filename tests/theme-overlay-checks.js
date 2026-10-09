@@ -30,6 +30,7 @@
        assert(contrast(css(badge).color,css(badge).backgroundColor)>=4.5,'Unreadable classification badge');assert(css(badge).position==='absolute','Host CSS moved a badge');
        const rect=badge.getBoundingClientRect(),host=badge.parentElement.getBoundingClientRect();if(host.width&&host.height)assert(rect.left>=host.left-1&&rect.right<=host.right+1&&rect.top>=host.top-1&&rect.bottom<=host.bottom+1,'Clipped badge');
      }
+     const planning=panel.querySelector('.library-ui-planning');if(planning){const probe=document.createElement('button');probe.textContent='Themed planning control';planning.append(probe);assert(css(probe).backgroundColor===color(panel,'accent'),'Enabled primary lost purple styling');probe.disabled=true;assert(css(probe).backgroundColor===color(panel,'disabled'),'Disabled primary lost disabled styling');probe.remove();}
      const focus=panel.querySelector('button');focus.focus();assert(parseFloat(css(focus).outlineWidth)>=2,'Missing overlay focus');
      assert(nativeStyle()===nativeBefore,'Theme restyled native purchase control');assert(!document.documentElement.hasAttribute('data-gh-theme'),'Theme leaked to host root');
      assert(classifiers()===statuses,'Theme changed match classifications');assert(JSON.stringify(stored[key])===before,'Theme changed library');

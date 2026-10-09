@@ -25,7 +25,7 @@ async function runPanelPresentationChecks(hb,check) {
     const control=advanced.querySelector('select'),button=advanced.querySelector('button'),checkbox=advanced.querySelector('input[type="checkbox"]');
     // Chrome's native select reports "normal" line-height despite the CSS
     // declaration. Keep its native arrow and check the typography it exposes.
-    check(control&&button&&typography(control).split('|').slice(0,3).join('|')===font+'|14px|400'&&typography(button)===font+'|14px|400|21px'&&css(button).backgroundColor===tokenColor('accent'),'Planning buttons and selectors share protected typography and purple primary control styling');
+    check(control&&button&&typography(control).split('|').slice(0,3).join('|')===font+'|14px|400'&&typography(button)===font+'|14px|400|21px'&&css(button).backgroundColor===tokenColor(button.disabled?'disabled':'accent'),'Planning buttons and selectors retain protected typography and themed enabled/disabled colors');
     check(checkbox&&css(checkbox).width==='14px'&&css(checkbox).height==='14px','Planning checkboxes have the same canonical dimensions');
     const planner=panel.querySelector('.library-ui-planning');
     const wasAdvancedOpen=advanced.open,wasPlannerOpen=planner.open;advanced.open=true;planner.open=true;

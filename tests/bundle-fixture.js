@@ -15,6 +15,7 @@ window.chrome = { storage: { onChanged: { addListener: listener => fixtureStorag
     fixtureStorageListeners.forEach(listener => listener(changes, 'local'));
   }
 } }, runtime: { getManifest:()=>({name:'Humble Comic Library'}), sendMessage: async (id, request) => {
+  if(['GH_GET_APPEARANCE','GH_SYNC_APPEARANCE'].includes(id?.type))return {ok:true,apiVersion:1,appearance:{mode:'light',followGl:false,followedMode:null,followedId:''}};
   if(id?.type==='HCL_STORE'){
     window.fixtureStore??=HumbleComicLibrary.createSyncStore(chrome.storage.local);
     try{return {ok:true,result:await fixtureStore.execute(id.operation,id.args)};}catch(error){return {ok:false,error:error.message};}

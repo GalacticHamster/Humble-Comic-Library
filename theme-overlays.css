@@ -1,25 +1,25 @@
 /* GalacticHamster theme v1: only extension-owned overlay roots/children.
    Native website pricing, navigation, inputs and purchase buttons are excluded. */
-:is(.hcl-summary,.hcl-progress,.hcl-catalog-filters,.hcl-catalog-sort-diagnostics,.hcl-match-inspector,.hcl-importer,.hcl-purchase-focus-notice,.fanatical-library-summary,.fanatical-library-progress,.fanatical-library-catalogue-controls,.fanatical-library-evidence,.fanatical-library-importer) {
+:is(#hcl-summary,.hcl-summary,.hcl-progress,.hcl-catalog-filters,.hcl-catalog-sort-diagnostics,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,.hcl-purchase-focus-notice,#fanatical-library-summary,.fanatical-library-summary,.fanatical-library-progress,.fanatical-library-catalogue-controls,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) {
   color-scheme:var(--gh-color-scheme); background:var(--gh-surface); color:var(--gh-text); border:1px solid var(--gh-border); box-shadow:var(--gh-shadow); font-family:var(--gh-font);
 }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.hcl-catalog-filters,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer,.fanatical-library-catalogue-controls) :is(input,select,textarea) {
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,.hcl-catalog-filters,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer,.fanatical-library-catalogue-controls) :is(input,select,textarea) {
   color:var(--gh-text)!important; background:var(--gh-input)!important; border-color:var(--gh-input-border)!important; accent-color:var(--gh-accent)!important;
 }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) button {
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) button {
   color:var(--gh-on-accent)!important; background:var(--gh-accent)!important; border-color:var(--gh-accent)!important; font-family:var(--gh-font)!important;
 }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) button:hover:not(:disabled) { background:var(--gh-accent-hover)!important; }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) button:active:not(:disabled) { background:var(--gh-accent-pressed)!important; }
-:is(.hcl-summary-controls,.fanatical-library-summary-controls) button { color:var(--gh-text)!important; background:var(--gh-surface-raised)!important; border-color:var(--gh-border)!important; }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) button:disabled {
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) button:hover:not(:disabled) { background:var(--gh-accent-hover)!important; }
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) button:active:not(:disabled) { background:var(--gh-accent-pressed)!important; }
+:is(#hcl-summary,#fanatical-library-summary) :is(.hcl-summary-controls,.fanatical-library-summary-controls) button { color:var(--gh-text)!important; background:var(--gh-surface-raised)!important; border-color:var(--gh-border)!important; }
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) button:disabled {
   color:var(--gh-disabled-text)!important; background:var(--gh-disabled)!important; border-color:var(--gh-border)!important; cursor:default!important; opacity:.65;
 }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.hcl-catalog-filters,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer,.fanatical-library-catalogue-controls) :is(button,input,select,textarea,a,summary):focus-visible {
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,.hcl-catalog-filters,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer,.fanatical-library-catalogue-controls) :is(button,input,select,textarea,a,summary):focus-visible {
   outline:2px solid var(--gh-focus)!important; outline-offset:3px!important;
 }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) a { color:var(--gh-link)!important; }
-:is(.hcl-summary,.hcl-match-inspector,.hcl-importer,.fanatical-library-summary,.fanatical-library-evidence,.fanatical-library-importer) progress { accent-color:var(--gh-accent); }
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) a { color:var(--gh-link)!important; }
+:is(#hcl-summary,.hcl-summary,#hcl-match-inspector,.hcl-match-inspector,.hcl-importer,#fanatical-library-summary,.fanatical-library-summary,#fanatical-library-evidence,.fanatical-library-evidence,.fanatical-library-importer) progress { accent-color:var(--gh-accent); }
 .hcl-wish-marker,.fanatical-library-wish-marker { background:var(--gh-surface); color:var(--gh-text); border-color:var(--gh-border); }
 .hcl-status-button,.fanatical-library-badge-host > [data-fanatical-library-for] {
   border:0!important; color:var(--gh-on-status)!important; font:700 12px/1.2 var(--gh-font)!important; padding:4px 8px!important; text-transform:uppercase!important;
