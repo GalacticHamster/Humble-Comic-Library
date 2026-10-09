@@ -6,7 +6,7 @@ async function runPanelPresentationChecks(hb,check) {
   document.head.append(style);
   const css=node=>getComputedStyle(node);
   const typography=node=>{const s=css(node);return [s.fontFamily,s.fontSize,s.fontWeight,s.lineHeight].join('|');};
-  const tokenColor=name=>{const n=document.createElement('span');n.style.color='var(--gh-'+name+')';panel.append(n);const value=css(n).color;n.remove();return value;};
+  const tokenColor=name=>{const n=document.createElement('span');n.style.setProperty('color','var(--gh-'+name+')','important');panel.append(n);const value=css(n).color;n.remove();return value;};
   const font='system-ui, sans-serif';
   try{
     check(typography(panel)===font+'|14px|400|21px','Common panel uses explicit 14px/21px regular system font independent of host rem size');
