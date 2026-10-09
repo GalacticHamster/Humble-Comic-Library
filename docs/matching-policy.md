@@ -32,3 +32,5 @@ Confirmed collected contents still require compatible known run and language. Mi
 New means no match found in the libraries successfully checked. Check incomplete means local checking found no match and central checking could not finish. Existing local Owned, Possible or Partial evidence survives a central failure, and retrying fills only unresolved checks. Incomplete checks are excluded from confirmed-new values and default purchase suggestions.
 
 Regression coverage lives in `tests/common-matching-cases.json` and the shipped matcher tests. GL additionally checks that the shared policy code and fixtures remain identical across adjacent checkouts (ignoring source line endings).
+
+Bundle context can prioritize competing candidate explanations while preserving authoritative results. See [Bundle-aware candidate explanations](bundle-match-context.md).

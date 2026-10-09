@@ -427,6 +427,49 @@
   global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, bundleContents, centralReminders, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
 
+// BEGIN SHARED BUNDLE MATCH CONTEXT
+// Canonical source: GalacticLibrary/shared/bundle-match-context.js.
+// Vendored unchanged in HB/FAN; synchronize with sync-companion-bundle-context.mjs.
+(function installBundleMatchContext(global) {
+  'use strict';
+  // A priority projection only. Inputs/authoritative matches are never mutated.
+  // offers: [{id, productKey, titleKey, title, media, protected, settled,
+  //            candidates:[{id, libraryKey, strength, protected, basis}]}]
+  // libraryKey is an opaque provider-record reference or a local object identity;
+  // titles/ownership must NEVER be used as a substitute for library identity.
+  function automaticTitleCandidate(basis) {
+    const reason=String(basis||'');
+    if(/\breviewed\b|user-supplied|shared (?:work|identifier|isbn|steam)|\bcontains\b|\bcomponents?\b|\bcontents?\b|\bcoverage\b/iu.test(reason))return false;
+    return /related (?:complete base title|main title|title|book presentation)|subtitle|parenthetical|titles differ by an article|one (?:book )?title is a shortened or qualified presentation/iu.test(reason);
+  }
+  function reconcile({complete=false,offers=[]}={}) {
+    const safe=complete===true && offers.length>1 && offers.every(offer=>offer.settled===true && offer.id && offer.productKey && offer.titleKey && offer.media)
+      && new Set(offers.map(offer=>offer.id)).size===offers.length;
+    const strong=new Map();
+    if(safe)for(const offer of offers){
+      if(offer.protected)continue;
+      for(const candidate of offer.candidates||[]){
+        if(candidate.strength!=='strong'||candidate.libraryKey==null)continue;
+        const anchors=strong.get(candidate.libraryKey)||new Map();anchors.set(offer.id,offer);strong.set(candidate.libraryKey,anchors);
+      }
+    }
+    const results=new Map();
+    for(const offer of offers){
+      const primary=[],deferred=[];
+      for(const candidate of offer.candidates||[]){
+        const titles=safe && !offer.protected && candidate.strength==='weak' && !candidate.protected && automaticTitleCandidate(candidate.basis)
+          ? [...(strong.get(candidate.libraryKey)?.values()||[])].filter(anchor=>anchor.id!==offer.id && anchor.media===offer.media && anchor.productKey!==offer.productKey && anchor.titleKey!==offer.titleKey).map(anchor=>anchor.title):[];
+        const competingTitles=[...new Set(titles)].sort((a,b)=>a<b?-1:a>b?1:0);
+        if(competingTitles.length)deferred.push({id:candidate.id,competingTitles});else primary.push(candidate.id);
+      }
+      results.set(offer.id,{primary,deferred});
+    }
+    return {complete:safe,results};
+  }
+  global.BundleMatchContext=Object.freeze({reconcile});
+}(globalThis));
+// END SHARED BUNDLE MATCH CONTEXT
+
 /* Purchasing summary presentation only: consumes, never changes, match states. */
 (function(global) {
   const providerName = value => ({steam:'Steam',gog:'GOG',epic:'Epic Games',humble:'Humble Bundle',fanatical:'Fanatical',kindle:'Kindle',kobo:'Kobo',audible:'Audible','amazon-games':'Amazon Games'}[value] || String(value || 'another library').replaceAll('-', ' ').replace(/^./u, c=>c.toUpperCase()));
@@ -481,9 +524,10 @@
     const date=new Date(value);
     return Number.isNaN(date.valueOf())?'':date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
   }
+  const candidateFacts=new WeakMap(), bundlePriorities=new WeakMap();
   function candidateViews(item, match) {
     const entries=[], seenObjects=new Set(), seenRefs=new Set();
-    const add=(values,local=false,confirmed=false,componentTitle='')=>{
+    const add=(values,local=false,confirmed=false,componentTitle='',exactResponse=false)=>{
       for(const wrapper of [values].flat(Infinity).filter(Boolean)){
         const record=wrapper.item||wrapper;
         if(!record.title || seenObjects.has(record))continue;
@@ -521,24 +565,75 @@
         if(record.evidence?.ownershipBasis==='dated-manual-confirmation')annotations.push('Your ownership review'+(readableDate(record.evidence.ownershipConfirmedAt)?' on '+readableDate(record.evidence.ownershipConfirmedAt):'')+'.');
         if(record.evidence?.availability==='not-observed-in-last-full-scan')annotations.push('Not observed in the latest full scan; current availability needs review.');
         if(['expired','unavailable'].includes(record.keyStatus||record.evidence?.keyStatus))annotations.push('Purchase recorded; key '+(record.keyStatus||record.evidence.keyStatus)+'.');
-        entries.push({title:record.title,provider,account,access:label,heading:componentTitle?'Listed component':contains?'Included contents':sameEdition?'Same title found':isLocal && label.startsWith('Purchased')?'Possibly related purchase':'Library candidate',
-          relationship:componentTitle?'Compared component: '+componentTitle+'.':contains?'Contains some of the compared contents.':sameEdition?'Matches this offer.':record.relationship==='same-work'?'Related work; edition is not confirmed.':'',uncertainty,accessNote,context,annotations});
+        const view={title:record.title,provider,account,access:label,heading:componentTitle?'Listed component':contains?'Included contents':sameEdition?'Same title found':isLocal && label.startsWith('Purchased')?'Possibly related purchase':'Library candidate',
+          relationship:componentTitle?'Compared component: '+componentTitle+'.':contains?'Contains some of the compared contents.':sameEdition?'Matches this offer.':record.relationship==='same-work'?'Related work; edition is not confirmed.':'',uncertainty,accessNote,context,annotations};
+        const localResult=match.localMatch||match;
+        const localExact=isLocal && confirmed && localResult.state==='owned' && !localResult.range && !localResult.ownedReason && !localResult.componentMatches?.length
+          && (localProvider==='humble'||/^exact (?:normalized title|Steam App ID|ISBN)$/u.test(localResult.reason||''));
+        const centralExact=!isLocal && record.relationship==='same-edition';
+        const fields=localProvider==='humble'?global.HumbleComicLibrary.bibliographicFields(item):global.FanaticalLibrary.bibliographicFields(item);
+        const other=localProvider==='humble'?global.HumbleComicLibrary.bibliographicFields(record.evidence||record):global.FanaticalLibrary.bibliographicFields(record.evidence||record);
+        const policy=localProvider==='humble'?global.HumbleComicLibrary:global.FanaticalLibrary;
+        const isbnFor=row=>[row?.externalIds?.isbn,row?.isbn,row?.isbns,row?.evidence?.isbn].flat().map(policy.validIsbn).filter(Boolean);
+        const ids=isbnFor(item),otherIds=isbnFor(record);
+        const sharedId=ids.some(id=>otherIds.includes(id))||['asin','editionId','steamAppId'].some(key=>(item[key]||item.externalIds?.[key])&&(item[key]||item.externalIds?.[key])===(record[key]||record.externalIds?.[key]||record.evidence?.[key]));
+        candidateFacts.set(view,{libraryKey:record.itemRef?JSON.stringify([record.provider,record.itemRef]):isLocal?record:null,
+          strength:!record.historical&&!differences.length&&(localExact||centralExact)?'strong':'weak',
+          protected:Boolean(componentTitle||record.historical||record.relationship==='same-edition'||record.relationship==='contains'||sharedId||differences.length||fields.edition||other.edition||fields.volume||fields.issue||fields.unitType||other.volume||other.issue||other.unitType),
+          basis:basis||localResult.possibleReason||localResult.reason||''});
+        entries.push(view);
       }
     };
-    add(match.externalMatches,false,match.state==='elsewhere'||match.state==='owned-elsewhere');
-    add(match.externalPossibleMatches);add(match.externalResult?.matches);add(match.externalResult?.possibleMatches);add(match.externalResult?.partialMatches);
+    add(match.externalMatches,false,match.state==='elsewhere'||match.state==='owned-elsewhere','',true);
+    add(match.externalPossibleMatches);add(match.externalResult?.matches,false,false,'',true);add(match.externalResult?.possibleMatches);add(match.externalResult?.partialMatches);
     add(match.item,true,match.state==='owned');add(match.localMatch?.item,true,match.localMatch?.state==='owned');
     add(match.candidates,true);add(match.localMatch?.candidates,true);add(match.historicalItems,true);add(match.localMatch?.historicalItems,true);add(match.range?.items,true);add(match.localMatch?.range?.items,true);
     for(const entry of [...(match.coverage?.covered||[]),...(match.coverage?.possibleCovered||[])])add(entry.evidence);
     for(const component of match.componentMatches||[]){const title=component.offered?.title||component.item?.title||'listed component';add(component.item,true,component.state==='owned',title);add(component.externalMatches,false,false,title);add(component.externalPossibleMatches,false,false,title);add(component.externalResult?.matches,false,false,title);add(component.externalResult?.possibleMatches,false,false,title);}
     return entries;
   }
+
+  function primaryCandidateViews(item,match) {
+    const deferred=new Set((bundlePriorities.get(match)?.deferred||[]).map(entry=>entry.id));
+    return candidateViews(item,match).filter((_view,index)=>!deferred.has(String(index)));
+  }
+  function reconcileBundle(rows,{complete=false}={}) {
+    const offers=rows.map(({item,match,target,overlapProtected},index)=>{
+      const media=item.kind||item.mediaType;
+      const views=candidateViews(item,match);
+      return {id:String(index),productKey:item.sourceItemId||global.LibraryMatchingPolicy.presentationTitle(item.lookupTitle||item.title,media),
+        titleKey:global.LibraryMatchingPolicy.presentationTitle(item.lookupTitle||item.title,media),title:item.title,media,
+        settled:['owned','elsewhere','owned-elsewhere','possible','partial','new'].includes(match.state)&&!match.lookupIncomplete&&!match.contentsLookupIncomplete,
+        protected:Boolean(overlapProtected||target?.entries?.length||item.contents?.length||item.components?.length||match.coverage?.total||match.componentMatches?.length||/\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test(item.format||item.title)),
+        candidates:views.map((view,index)=>({id:String(index),...candidateFacts.get(view)}))};
+    });
+    const result=global.BundleMatchContext.reconcile({complete,offers});
+    for(const [index,{match}]of rows.entries())bundlePriorities.set(match,result.results.get(String(index)));
+    return {complete:result.complete,deferredCount:[...result.results.values()].reduce((total,value)=>total+value.deferred.length,0)};
+  }
+  function candidateCard(doc,view) {
+    const card=doc.createElement('section');card.className='library-ui-candidate';
+    const heading=doc.createElement('h3');heading.textContent=view.heading;card.append(heading);
+    const title=doc.createElement('strong');title.textContent=view.title;card.append(title);
+    const meta=doc.createElement('p');meta.className='library-ui-muted';meta.textContent=[view.provider,view.account,view.access].filter(Boolean).join(' \u00b7 ');card.append(meta);
+    for(const text of [view.uncertainty||view.relationship,view.accessNote,view.context,...view.annotations].filter(Boolean)){const p=doc.createElement('p');p.textContent=text;card.append(p);}
+    return card;
+  }
+  function renderDeferred(host,item,match) {
+    const entries=bundlePriorities.get(match)?.deferred||[];if(!entries.length)return;
+    const views=candidateViews(item,match),doc=host.ownerDocument;
+    const cards=doc.createElement('div');cards.className='library-ui-candidates library-ui-deferred-candidates';
+    for(const entry of entries){const view=views[Number(entry.id)];if(!view)continue;const card=candidateCard(doc,view);const note=doc.createElement('p');note.textContent='More closely matches another item in this bundle: '+entry.competingTitles.join('; ')+'.';card.append(note);cards.append(card);}
+    host.append(cards);
+  }
+
   function conclusion(item,match) {
     const view=row(item,match);
     if(view.state==='unchecked')return 'Galactic Library could not finish checking. No local match was found; retry before treating this item as new.';
     if(view.state==='partial')return (match.componentMatches?.length?'Some listed components are already in your library':'Some known contents are already in your library')+(view.fraction?' ('+view.fraction+')':'')+'. Check what remains; this does not establish ownership of the whole edition.';
     if(view.state==='possible') {
-      const sameTitleAccess=candidateViews(item,match).find(candidate=>candidate.heading==='Same title found' && ['Subscription access','Borrowed access','Rental access'].includes(candidate.access));
+      if(candidateViews(item,match).length&&!primaryCandidateViews(item,match).length)return 'A related library item more closely matches another offer in this bundle. Review it in Match details before buying.';
+      const sameTitleAccess=primaryCandidateViews(item,match).find(candidate=>candidate.heading==='Same title found' && ['Subscription access','Borrowed access','Rental access'].includes(candidate.access));
       if(match.ownershipReview && sameTitleAccess)return 'You have '+sameTitleAccess.access.toLowerCase()+' to a matching title, but permanent ownership is not confirmed.';
       return match.ownershipReview?'A library item needs an ownership check. Review its access and any related editions before buying.':'A related library item was found. Check the edition or included contents before buying.';
     }
@@ -547,11 +642,11 @@
     return 'No match was found in the available library data.';
   }
   function tooltip(item,match) {
-    const candidates=candidateViews(item,match);
+    const candidates=primaryCandidateViews(item,match);
     return [status(item,match),conclusion(item,match),...candidates.slice(0,2).map(c=>c.title+' · '+c.provider+' · '+c.access),candidates.length>2?'+'+(candidates.length-2)+' more candidates':'','Open the explanation for candidates and match details.'].filter(Boolean).join('\n');
   }
   function relatedCaption(item,match) {
-    const candidates=candidateViews(item,match);if(!candidates.length)return '';
+    const candidates=primaryCandidateViews(item,match);if(!candidates.length)return bundlePriorities.get(match)?.deferred.length?'Related candidate in Match details; closer match elsewhere in this bundle.':'';
     const first=candidates[0];
     return first.title+' · '+first.provider+' · '+first.access+(candidates.length>1?' · +'+(candidates.length-1)+' more':'');
   }
@@ -559,18 +654,12 @@
     const doc=host.ownerDocument;
     const primary=doc.createElement('strong');primary.className='library-ui-match-status';primary.textContent=status(item,match);host.insertBefore(primary,host.querySelector('.hcl-explanation, .fanatical-library-explanation'));
     const cards=doc.createElement('div');cards.className='library-ui-candidates';
-    for(const view of candidateViews(item,match)){
-      const card=doc.createElement('section');card.className='library-ui-candidate';
-      const heading=doc.createElement('h3');heading.textContent=view.heading;card.append(heading);
-      const title=doc.createElement('strong');title.textContent=view.title;card.append(title);
-      const meta=doc.createElement('p');meta.className='library-ui-muted';meta.textContent=[view.provider,view.account,view.access].filter(Boolean).join(' · ');card.append(meta);
-      for(const text of [view.uncertainty||view.relationship,view.accessNote,view.context,...view.annotations].filter(Boolean)){const p=doc.createElement('p');p.textContent=text;card.append(p);}
-      cards.append(card);
-    }
+    for(const view of primaryCandidateViews(item,match))cards.append(candidateCard(doc,view));
     if(cards.children.length)host.append(cards);
+    if(bundlePriorities.get(match)?.deferred.length){const note=doc.createElement('p');note.className='library-ui-muted';note.textContent='Related candidates that more closely match another bundle item are in Match details.';host.append(note);}
     if(match.lookupIncomplete||match.contentsLookupIncomplete){const note=doc.createElement('p');note.className='library-ui-warning';note.textContent='Some checks are incomplete. These results include available evidence; missing results do not prove an item is new.';host.append(note);}
     if(match.coverage?.scopeUncertain){const note=doc.createElement('p');note.textContent='The contents comparison needs series/run or language confirmation.';host.append(note);}
   }
 
-  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation:conclusion,status,access,candidateViews,tooltip,relatedCaption,renderCandidates};
+  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation:conclusion,status,access,candidateViews,tooltip,relatedCaption,renderCandidates,primaryCandidateViews,reconcileBundle,renderDeferred};
 }(globalThis));

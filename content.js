@@ -1064,6 +1064,21 @@ function bundleItemKey(item) {
   return HumbleComicLibrary.catalogItemKey(item);
 }
 
+// Require the complete, already-hydrated catalogue; this never fetches a page.
+function completeBundleMatchContext(rows, media) {
+  try {
+    const bundle = JSON.parse(document.querySelector('#webpack-bundle-page-data')?.textContent || '{}').bundleData;
+    const tiers = Object.values(bundle?.tier_display_data || {});
+    if (!tiers.length || !bundle?.tier_item_data || tiers.some(tier => !Array.isArray(tier?.tier_item_machine_names))) return false;
+    const ids = [...new Set(tiers.flatMap(tier => tier.tier_item_machine_names))];
+    if (ids.length < 2 || ids.some(id => typeof bundle.tier_item_data[id]?.human_name !== 'string' || !bundle.tier_item_data[id].human_name.trim())) return false;
+    const keys = ids.map(id => bundleItemKey(describeBundleItem({title:bundle.tier_item_data[id].human_name},media)));
+    const actual = rows.map(({item}) => bundleItemKey(item));
+    return new Set(keys).size === keys.length && new Set(actual).size === actual.length
+      && actual.length === keys.length && actual.every(key => keys.includes(key));
+  } catch { return false; }
+}
+
 function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   // Storage supplies only the active profile's archive. Other profile archives
   // are never candidate inputs. History stays out of current contents evidence.
@@ -1242,6 +1257,10 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
+  HumbleOwnership.presentation.reconcileBundle(resolvedItems.map(row=>({...row,overlapProtected:
+    (media.productsByTitle.get(HumbleComicLibrary.titleKey(row.item.title))||[]).some(product=>/\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test([product.format,product.formats,product.metadata?.format].flat().filter(Boolean).join(' ')))
+    || /\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test(row.item.element?.getAttribute?.('data-format')||row.item.container?.getAttribute?.('data-format')||'')})), {complete:completeBundleMatchContext(resolvedItems, media)});
+  for (const entries of Object.values(titlesByState)) for (const entry of entries) entry.provenance = matchProvenance(entry.match);
   annotateAllCoverCopies(matchesByTitleKey, media);
   if (comparison) {
     comparison.lastMatchMs = Math.round(performance.now() - matchStartedAt);
@@ -1832,7 +1851,7 @@ function annotateBundleItem(bundleItem, match) {
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      showMatchInspector({ ...match, offered: match.offered ?? bundleItem });
+      showMatchInspector(match.offered ? match : { ...match, offered: bundleItem });
     });
     badgeHost.classList.add('hcl-interactive-badge');
     badgeHost.append(button);
@@ -1884,6 +1903,7 @@ function showMatchInspector(match, trigger = document.activeElement) {
     row.textContent = line;
     list.append(row);
   }
+  HumbleOwnership.presentation.renderDeferred(technical,match.offered||{},match);
   technical.append(list); dialog.append(technical);
   const review = document.createElement('button');
   review.type = 'button';
