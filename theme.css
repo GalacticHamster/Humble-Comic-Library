@@ -11,7 +11,7 @@
   --gh-shadow: 0 8px 30px rgb(0 0 0 / 30%); --gh-backdrop: rgb(0 0 0 / 55%);
 }
 [data-gh-theme="dark"] {
-  --gh-color-scheme: dark;
+  --gh-color-scheme: dark; --gh-card-border: transparent;
   --gh-bg: #111827; --gh-surface: #1f2937; --gh-surface-raised: #253147; --gh-surface-hover: #38465f;
   --gh-input: #111827; --gh-text: #e5e7eb; --gh-text-muted: #b5bfcf;
   --gh-border: #46516a; --gh-divider: #374151; --gh-input-border: #6b7280;
@@ -22,7 +22,7 @@
   --gh-owned-border: #4ade80; --gh-elsewhere-border: #2dd4bf; --gh-new-border: #60a5fa; --gh-possible-border: #fbbf24; --gh-partial-border: #c4b5fd;
 }
 [data-gh-theme="light"] {
-  --gh-color-scheme: light;
+  --gh-color-scheme: light; --gh-card-border: #cbd5e1;
   --gh-bg: #f8fafc; --gh-surface: #ffffff; --gh-surface-raised: #f1f5f9; --gh-surface-hover: #e2e8f0;
   --gh-input: #ffffff; --gh-text: #172033; --gh-text-muted: #526078;
   --gh-border: #94a3b8; --gh-divider: #cbd5e1; --gh-input-border: #64748b;

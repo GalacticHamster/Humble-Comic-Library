@@ -5,7 +5,7 @@
     <main class="settings">
       <h1>Humble Comic Library</h1>
       <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or restore a JSON backup.</p>
-      <section class="appearance-panel" aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the same GalacticHamster colors across your extensions.</p><div class="appearance-controls"><label>Appearance <select id="appearance-mode" disabled><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label><input id="appearance-follow-gl" type="checkbox" disabled> Follow Galactic Library appearance</label><button id="appearance-sync" type="button" class="secondary">Refresh linked appearance</button></div><p id="appearance-status" role="status">Loading appearance settings...</p><p>Following uses your existing Galactic Library link. It refreshes when a page opens or you select Refresh linked appearance. If unavailable, the last linked appearance is kept; otherwise your local choice is used. Local selection is disabled while following.</p></section>
+      <section class="appearance-panel" aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the same GalacticHamster colors across your extensions.</p><div class="appearance-controls"><label>Appearance <select id="appearance-mode" disabled><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label><input id="appearance-follow-gl" type="checkbox" disabled> Follow Galactic Library appearance</label><button id="appearance-sync" type="button" class="secondary">Refresh linked appearance</button></div><p id="appearance-status" role="status">Loading appearance settings...</p><p>Use GL's theme when connected.</p><details class="settings-help"><summary>Theme following help</summary><p>Updates when a page opens or you select Refresh linked appearance. If GL is unavailable, the last linked theme or your local choice is used. The local selector is disabled while following.</p></details></section>
       <section>
         <h2>Import from Humble</h2>
         <p>Sign in to Humble in this browser, open the purchase importer, and select <em>Import new purchases</em>. Use <em>Rescan all purchases</em> to rebuild the active account's snapshot from the full purchase history.</p>
@@ -27,7 +27,7 @@
         <p id="wishlist-status" role="status"></p>
       </section>
       <section>
-        <h2>Galactic Library connection</h2>
+        <h2>Galactic Library connection</h2><details class="settings-help"><summary>Purchase sharing</summary><div data-purchase-handoff="hb" data-provider="humble"></div></details>
         <p>Official GalacticHamster extensions connect automatically. Check the connection, then refresh your bundle page. Checks send bundle titles and available identity/contents evidence; results contain matching titles and safe reminders, never the full library. Books/comics, audiobooks, games and supported software are checked separately.</p>
         <div class="actions"><button id="test-galactic-library-link" type="button">Check connection</button></div><p id="galactic-library-link-status" role="status"></p>
         <details class="settings-help"><summary>Advanced / Developer pairing</summary>
@@ -107,8 +107,8 @@
         <p id="collection-mapping-count"></p>
       </section>
       </details>
-      <section><h2>Privacy</h2><p>Your library, wishlist and preferences stay in this browser. Galactic Library linking exchanges only the match or reminder evidence needed for the action you request; neither full library is transferred.</p><p>Humble imports use the website's signed-in session without copying cookies or storing redemption-key values. Local records and backups retain purchase identifiers and provenance for recovery and reminder navigation. Keep backups private. Direct order links are optional because their purchase identifiers can appear in browser history.</p></section>
+      <section><h2>Privacy</h2><p>Your library, wishlist and preferences stay in this browser. Galactic Library linking exchanges only the match or reminder evidence needed for the action you request; full provider purchase records are shared only when you explicitly use Purchase sharing.</p><p>Humble imports use the website's signed-in session without copying cookies or storing redemption-key values. Local records and backups retain purchase identifiers and provenance for recovery and reminder navigation. Keep backups private. Direct order links are optional because their purchase identifiers can appear in browser history.</p></section>
     </main>
     <script src="shared.js"></script><script src="collection-mappings.js"></script><script src="entitlement-share.js"></script><script src="options.js"></script>
-  </body>
+  <script src="purchase-handoff-ui.js"></script></body>
 </html>

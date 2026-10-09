@@ -1,6 +1,9 @@
 {
   "background": {
     "scripts": [
+      "purchase-snapshot.js",
+      "purchase-transfer.js",
+      "purchase-adapters.js",
       "theme.js",
       "shared.js",
       "collection-mappings.js",

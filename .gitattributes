@@ -1,0 +1,10 @@
+
+# Keep GalacticHamster runtime mirrors byte-identical across Windows checkouts.
+purchase-snapshot.js text eol=lf
+purchase-transfer.js text eol=lf
+purchase-adapters.js text eol=lf
+purchase-handoff-ui.js text eol=lf
+theme.js text eol=lf
+theme.css text eol=lf
+theme-app.css text eol=lf
+theme-overlays.css text eol=lf

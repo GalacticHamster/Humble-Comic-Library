@@ -4,15 +4,16 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 function background(id,externalResponse) {
-  let listener,external;
+  const listeners=[],externals=[];
+  const dispatch=(list,message,sender,resolve)=>{for(const fn of list)if(fn(message,sender,resolve)===true)return;resolve(null);};
   const tabs = [];
   const opened=[];
-  const context = { setTimeout,clearTimeout,chrome: { runtime: { id: 'self',openOptionsPage:async()=>opened.push(true),onMessageExternal:{addListener:fn=>{external=fn;}}, sendMessage:async(target,message)=>{if(!externalResponse)throw Error('unavailable');return externalResponse(target,message);}, onMessage: { addListener: fn => { listener = fn; } } },
+  const context = { setTimeout,clearTimeout,chrome: { runtime: { id: 'self',openOptionsPage:async()=>opened.push(true),onMessageExternal:{addListener:fn=>{externals.push(fn);}}, sendMessage:async(target,message)=>{if(!externalResponse)throw Error('unavailable');return externalResponse(target,message);}, onMessage: { addListener: fn => { listeners.push(fn); } } },
     storage: { local: { get: async () => ({ galacticLibraryExtensionId: id }) } }, tabs: { create: async value => tabs.push(value) } } };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['theme.js','shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
-  return { tabs, listener,opened,externalRequest:(message,sender)=>new Promise(resolve=>{if(!external(message,sender,resolve))resolve(null);}),request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { if (!listener(message, sender, resolve)) resolve(null); }) };
+  for (const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-adapters.js','theme.js','shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
+  return { tabs, listeners,opened,externalRequest:(message,sender)=>new Promise(resolve=>{dispatch(externals,message,sender,resolve);}),request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { dispatch(listeners,message,sender,resolve); }) };
 }
 
 test('source review authorizes only the saved central companion and opens its own options',async()=>{

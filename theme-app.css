@@ -25,3 +25,10 @@ html.gh-app { font:16px/1.45 var(--gh-font); background:var(--gh-bg); color:var(
 #appearance-status { color:var(--gh-text-muted); overflow-wrap:anywhere; }
 :where(.gh-app) .appearance-panel { margin:12px 0; padding:14px; border:1px solid var(--gh-border); border-radius:var(--gh-radius); background:var(--gh-surface); }
 @media(max-width:600px) { .appearance-controls { align-items:stretch; flex-direction:column; } }
+
+html.gh-app[data-gh-theme="light"] :is(.library-items > li,.contents-collection-items > li,.appearance-panel) { border:1px solid var(--gh-card-border); }
+[data-purchase-handoff] { margin:12px 0; }
+[data-purchase-handoff] :is(input,select) { max-width:100%; box-sizing:border-box; }
+[data-purchase-handoff] label { display:grid; gap:4px; margin:8px 0; }
+[data-purchase-handoff] .ownership-choice { display:flex; align-items:flex-start; }
+[data-purchase-handoff] progress { width:100%; accent-color:var(--gh-accent); }

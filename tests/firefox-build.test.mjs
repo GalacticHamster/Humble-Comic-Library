@@ -12,6 +12,7 @@ const packageScript = path.join(root, 'scripts', 'package-release.ps1');
 const runtimeFiles = [
   'manifest.json',
   'shared.js',
+
   'background.js',
   'entitlement-share.js',
   'collection-mappings.js',
@@ -23,6 +24,10 @@ const runtimeFiles = [
   'popup.html',
   'popup.js',
   'ui.css',
+  'purchase-snapshot.js',
+  'purchase-transfer.js',
+  'purchase-adapters.js',
+  'purchase-handoff-ui.js',
   'theme.js',
   'theme.css',
   'theme-app.css',

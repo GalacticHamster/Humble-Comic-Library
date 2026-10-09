@@ -1949,7 +1949,7 @@ function matchPurchaseCount(match) {
 function itemProvenance(item) {
   const records = Array.isArray(item.provenance) && item.provenance.length
     ? item.provenance
-    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt, ...HumbleComicLibrary.entitlementFields(item) }];
+    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt, ...(item.providerItemId?{providerItemId:item.providerItemId}:{}), ...HumbleComicLibrary.entitlementFields(item) }];
   return records.map((record) => ({ ...record, title: record.title ?? item.title }));
 }
 
@@ -3431,9 +3431,10 @@ function extractLibraryItems(detail, order, purchaseKey) {
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
   const directItems = directOrderProducts(detail)
-    .map((product) => ({ product, kind: productKind(product) }))
+    .map((product,index) => ({ product, index, kind: productKind(product) }))
     .filter(({ kind }) => kind)
-    .map(({ product, kind }) => ({
+    .map(({ product, index, kind }) => ({
+      providerItemId: `${purchaseKey}:product:${String(product.machine_name??product.product_key??product.product_id??product.id??product.uuid??'').trim()||`position-${index}`}`,
       title: String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim(),
       kind,
       source: 'humble',

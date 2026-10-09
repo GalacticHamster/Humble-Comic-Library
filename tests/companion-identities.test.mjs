@@ -9,6 +9,7 @@ function harness(saved='',firefox=false){
  const context={setTimeout,clearTimeout,URL,chrome:{runtime,storage:{local:{get:async defaults=>({...defaults,...values}),set:async updates=>Object.assign(values,updates),remove:async keys=>{for(const key of [].concat(keys))delete values[key];}}},tabs:{create:async()=>{}}},createSyncStore:()=>({execute:async()=>{}})};context.globalThis=context;vm.createContext(context);
  vm.runInContext(fs.readFileSync(new URL("../shared.js",import.meta.url),'utf8'),context);
  vm.runInContext(fs.readFileSync(new URL('../theme.js',import.meta.url),'utf8'),context);
+ for(const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-adapters.js']) vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8'),context);
  const F=context[product];if(product==='HumbleComicLibrary')vm.runInContext(fs.readFileSync(new URL('../entitlement-share.js',import.meta.url),'utf8'),context);
  vm.runInContext(fs.readFileSync(new URL("../background.js",import.meta.url),'utf8').replace(/^import .*;\r?\n/gmu,''),context);
  const send=(message,sender)=>new Promise(resolve=>{let handled=false;for(const fn of external)if(fn(message,sender,resolve)===true)handled=true;if(!handled)resolve(null);});return {F,runtime,values,opened,send,context};

@@ -65,3 +65,9 @@ test('expired keys remain Possible, cannot supply owned contents, and survive ba
   assert.throws(()=>H.restoreBackupState({...backup,items:[{...item,keyStatus:'activated'}]}),/keyStatus/);
   assert.throws(()=>H.restoreBackupState({...backup,items:[{...item,expiresAt:'not-a-date'}]}),/expiresAt/);
 });
+
+test('fresh direct purchase IDs retain native identity and the original unfiltered product position',()=>{
+ const context=load();context.detail={subproducts:[{human_name:'Unsupported leaf'},{human_name:'Identified book',machine_name:'native-book',downloads:[{filetype:'pdf'}]},{human_name:'Position book',downloads:[{filetype:'epub'}]}]};
+ const items=plain(evaluate(context,"extractLibraryItems(detail,{},'order')"));assert.equal(items.length,2);assert.deepEqual(items.map(item=>item.providerItemId),['order:product:native-book','order:product:position-2']);
+ const saved=context.HumbleComicLibrary.restoreBackupState(context.HumbleComicLibrary.createLibraryBackup({libraryItems:items}));assert.deepEqual(plain(saved.libraryItems).map(item=>item.providerItemId),items.map(item=>item.providerItemId));
+});

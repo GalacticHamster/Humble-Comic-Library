@@ -401,7 +401,7 @@
     return value.map((record, index) => convert(record, `${label}[${index}]`));
   }
 
-  const PROVENANCE_FIELDS = { title: 'string', sourceBundle: 'string', purchaseKey: 'string', purchasedAt: 'string?' };
+  const PROVENANCE_FIELDS = { providerItemId: 'string', title: 'string', sourceBundle: 'string', purchaseKey: 'string', purchasedAt: 'string?' };
 
   function entitlementFields(value) {
     const result = {};
@@ -589,6 +589,24 @@
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion'];
     async function operate(operation,args){
+      if(['handoffAccounts','handoffSnapshot','handoffImport'].includes(operation)){
+        const A=globalThis.GalacticPurchaseAdapters,S=globalThis.GalacticPurchaseSnapshot,state=await area.get(LIBRARY_STATE_DEFAULTS);
+        if(operation==='handoffAccounts')return A.accounts('hb',state);
+        if(operation==='handoffSnapshot')return A.snapshot('hb',state,args[0]);
+        const [raw,target]=args,data=S.validate(raw);if(data.provider!=='humble')throw Error('Wrong purchase provider.');
+        if((await area.get({[controlKey]:null}))[controlKey])throw Error('Wait for the Humble scan to finish before importing saved purchases.');
+        let scope;
+        if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label},fresh:true};}
+        else scope=await A.selected('hb',state,target?.accountRef);
+        const result=A.hbMerge(scope.items,data.records);
+        const purchaseCounts=new Map();for(const row of data.records)purchaseCounts.set(row.metadata.purchaseId,(purchaseCounts.get(row.metadata.purchaseId)??0)+1);const purchases=new Map((scope.state.purchaseSummaries??[]).map(p=>[p.purchaseKey,p]));for(const row of data.records)if(!purchases.has(row.metadata.purchaseId))purchases.set(row.metadata.purchaseId,{purchaseKey:row.metadata.purchaseId,sourceBundle:row.metadata.sourceBundle??'',purchasedAt:row.purchasedAt,itemCount:purchaseCounts.get(row.metadata.purchaseId)});
+        const next={...scope.state,libraryItems:result.items,purchaseSummaries:[...purchases.values()],profileArchives:[]};
+        const clean=restoreBackupState(createLibraryBackup(next));
+        if(!result.stats.added&&!result.stats.updated&&!scope.fresh&&clean.purchaseSummaries.length===(scope.state.purchaseSummaries??[]).length)return result.stats;
+        if(scope.label===state.humbleProfileLabel||!state.humbleProfileLabel&&!state.libraryItems.length)await area.set({libraryItems:clean.libraryItems,purchaseSummaries:clean.purchaseSummaries,humbleProfileLabel:scope.label,[shareScopeKey]:null});
+        else {const archives=state.profileArchives.filter(p=>p.profileLabel!==scope.label);archives.push({profileLabel:scope.label,backup:createLibraryBackup({...next,profileArchives:[]})});if(archives.length>100)throw Error('Too many saved accounts.');await area.set({profileArchives:archives,[shareScopeKey]:null});}
+        return result.stats;
+      }
       if(operation==='profiles'){
         const state=await area.get(LIBRARY_STATE_DEFAULTS),unique=new Map(state.profileArchives.map(entry=>[entry.profileLabel,entry]));
         if(state.humbleProfileLabel)unique.delete(state.humbleProfileLabel);
