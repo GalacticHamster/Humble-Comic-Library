@@ -1,0 +1,36 @@
+/* GalacticHamster theme v1. Authoritative: GalacticLibrary/shared/theme.css.
+   Tokens alone are scoped; host pages never receive a root theme. */
+[data-gh-theme] {
+  --gh-font: system-ui, sans-serif;
+  --gh-space-1: 4px; --gh-space-2: 8px; --gh-space-3: 12px; --gh-space-4: 16px; --gh-space-6: 24px;
+  --gh-radius: 6px; --gh-radius-small: 4px;
+  --gh-accent: #7c3aed; --gh-accent-hover: #6d28d9; --gh-accent-pressed: #5b21b6;
+  --gh-on-accent: #ffffff; --gh-on-status: #ffffff;
+  --gh-owned: #08733e; --gh-elsewhere: #0f766e; --gh-new: #1769aa; --gh-possible: #925700; --gh-partial: #7c3fb0;
+  --gh-danger-fill: #b91c1c; --gh-danger-hover: #991b1b; --gh-danger-pressed: #7f1d1d; --gh-info-fill: #1769aa; --gh-neutral-fill: #4b5563;
+  --gh-shadow: 0 8px 30px rgb(0 0 0 / 30%); --gh-backdrop: rgb(0 0 0 / 55%);
+}
+[data-gh-theme="dark"] {
+  --gh-color-scheme: dark;
+  --gh-bg: #111827; --gh-surface: #1f2937; --gh-surface-raised: #253147; --gh-surface-hover: #38465f;
+  --gh-input: #111827; --gh-text: #e5e7eb; --gh-text-muted: #b5bfcf;
+  --gh-border: #46516a; --gh-divider: #374151; --gh-input-border: #6b7280;
+  --gh-link: #c4b5fd; --gh-heading: #d8b4fe; --gh-focus: #c4b5fd;
+  --gh-disabled: #4b5563; --gh-disabled-text: #e5e7eb;
+  --gh-success: #86efac; --gh-warning: #fde68a; --gh-danger: #fca5a5; --gh-info: #bae6fd;
+  --gh-success-soft: #173c2a; --gh-warning-soft: #392d15; --gh-danger-soft: #450a0a; --gh-info-soft: #142433;
+  --gh-owned-border: #4ade80; --gh-elsewhere-border: #2dd4bf; --gh-new-border: #60a5fa; --gh-possible-border: #fbbf24; --gh-partial-border: #c4b5fd;
+}
+[data-gh-theme="light"] {
+  --gh-color-scheme: light;
+  --gh-bg: #f8fafc; --gh-surface: #ffffff; --gh-surface-raised: #f1f5f9; --gh-surface-hover: #e2e8f0;
+  --gh-input: #ffffff; --gh-text: #172033; --gh-text-muted: #526078;
+  --gh-border: #94a3b8; --gh-divider: #cbd5e1; --gh-input-border: #64748b;
+  --gh-link: #6d28d9; --gh-heading: #5b21b6; --gh-focus: #6d28d9;
+  --gh-disabled: #e2e8f0; --gh-disabled-text: #526078;
+  --gh-success: #08733e; --gh-warning: #854d0e; --gh-danger: #b91c1c; --gh-info: #1769aa;
+  --gh-success-soft: #edfdf3; --gh-warning-soft: #fffbeb; --gh-danger-soft: #fef2f2; --gh-info-soft: #eff6ff;
+  --gh-owned-border: #08733e; --gh-elsewhere-border: #0f766e; --gh-new-border: #1769aa; --gh-possible-border: #925700; --gh-partial-border: #7c3fb0;
+}
+html.gh-app[data-gh-theme="dark"] { color-scheme:dark; }
+html.gh-app[data-gh-theme="light"] { color-scheme:light; }

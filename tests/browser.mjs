@@ -16,6 +16,7 @@ const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
 const lifecycle = process.argv.includes('--lifecycle');
 const lifecycleGame = process.argv.includes('--game');
+const themeMode=process.argv.includes('--theme'),themeWidth=process.argv.includes('--tiny')?420:process.argv.includes('--narrow')?560:1200;
 const tierSwitch = process.argv.includes('--tier-switch');
 const storeFirefox = firefox && process.platform === 'win32' ? await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', '(Get-AppxPackage -Name Mozilla.Firefox).InstallLocation'], {windowsHide:true}).then(({stdout})=>stdout.trim() ? [join(stdout.trim(),'VFS/ProgramFiles/Firefox Package Root/firefox.exe')] : [],()=>[]) : [];
 const candidates = (firefox ? [process.env.FIREFOX_BIN,'C:/Program Files/Mozilla Firefox/firefox.exe',...storeFirefox] : [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium']).filter(Boolean);
@@ -53,6 +54,7 @@ const server = createServer(async (request, response) => {
     if(slowCentral&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=4500;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/slow-central-checks.js');
+    if(pathname.endsWith('.html')){body=body.toString('utf8').replace('<link rel="stylesheet" href="/content.css">','<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/content.css"><link rel="stylesheet" href="/theme-overlays.css">').replace('<script src="/shared.js">','<script src="/theme.js"></script><script src="/shared.js">');if(themeMode)body=body.replace(/<script src="\/tests\/(presentation-parity-checks|advanced-parity-checks|browser-checks)\.js"><\/script>/g,'').replace('</body>','<script src="/tests/theme-overlay-checks.js"></script></body>');}
     response.end(body);
   } catch (error) { response.writeHead(404); response.end(error.message); }
 });
@@ -60,8 +62,8 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 try {
   let child;
   const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':catalogue?'/books':lifecycleGame||tierSwitch?'/games/test':'/books/test'}`;
-  const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
-  const exited=new Promise(resolve=>{child=execFile(browser,args,{windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
+  const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new',`--window-size=${themeWidth},1000`,'--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
+  const exited=new Promise(resolve=>{child=execFile(browser,args,{env:{...process.env,...(firefox?{MOZ_HEADLESS_WIDTH:String(themeWidth),MOZ_HEADLESS_HEIGHT:'1000'}:{})},windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
   let timeout;try{await Promise.race([finished,exited,new Promise(resolve=>{timeout=setTimeout(resolve,25000);})]);}finally{clearTimeout(timeout);child.kill();await exited;}
   assert.ok(result, 'The browser did not finish the fixture.');
   for (const check of result.checks) console.log(`PASS ${firefox?'Firefox':'Chrome'} browser: ${check}`);

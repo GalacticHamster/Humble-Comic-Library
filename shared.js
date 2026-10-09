@@ -668,8 +668,9 @@
         if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||resolveGalacticId(stored.galacticLibraryExtensionId)!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
       if(operation==='patch'){
-        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences'];
+        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
+        if(Object.hasOwn(updates,'galacticHamsterAppearance'))globalThis.GalacticHamsterTheme.validatePreferences(updates.galacticHamsterAppearance);
         if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
         await area.set(updates);return true;
       }

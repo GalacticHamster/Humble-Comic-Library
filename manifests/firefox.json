@@ -1,10 +1,20 @@
 {
-  "background": { "scripts": ["shared.js", "collection-mappings.js", "entitlement-share.js", "background.js"] },
+  "background": {
+    "scripts": [
+      "theme.js",
+      "shared.js",
+      "collection-mappings.js",
+      "entitlement-share.js",
+      "background.js"
+    ]
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "humble-comic-library@galactichamster.com",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   }

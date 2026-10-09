@@ -2009,7 +2009,7 @@ function colorExactCardTitle(card, title, state) {
 }
 
 function statusColor(state) {
-  return state === 'owned' ? '#0a7a42' : state === 'elsewhere' ? '#0f766e' : state === 'new' ? '#1769aa' : state === 'partial' ? '#7c3fb0' : state === 'unchecked' ? '#666666' : '#b06d00';
+  return state === 'owned' ? 'var(--gh-owned-border, #0a7a42)' : state === 'elsewhere' ? 'var(--gh-elsewhere-border, #0f766e)' : state === 'new' ? 'var(--gh-new-border, #1769aa)' : state === 'partial' ? 'var(--gh-partial-border, #7c3fb0)' : state === 'unchecked' ? 'var(--gh-neutral-fill, #666666)' : 'var(--gh-possible-border, #b06d00)';
 }
 
 const SOFTWARE_VERSION_SUFFIX = /^(.*?)\s*(?:[,;:\-\u2013\u2014]\s*)?(?:(?:v(?:ersion)?\.?\s*)(\d+(?:\.\d+){0,3})|((?:19|20)\d{2}))\s*$/iu;

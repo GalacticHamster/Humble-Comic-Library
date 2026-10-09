@@ -108,7 +108,7 @@
     await renderBundleComparison(matcher, 'book', [], fixtureStored.customCollectionMappings, comparison, 1);
     const unchecked = document.querySelector('.hcl-status-button[data-state="unchecked"]');
     check(unchecked?.textContent === 'Check incomplete', 'A failed central lookup renders a distinct Check incomplete badge');
-    check(getComputedStyle(unchecked).backgroundColor === 'rgb(102, 102, 102)', 'Check incomplete has a neutral status color');
+    check(getComputedStyle(unchecked).backgroundColor === 'rgb(75, 85, 99)', 'Check incomplete has a neutral status color');
     check(document.querySelector('.hcl-summary-counts').textContent.includes('Check incomplete'), 'Unchecked items are counted separately in the summary');
     check(document.querySelector('.hcl-plan-output').textContent.includes('0 confirmed-new items'), 'Failed lookups do not inflate confirmed-new purchase value');
     check(comparison.seriesCoverage.every(group => group.lookupIncomplete && group.gaps.length === 0), 'Failed series lookups do not invent confirmed gaps');

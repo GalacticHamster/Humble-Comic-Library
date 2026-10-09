@@ -1,6 +1,11 @@
 /* Opening review uses Chrome's trusted options route, not a page-supplied URL. */
-if (typeof importScripts === 'function') importScripts('shared.js','collection-mappings.js','entitlement-share.js');
+if (typeof importScripts === 'function') importScripts('theme.js','shared.js','collection-mappings.js','entitlement-share.js');
 const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local);
+const appearanceService=GalacticHamsterTheme.createService({runtime:chrome.runtime,companion:true,
+  read:async()=>{const value=await chrome.storage.local.get({galacticHamsterAppearance:null});return value.galacticHamsterAppearance;},
+  save:prefs=>libraryStore.execute('patch',[{galacticHamsterAppearance:prefs}]),
+  resolveId:async()=>{const value=await chrome.storage.local.get({galacticLibraryExtensionId:''});return HumbleComicLibrary.resolveGalacticId(value.galacticLibraryExtensionId,chrome.runtime);}});
+GalacticHamsterTheme.register(appearanceService,chrome.runtime);
 chrome.runtime.onMessageExternal?.addListener((message,sender,respond)=>{
   if(!['PING','GET_STATUS','OPEN_REVIEW'].includes(message?.type))return false;
   (async()=>{

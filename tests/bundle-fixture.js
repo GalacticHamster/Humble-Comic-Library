@@ -14,7 +14,7 @@ window.chrome = { storage: { onChanged: { addListener: listener => fixtureStorag
     const changes = Object.fromEntries(Object.entries(value).map(([key, newValue]) => [key, { newValue }]));
     fixtureStorageListeners.forEach(listener => listener(changes, 'local'));
   }
-} }, runtime: { sendMessage: async (id, request) => {
+} }, runtime: { getManifest:()=>({name:'Humble Comic Library'}), sendMessage: async (id, request) => {
   if(id?.type==='HCL_STORE'){
     window.fixtureStore??=HumbleComicLibrary.createSyncStore(chrome.storage.local);
     try{return {ok:true,result:await fixtureStore.execute(id.operation,id.args)};}catch(error){return {ok:false,error:error.message};}

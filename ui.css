@@ -1,29 +1,29 @@
-:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-body { margin: 0; background: Canvas; color: CanvasText; }
+:root { font-family: var(--gh-font); }
+body { margin: 0; background: var(--gh-bg); color: var(--gh-text); }
 main { padding: 1.25rem; }
 .popup { min-width: 20rem; }
 .popup h1, .settings h1 { margin-top: 0; font-size: 1.25rem; }
 .settings { max-width: 45rem; margin: 2rem auto; }
-section { margin-top: 2rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+section { margin-top: 2rem; padding-top: 0.5rem; border-top: 1px solid var(--gh-divider); }
 button { padding: 0.55rem 0.8rem; cursor: pointer; }
-.danger { color: #fff; background: #a51d2d; border-color: #a51d2d; }
+.danger { color: var(--gh-on-status); background: var(--gh-danger-fill); border-color: var(--gh-danger-fill); }
 .actions { display: flex; gap: 0.75rem; }
 #galactic-library-extension-id { display: block; width: min(100%, 28rem); margin-top: 0.35rem; }
 #library-preview { max-height: 24rem; overflow: auto; padding-left: 1.5rem; }
 #key-reminder-list { display: grid; gap: 0.75rem; max-height: 30rem; margin: 0.75rem 0 0; padding: 0; overflow: auto; list-style: none; }
-.key-reminder-group { margin-top: 0.5rem; color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 0.85rem; font-weight: 700; }
-.key-reminder-card { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-left: 0.3rem solid #5b6b7d; border-radius: 0.45rem; background: color-mix(in srgb, Canvas 94%, CanvasText); }
-.key-reminder-card[data-key-reminder-state="soon"] { border-left-color: #b45309; }
-.key-reminder-card[data-key-reminder-state="expired"] { border-left-color: #a51d2d; }
+.key-reminder-group { margin-top: 0.5rem; color: var(--gh-text-muted); font-size: 0.85rem; font-weight: 700; }
+.key-reminder-card { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid var(--gh-divider); border-left: 0.3rem solid var(--gh-neutral-fill); border-radius: 0.45rem; background: var(--gh-surface); }
+.key-reminder-card[data-key-reminder-state="soon"] { border-left-color: var(--gh-possible); }
+.key-reminder-card[data-key-reminder-state="expired"] { border-left-color: var(--gh-danger-fill); }
 .key-reminder-heading { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; font-weight: 700; }
-.key-reminder-meta { color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 0.9rem; }
+.key-reminder-meta { color: var(--gh-text-muted); font-size: 0.9rem; }
 .key-reminder-source { font-size: 0.9rem; }
-.key-reminder-status { flex: 0 0 auto; padding: 0.18rem 0.4rem; border-radius: 999px; background: #5b6b7d; color: #fff; font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
-.key-reminder-card[data-key-reminder-state="soon"] .key-reminder-status { background: #b45309; }
-.key-reminder-card[data-key-reminder-state="expired"] .key-reminder-status { background: #a51d2d; }
+.key-reminder-status { flex: 0 0 auto; padding: 0.18rem 0.4rem; border-radius: 999px; background: var(--gh-neutral-fill); color: var(--gh-on-status); font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+.key-reminder-card[data-key-reminder-state="soon"] .key-reminder-status { background: var(--gh-possible); }
+.key-reminder-card[data-key-reminder-state="expired"] .key-reminder-status { background: var(--gh-danger-fill); }
 .key-reminder-card button { justify-self: start; padding: 0.4rem 0.6rem; }
 .key-reminder-direct-option { display: block; margin-top: 0.85rem; font-weight: 700; }
-.key-reminder-direct-note { margin: 0.35rem 0 0; color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 0.9rem; }
+.key-reminder-direct-note { margin: 0.35rem 0 0; color: var(--gh-text-muted); font-size: 0.9rem; }
 code { font-family: ui-monospace, monospace; }
 #wishlist-list { max-height: 20rem; overflow: auto; padding-left: 1.25rem; }
 #wishlist-list li { margin-block: .5rem; }
@@ -38,14 +38,14 @@ code { font-family: ui-monospace, monospace; }
 .settings-help { margin:.75rem 0; font-size:.92rem; }
 .settings-help summary, .advanced-settings > summary { cursor:pointer; font-weight:600; }
 .settings-help p { line-height:1.5; }
-.settings-help pre { padding:1rem; overflow:auto; background:color-mix(in srgb, CanvasText 7%, Canvas); }
-.advanced-settings { margin-top:2rem; padding-top:1rem; border-top:1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+.settings-help pre { padding:1rem; overflow:auto; background:var(--gh-surface-raised); }
+.advanced-settings { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--gh-divider); }
 .wishlist-form { display:grid; grid-template-columns:minmax(0,1fr) 11rem 8rem; gap:.75rem; }
 .wishlist-form label { display:flex; flex-direction:column; gap:.35rem; }
 #wishlist-title { width:100%; }
 .wishlist-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
 #wishlist-list { max-height:24rem; overflow:auto; padding-left:1.5rem; }
-#wishlist-list li { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; padding:.65rem 0; border-bottom:1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+#wishlist-list li { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; padding:.65rem 0; border-bottom:1px solid var(--gh-divider); }
 #wishlist-list .wish-title { flex:1 1 16rem; overflow-wrap:anywhere; }
 #wishlist-list input { width:4.5rem; }
 #library-preview { max-height:24rem; overflow:auto; }

@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Humble Comic Library settings</title><link rel="stylesheet" href="ui.css"></head>
+<html lang="en" class="gh-app" data-gh-app="hb" data-gh-theme="light">
+  <head><script src="theme.js"></script><link rel="stylesheet" href="theme.css"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Humble Comic Library settings</title><link rel="stylesheet" href="ui.css"><link rel="stylesheet" href="theme-app.css"></head>
   <body>
     <main class="settings">
       <h1>Humble Comic Library</h1>
       <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or restore a JSON backup.</p>
+      <section class="appearance-panel" aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the same GalacticHamster colors across your extensions.</p><div class="appearance-controls"><label>Appearance <select id="appearance-mode" disabled><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label><input id="appearance-follow-gl" type="checkbox" disabled> Follow Galactic Library appearance</label><button id="appearance-sync" type="button" class="secondary">Refresh linked appearance</button></div><p id="appearance-status" role="status">Loading appearance settings...</p><p>Following uses your existing Galactic Library link. It refreshes when a page opens or you select Refresh linked appearance. If unavailable, the last linked appearance is kept; otherwise your local choice is used. Local selection is disabled while following.</p></section>
       <section>
         <h2>Import from Humble</h2>
         <p>Sign in to Humble in this browser, open the purchase importer, and select <em>Import new purchases</em>. Use <em>Rescan all purchases</em> to rebuild the active account's snapshot from the full purchase history.</p>

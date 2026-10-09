@@ -1,0 +1,27 @@
+/* GalacticHamster theme v1: extension pages only, never injected into websites. */
+html.gh-app { font:16px/1.45 var(--gh-font); background:var(--gh-bg); color:var(--gh-text); }
+:where(.gh-app) body { background:var(--gh-bg); color:var(--gh-text); }
+:where(.gh-app) h1 { color:var(--gh-heading); }
+:where(.gh-app) a { color:var(--gh-link); }
+:where(.gh-app) input,:where(.gh-app) select,:where(.gh-app) textarea { font:inherit; border:1px solid var(--gh-input-border); border-radius:var(--gh-radius-small); background:var(--gh-input); color:var(--gh-text); accent-color:var(--gh-accent); }
+:where(.gh-app) input[type="checkbox"],:where(.gh-app) input[type="radio"] { accent-color:var(--gh-accent); }
+:where(.gh-app) button,:where(.gh-app) .button-like { font:inherit; border:1px solid transparent; border-radius:var(--gh-radius); background:var(--gh-accent); color:var(--gh-on-accent); cursor:pointer; }
+:where(.gh-app) button:hover:not(:disabled),:where(.gh-app) .button-like:hover { background:var(--gh-accent-hover); }
+:where(.gh-app) button:active:not(:disabled) { background:var(--gh-accent-pressed); }
+:where(.gh-app) button.secondary { background:var(--gh-surface-raised); color:var(--gh-text); border-color:var(--gh-border); }
+:where(.gh-app) button.secondary:hover:not(:disabled) { background:var(--gh-surface-hover); }
+:where(.gh-app) button.danger { background:var(--gh-danger-fill); color:var(--gh-on-status); }
+:where(.gh-app) button.danger:hover:enabled { background:var(--gh-danger-hover); }
+:where(.gh-app) button.danger:active:enabled { background:var(--gh-danger-pressed); }
+:where(.gh-app) button:disabled,:where(.gh-app) .button-like[aria-disabled="true"] { background:var(--gh-disabled); color:var(--gh-disabled-text); border-color:var(--gh-border); cursor:default; opacity:.65; }
+:where(.gh-app) :is(button,input,select,textarea,a,summary,[tabindex]):focus-visible { outline:2px solid var(--gh-focus); outline-offset:3px; }
+:where(.gh-app) :is(table,code,pre) { color:inherit; }
+:where(.gh-app) th,:where(.gh-app) td { border-color:var(--gh-divider); }
+:where(.gh-app) dialog { background:var(--gh-surface); color:var(--gh-text); border-color:var(--gh-border); }
+:where(.gh-app) dialog::backdrop { background:var(--gh-backdrop); }
+.appearance-controls { display:flex; flex-wrap:wrap; gap:var(--gh-space-3); align-items:center; }
+.appearance-controls label { display:inline-flex; align-items:center; gap:var(--gh-space-2); margin:0; }
+.appearance-controls select { min-width:8rem; padding:8px; }
+#appearance-status { color:var(--gh-text-muted); overflow-wrap:anywhere; }
+:where(.gh-app) .appearance-panel { margin:12px 0; padding:14px; border:1px solid var(--gh-border); border-radius:var(--gh-radius); background:var(--gh-surface); }
+@media(max-width:600px) { .appearance-controls { align-items:stretch; flex-direction:column; } }

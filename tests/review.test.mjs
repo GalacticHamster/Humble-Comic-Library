@@ -11,7 +11,7 @@ function background(id,externalResponse) {
     storage: { local: { get: async () => ({ galacticLibraryExtensionId: id }) } }, tabs: { create: async value => tabs.push(value) } } };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['theme.js','shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
   return { tabs, listener,opened,externalRequest:(message,sender)=>new Promise(resolve=>{if(!external(message,sender,resolve))resolve(null);}),request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { if (!listener(message, sender, resolve)) resolve(null); }) };
 }
 
