@@ -48,14 +48,20 @@ export function bundleFixture(offers, records=[], responses={}, options={}) {
   const media=offers[0]?.mediaType||offers[0]?.kind||'book';
   c.offers=offers.map((item,index)=>({...item,[fanatical?'mediaType':'kind']:item.mediaType||item.kind||media,lookupTitle:item.title,tier:{label:'$5 tier',price:5},...(fanatical?{sourceItemId:item.sourceItemId||'offer-'+index}:{})}));
   c.responses=responses;
+  c.fixtureMappings=options.collectionMappings||[];
   if(!fanatical){
     const page={bundleData:{tier_item_data:Object.fromEntries(c.offers.map((item,index)=>['offer-'+index,{human_name:item.title,...item}])),tier_display_data:{all:{tier_item_machine_names:c.offers.map((_,index)=>'offer-'+index)}}}};
     c.document.querySelector=selector=>selector==='#webpack-bundle-page-data'&&!options.incomplete?{textContent:JSON.stringify(page)}:null;
-    c.chrome.runtime.sendMessage=async(_id,message)=>message.type==='GET_STATUS'?{ok:true,apiVersion:1,capabilities:{mediaTypes:['book','game','software','audiobook']}}:{ok:true,apiVersion:1,results:message.items.filter(item=>!(responses[item.title] instanceof Error)).map(item=>({requestId:item.requestId,matches:[],possibleMatches:[],partialMatches:[],...responses[item.title]}))};
+    c.chrome.runtime.sendMessage=async(_id,message)=>message.type==='GET_STATUS'?{ok:true,apiVersion:1,capabilities:{mediaTypes:['book','game','software','audiobook']}}:{ok:true,apiVersion:1,results:message.items.filter(item=>!(responses[item.title] instanceof Error)).map(item=>({matches:[],possibleMatches:[],partialMatches:[],...responses[item.title],requestId:item.requestId}))};
     vm.runInContext("collectBundleItems=()=>offers;comparison={job:1,galactic:createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')};",c);
   }
   return {context:c,P:(fanatical?c.FanaticalLibrary:c.HumbleOwnership).presentation,async classify(){
-    if(!fanatical){await vm.runInContext('renderBundleComparison(createBundleLibraryMatcher(records,offers[0].kind),offers[0].kind,[],[],comparison,1)',c);return c.comparison.resolvedItems;}
-    return c.offers.map(item=>({item,match:c.FanaticalLibrary.resolveProduct(item,c.records,c.FanaticalLibrary.localContents(c.records),query=>responses[query.title] instanceof Error?{matches:[],lookupIncomplete:true}:responses[query.title]||{matches:[]})}));
+    if(!fanatical){await vm.runInContext('renderBundleComparison(createBundleLibraryMatcher(records,offers[0].kind),offers[0].kind,[],fixtureMappings,comparison,1)',c);return c.comparison.resolvedItems.map(row=>options.identityContext&&row.match.localMatch?.state==='owned'&&!row.target.entries.length?{...row,identityContext:responses[row.item.title],contextIncomplete:!responses[row.item.title]||responses[row.item.title] instanceof Error}:row);}
+    return c.offers.map(item=>{
+      const ownedContext=options.emulateStorefront && c.FanaticalLibrary.classify(item,c.records).state==='owned'&&!c.FanaticalLibrary.offerContents(item).entries.length;
+      const lookup=query=>ownedContext&&query===item?{matches:[],lookupIncomplete:true}:responses[query.title] instanceof Error?{matches:[],lookupIncomplete:true}:responses[query.title]||{matches:[]};
+      const match=c.FanaticalLibrary.resolveProduct(item,c.records,c.FanaticalLibrary.localContents(c.records),lookup);
+      return {item,match,...(ownedContext&&options.identityContext?{identityContext:responses[item.title],contextIncomplete:!responses[item.title]||responses[item.title] instanceof Error}:{})};
+    });
   }};
 }

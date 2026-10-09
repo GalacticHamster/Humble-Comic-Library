@@ -442,6 +442,35 @@
     if(/\breviewed\b|user-supplied|shared (?:work|identifier|isbn|steam)|\bcontains\b|\bcomponents?\b|\bcontents?\b|\bcoverage\b/iu.test(reason))return false;
     return /related (?:complete base title|main title|title|book presentation)|subtitle|parenthetical|titles differ by an article|one (?:book )?title is a shortened or qualified presentation/iu.test(reason);
   }
+
+  // Display scope only: never canonical identity, contents or ownership evidence.
+  function numberedScope(title) {
+    const words={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,i:1,ii:2,iii:3,iv:4,v:5,vi:6,vii:7,viii:8,ix:9,x:10};
+    const text=String(title||'').trim();
+    const match=/^(.*?)\s*(?:(book|vol(?:ume)?\.?|issue|annual|special)\s+|(#)\s*)(\d+(?:\.\d+)?|\d+\/\d+|one|two|three|four|five|six|seven|eight|nine|ten|i|ii|iii|iv|v|vi|vii|viii|ix|x)\s*$/iu.exec(text);
+    if(!match||!match[1].replace(/[:,-]\s*$/u,'').trim())return null;
+    const type=match[3]?'issue':match[2].toLowerCase().replace(/\.$/u,'');
+    return {stem:match[1].replace(/[:,-]\s*$/u,'').trim(),type,number:String(words[match[4].toLowerCase()]||match[4]),label:match[3]?'issue #'+match[4]:match[2]+' '+match[4]};
+  }
+  function relevance({offeredTitle,title,media,relationship,basis,strong=false,unit=''}) {
+    if(strong)return 'direct';
+    if(relationship==='contains')return 'contents';
+    if(/\breviewed\b|user-supplied|shared work identity/iu.test(basis||''))return 'reviewed';
+    if(media!=='book'&&media!=='audiobook')return 'related';
+    if(/^Numbered series item related to this title; collection membership and completeness are unconfirmed\./u.test(basis||''))return 'numbered-series';
+    const offered=numberedScope(offeredTitle),candidate=numberedScope(title);
+    if(!offered&&candidate&&global.LibraryMatchingPolicy.presentationTitle(candidate.stem,media)===global.LibraryMatchingPolicy.presentationTitle(offeredTitle,media))return 'numbered-series';
+    if(offered&&!candidate&&!unit)return 'generic-numbered';
+    return 'related';
+  }
+  function order(candidates) {
+    const priorities=['direct','contents','reviewed','numbered-series','related','generic-numbered'];
+    return candidates.map((candidate,index)=>({candidate,index})).sort((a,b)=>{
+      const rank=value=>{const index=priorities.indexOf(value.relevance);return index<0?priorities.indexOf('related'):index;};
+      return rank(a.candidate)-rank(b.candidate)||a.index-b.index;
+    }).map(row=>row.candidate.id);
+  }
+
   function reconcile({complete=false,offers=[]}={}) {
     const safe=complete===true && offers.length>1 && offers.every(offer=>offer.settled===true && offer.id && offer.productKey && offer.titleKey && offer.media)
       && new Set(offers.map(offer=>offer.id)).size===offers.length;
@@ -462,11 +491,13 @@
         const competingTitles=[...new Set(titles)].sort((a,b)=>a<b?-1:a>b?1:0);
         if(competingTitles.length)deferred.push({id:candidate.id,competingTitles});else primary.push(candidate.id);
       }
-      results.set(offer.id,{primary,deferred});
+      const primaryIds=new Set(primary);
+      const ordered=order((offer.candidates||[]).filter(candidate=>primaryIds.has(candidate.id)));
+      results.set(offer.id,{primary:ordered,deferred});
     }
     return {complete:safe,results};
   }
-  global.BundleMatchContext=Object.freeze({reconcile});
+  global.BundleMatchContext=Object.freeze({reconcile,numberedScope,relevance,order});
 }(globalThis));
 // END SHARED BUNDLE MATCH CONTEXT
 
@@ -577,8 +608,17 @@
         const isbnFor=row=>[row?.externalIds?.isbn,row?.isbn,row?.isbns,row?.evidence?.isbn].flat().map(policy.validIsbn).filter(Boolean);
         const ids=isbnFor(item),otherIds=isbnFor(record);
         const sharedId=ids.some(id=>otherIds.includes(id))||['asin','editionId','steamAppId'].some(key=>(item[key]||item.externalIds?.[key])&&(item[key]||item.externalIds?.[key])===(record[key]||record.externalIds?.[key]||record.evidence?.[key]));
+        const strength=!record.historical&&!differences.length&&(localExact||centralExact)?'strong':'weak';
+        const relevance=global.BundleMatchContext.relevance({offeredTitle:item.title,title:record.title,media:item.kind||item.mediaType,relationship:record.relationship,basis:basis||localResult.possibleReason||localResult.reason,strong:strength==='strong',unit:record.evidence?.unit||record.volume||record.issue});
+        if(relevance==='numbered-series'){
+          view.heading='Related numbered item';view.relationship='A numbered item in this title’s series.';
+          view.uncertainty=(view.uncertainty?view.uncertainty+' ':'')+'Collection membership and completeness are unconfirmed; this does not establish ownership of the collected edition.';
+        }else if(relevance==='generic-numbered'){
+          view.heading='Related unnumbered title';
+          view.uncertainty=(view.uncertainty?view.uncertainty+' ':'')+'This record does not identify '+global.BundleMatchContext.numberedScope(item.title).label+' or its contents. It may be another edition or a collection; overlap is unconfirmed.';
+        }
         candidateFacts.set(view,{libraryKey:record.itemRef?JSON.stringify([record.provider,record.itemRef]):isLocal?record:null,
-          strength:!record.historical&&!differences.length&&(localExact||centralExact)?'strong':'weak',
+          strength,relevance,
           protected:Boolean(componentTitle||record.historical||record.relationship==='same-edition'||record.relationship==='contains'||sharedId||differences.length||fields.edition||other.edition||fields.volume||fields.issue||fields.unitType||other.volume||other.issue||other.unitType),
           basis:basis||localResult.possibleReason||localResult.reason||''});
         entries.push(view);
@@ -595,17 +635,20 @@
 
   function primaryCandidateViews(item,match) {
     const deferred=new Set((bundlePriorities.get(match)?.deferred||[]).map(entry=>entry.id));
-    return candidateViews(item,match).filter((_view,index)=>!deferred.has(String(index)));
+    const views=candidateViews(item,match);
+    const candidates=views.map((view,index)=>({id:String(index),...candidateFacts.get(view)})).filter(candidate=>!deferred.has(candidate.id));
+    return global.BundleMatchContext.order(candidates).map(id=>views[Number(id)]);
   }
   function reconcileBundle(rows,{complete=false}={}) {
-    const offers=rows.map(({item,match,target,overlapProtected},index)=>{
+    const offers=rows.map(({item,match,target,overlapProtected,identityContext,contextIncomplete},index)=>{
       const media=item.kind||item.mediaType;
       const views=candidateViews(item,match);
       return {id:String(index),productKey:item.sourceItemId||global.LibraryMatchingPolicy.presentationTitle(item.lookupTitle||item.title,media),
         titleKey:global.LibraryMatchingPolicy.presentationTitle(item.lookupTitle||item.title,media),title:item.title,media,
-        settled:['owned','elsewhere','owned-elsewhere','possible','partial','new'].includes(match.state)&&!match.lookupIncomplete&&!match.contentsLookupIncomplete,
+        settled:['owned','elsewhere','owned-elsewhere','possible','partial','new'].includes(match.state)&&!match.lookupIncomplete&&!match.contentsLookupIncomplete&&!contextIncomplete,
         protected:Boolean(overlapProtected||target?.entries?.length||item.contents?.length||item.components?.length||match.coverage?.total||match.componentMatches?.length||/\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test(item.format||item.title)),
-        candidates:views.map((view,index)=>({id:String(index),...candidateFacts.get(view)}))};
+        candidates:[...views.map((view,index)=>({id:String(index),...candidateFacts.get(view)})),
+          ...candidateViews(item,{externalMatches:(identityContext?.matches||[]).filter(record=>record.relationship==='same-edition')}).map((view,index)=>({id:'identity-context-'+index,...candidateFacts.get(view)}))]};
     });
     const result=global.BundleMatchContext.reconcile({complete,offers});
     for(const [index,{match}]of rows.entries())bundlePriorities.set(match,result.results.get(String(index)));
@@ -635,6 +678,7 @@
       if(candidateViews(item,match).length&&!primaryCandidateViews(item,match).length)return 'A related library item more closely matches another offer in this bundle. Review it in Match details before buying.';
       const sameTitleAccess=primaryCandidateViews(item,match).find(candidate=>candidate.heading==='Same title found' && ['Subscription access','Borrowed access','Rental access'].includes(candidate.access));
       if(match.ownershipReview && sameTitleAccess)return 'You have '+sameTitleAccess.access.toLowerCase()+' to a matching title, but permanent ownership is not confirmed.';
+      if(primaryCandidateViews(item,match).some(candidate=>candidate.heading==='Related numbered item'))return 'Related numbered items were found. Review their access; membership in this collection and its complete contents are unconfirmed.';
       return match.ownershipReview?'A library item needs an ownership check. Review its access and any related editions before buying.':'A related library item was found. Check the edition or included contents before buying.';
     }
     if(view.state==='owned-elsewhere')return 'A linked library records a matching item as owned.';

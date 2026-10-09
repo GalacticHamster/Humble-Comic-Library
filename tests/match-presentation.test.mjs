@@ -15,7 +15,7 @@ const example=freeze({state:'possible',ownershipReview:true,offered:item,localMa
 test('30 Days separates same-title subscription from related purchased base edition without modifying evidence',()=>{
  const before=JSON.stringify(example),views=P.candidateViews(item,example);
  assert.equal(views.length,2);assert.equal(views[0].heading,'Same title found');assert.equal(views[0].access,'Subscription access');
- assert.equal(views[1].heading,'Possibly related purchase');assert.match(views[1].uncertainty,/different edition/);assert.match(views[1].context,/Anniversary collection/);assert.doesNotMatch(views[1].context,/T12:00/);
+ assert.equal(views[1].heading,'Related unnumbered title');assert.match(views[1].uncertainty,/different edition/);assert.match(views[1].context,/Anniversary collection/);assert.doesNotMatch(views[1].context,/T12:00/);
  assert.equal(P.status(item,example),'Check ownership');assert.doesNotMatch(P.tooltip(item,example),/amazon-kindle|same-edition|2026-10-01|verified/);assert.equal(JSON.stringify(example),before);
 });
 for(const [ownership,label]of [['subscription','Subscription access'],['borrowed','Borrowed access'],['rental','Rental access'],['unknown','Ownership not confirmed'],['owned','Owned'],['claimed','Owned']])test('candidate access: '+ownership,()=>{

@@ -557,8 +557,8 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
     await lookup.softwareCapability;
   }
   const requested = new Map();
-  for (const { item, match, target } of items) {
-    if (match.state === 'owned' && !target?.entries.length) continue;
+  for (const { item, match, target, contextOnly } of items) {
+    if (match.state === 'owned' && !target?.entries.length && !contextOnly) continue;
     const mediaType = item.kind ?? itemKind;
     if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)||mediaType==='software'&&!lookup.softwareSupported) continue;
     const fields = HumbleOwnership.request({ ...item, kind: mediaType }, comparison.collectionMappings ?? [], target);
@@ -1191,15 +1191,21 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
       }
     }
   }
+  const completeContext=completeBundleMatchContext(resolvedItems,media);
+  // Query copies only for identity context. Keep the owned result/offer unchanged.
+  const identityRows=completeContext ? resolvedItems.filter(row=>row.match.state==='owned'&&!row.target.entries.length)
+    .map(row=>({...row,item:{...row.item},contextOnly:true})) : [];
   const seriesQueries = HumbleOwnership.readingTargets(resolvedItems);
-  await queryGalacticLibrary([...resolvedItems, ...seriesQueries.filter(query=>!query.unknownScope)], itemKind, comparison, job,diagnostic);
+  await queryGalacticLibrary([...resolvedItems,...identityRows, ...seriesQueries.filter(query=>!query.unknownScope)], itemKind, comparison, job,diagnostic);
   if (comparison?.job !== job) return;
   // Retain the settled labels while awaiting GL or yielding CPU time. Clearing
   // them earlier makes our own card moves look like unprocessed lazy content.
   clearBundleAnnotations();
   for (const resolved of resolvedItems) {
     const { kind, lookupTitle } = resolved.item;
-    const result = comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
+    // A context-only probe must not leak into this item's ownership/explanation.
+    const result = resolved.match.state === 'owned' && !resolved.target.entries.length ? undefined
+      : comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
     const coverage = HumbleOwnership.coverageFor(resolved.target, localContents, result);
     const externalMatches = resolved.match.state === 'owned' ? [] : ownedOutsideHumble(result, resolved.item)
       .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);
@@ -1257,7 +1263,10 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   // Tier-detail cards are reliable for item/tier counts, but Humble can show
   // a separate un-tiered gallery as the actual visible card grid. Mirror the
   // already-resolved status onto all cover copies with the same title.
-  HumbleOwnership.presentation.reconcileBundle(resolvedItems.map(row=>({...row,overlapProtected:
+  const identityContext=new Map(identityRows.map(row=>[bundleItemKey(row.item),comparison?.galactic?.resultsByKey.get(row.item.galacticKey)]));
+  HumbleOwnership.presentation.reconcileBundle(resolvedItems.map(row=>({...row,
+    identityContext:identityContext.get(bundleItemKey(row.item)),
+    contextIncomplete:Boolean(comparison?.galactic?.enabled&&identityContext.has(bundleItemKey(row.item))&&!identityContext.get(bundleItemKey(row.item))),overlapProtected:
     (media.productsByTitle.get(HumbleComicLibrary.titleKey(row.item.title))||[]).some(product=>/\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test([product.format,product.formats,product.metadata?.format].flat().filter(Boolean).join(' ')))
     || /\b(?:pdf|epub|mobi|cbz|cbr|audiobook)\b/iu.test(row.item.element?.getAttribute?.('data-format')||row.item.container?.getAttribute?.('data-format')||'')})), {complete:completeBundleMatchContext(resolvedItems, media)});
   for (const entries of Object.values(titlesByState)) for (const entry of entries) entry.provenance = matchProvenance(entry.match);
