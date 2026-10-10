@@ -2651,6 +2651,8 @@ function addPurchaseImporter() {
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new" title="Checks for new purchases and rechecks unresolved key status in existing purchases.">Import new purchases</button>
       <button type="button" data-import-mode="all" title="Reprocesses every purchase, rebuilds Humble items, and establishes complete key reminders.">Rescan all purchases</button>
+      <button type="button" data-import-mode="metadata" title="Previews affected saved purchases, then fills confidently attributable missing product IDs without rebuilding the library.">Refresh missing product IDs</button>
+      <button type="button" data-metadata-cancel hidden>Cancel metadata refresh</button>
       <button type="button" data-import-mode="software-discovery" data-hcl-debug-action hidden title="Downloads a local diagnostic report of non-book product classification signals for Software support.">Inspect Software product data</button>
       <button type="button" data-import-mode="key-discovery" data-hcl-debug-action hidden title="Creates a safe, aggregate report of Humble's key-status fields without saving keys or purchase details.">Inspect key reminder data</button>
       <button type="button" data-import-mode="purchase-navigation-discovery" data-hcl-debug-action hidden title="Downloads a safe structural report of purchase-page links and attributes. It never includes titles, URLs, purchase identifiers, or redemption keys.">Inspect purchase navigation</button>
@@ -2681,6 +2683,17 @@ function addPurchaseImporter() {
     if (purchaseNavigationDiscovery && !confirm('Inspect the rendered Purchases page structure? The downloaded local report contains only aggregate tag names, attribute names, and link shapes; it contains no titles, URLs, purchase identifiers, redemption keys, dates, or text content.')) return;
     buttons.forEach((control) => { control.disabled = true; });
     try {
+      if(mode==='metadata'){
+        const scope=await HumbleComicLibrary.storageRequest('metadataPreview');
+        status.textContent=`${scope.examined} current rows: ${scope.alreadyIdentified} retain product/key identity; ${scope.missing} lack it. ${scope.purchaseKeys.length} affected saved purchases (current and history). No new purchases are imported.`;
+        if(!scope.purchaseKeys.length)return;
+        if(!confirm(`Refresh missing product IDs in ${scope.purchaseKeys.length} saved Humble purchases? ${scope.missing} current rows lack retained product/key identity. A backup downloads first. Only unambiguous metadata fills are saved; titles, purchase history and ownership are preserved. Confirm that the signed-in Humble account is the selected nickname.`))return;
+        const cancel=panel.querySelector('[data-metadata-cancel]');let cancelled=false;cancel.hidden=false;cancel.disabled=false;cancel.onclick=()=>{cancelled=true;cancel.disabled=true;status.textContent='Cancelling after the current request; original library will be retained.';};
+        try{const result=await refreshMissingProductIds(message=>{status.textContent=message;},{profileLabel:panel.querySelector('[data-profile-label]').value,confirmed:panel.querySelector('[data-profile-confirm]').checked,cancelled:()=>cancelled});
+          downloadJsonFile('humble-product-id-refresh-report.json',result);
+          status.textContent=result.interrupted?'Metadata refresh cancelled; no library rows changed.':`Metadata refresh: ${result.stats.examined} current purchase origins examined; ${result.stats.alreadyIdentified} already identified; ${result.stats.missing} missing; ${result.stats.recovered} IDs recovered; ${result.stats.noIdAvailable} with no attributable ID available; ${result.stats.ambiguous} ambiguous; ${result.stats.conflicts+result.stats.existingIdentityConflicts} conflicts; ${result.errors} purchase errors. ${result.stats.historicalRecovered} historical origins enriched. Unresolved evidence is retained. Re-run Reconcile accounts or Preview transfer in Options.`;
+        }finally{cancel.hidden=true;cancel.onclick=null;}return;
+      }
       if (keyDiscovery) {
         const result = await discoverKeyReminderMetadata((message) => { status.textContent = message; });
         downloadJsonFile('humble-key-reminder-discovery.json', result.report);
@@ -2961,6 +2974,20 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
       expiringSoon
     }
   };
+}
+
+async function refreshMissingProductIds(report,{profileLabel,confirmed,cancelled=()=>false}) {
+  const scan=await HumbleComicLibrary.storageRequest('metadataBegin',{profileLabel,confirmed});let finished=false,errors=0,read=0;const evidence=[];
+  try{
+    downloadJsonFile('humble-before-product-id-refresh.json',scan.backup);
+    for(const key of scan.scope.purchaseKeys){if(cancelled())break;report(`Refreshing saved product metadata: purchase ${read+1} of ${scan.scope.purchaseKeys.length}. Original library is retained until the final atomic save.`);
+      try{const detail=await fetchOrderDetail(key);if(!detail||typeof detail!=='object'||Array.isArray(detail)||!['subproducts','products','tpkd_dict','all_tpks','all_tpkds'].some(field=>Object.hasOwn(detail,field)))throw Error('Unexpected purchase detail.');evidence.push(...extractLibraryItems(detail,{},key));}catch{errors++;}
+      read++;await new Promise(resolve=>setTimeout(resolve,175));
+    }
+    if(cancelled())return {format:1,interrupted:true,purchasesRead:read,purchasesTotal:scan.scope.purchaseKeys.length,errors,scope:{examined:scan.scope.examined,missing:scan.scope.missing},recovered:0};
+    report('Validating and saving only confident missing-ID fills...');const result=await HumbleComicLibrary.storageRequest('metadataCommit',scan.token,evidence);finished=true;
+    return {format:1,interrupted:false,purchasesRead:read,purchasesTotal:scan.scope.purchaseKeys.length,errors,...result};
+  }finally{if(!finished)try{await HumbleComicLibrary.storageRequest('metadataCancel',scan.token,null);}catch{}}
 }
 
 function purchaseImportScope(result, inProgress = false) {

@@ -22,11 +22,14 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const extensionPage=own&&typeof sender.url==='string'&&sender.url.startsWith(chrome.runtime.getURL(''));
   let humble=false;try{humble=own&&new URL(sender.url).origin==='https://www.humblebundle.com';}catch{}
   if(!extensionPage&&!humble){respond({ok:false,error:'Untrusted library request.'});return false;}
-  if(['replace','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
+  if(['replace','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview','metadataTabClosed'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
   if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&new URL(sender.url).pathname.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options or the purchase importer.'});return false;}
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
   if(message.operation==='commit')args[2]=sender.tab?.id??null;
+  if(['metadataBegin','metadataCommit','metadataCancel','metadataPreview'].includes(message.operation)&&!(humble&&new URL(sender.url).pathname.startsWith('/home/purchases'))){respond({ok:false,error:'Open the signed-in Humble Purchases importer to refresh metadata.'});return false;}
+  if(message.operation==='metadataBegin')args[1]=sender.tab?.id??null;
+  if(['metadataCommit','metadataCancel'].includes(message.operation))args[2]=sender.tab?.id??null;
   libraryStore.execute(message.operation,args).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:error.message}));return true;
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
@@ -65,5 +68,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 const purchaseHandoff=GalacticPurchaseTransfer.createService({runtime:chrome.runtime,area:chrome.storage.local,
  authorize:async(id,provider)=>provider==='humble'&&HumbleComicLibrary.trustedGalacticSender(id,(await chrome.storage.local.get({galacticLibraryExtensionId:''})).galacticLibraryExtensionId,chrome.runtime),
  peer:async provider=>{if(provider!=='humble')throw Error('Wrong provider.');return HumbleComicLibrary.resolveGalacticId((await chrome.storage.local.get({galacticLibraryExtensionId:''})).galacticLibraryExtensionId,chrome.runtime);},
- accounts:()=>libraryStore.execute('handoffAccounts'),snapshot:(_,ref)=>libraryStore.execute('handoffSnapshot',[ref]),commit:(data,target)=>libraryStore.execute('handoffImport',[data,target])});
+ accounts:()=>libraryStore.execute('handoffAccounts'),snapshot:(_,ref)=>libraryStore.execute('handoffSnapshot',[ref]),inventory:(_,ref)=>libraryStore.execute('handoffInventory',[ref]),preview:(data,target)=>libraryStore.execute('handoffPreview',[data,target]),commit:(data,target)=>libraryStore.execute('handoffImport',[data,target])});
 purchaseHandoff.register();
+chrome.tabs?.onRemoved?.addListener(tabId=>{libraryStore.execute('metadataTabClosed',[tabId]).catch(()=>{});});

@@ -584,21 +584,80 @@
     return {minimized:value?.minimized===true,position:positions.includes(value?.position)?value.position:'bottom-right'};
   }
 
+  // Product tokens are not purchase IDs, key-delivery IDs or positional fallbacks.
+  function nativeHumbleProductId(record) {
+    const prefix=record.purchaseKey+':product:',id=record.providerItemId;
+    return typeof id==='string'&&id.startsWith(prefix)&&id.length>prefix.length&&!id.slice(prefix.length).startsWith('position-')?id.slice(prefix.length):null;
+  }
+  const metadataTitle=value=>String(value??'').replace(/\s+/gu,' ').trim().toLowerCase();
+  const metadataOrigins=item=>item.provenance?.length?item.provenance:[item];
+  function productMetadataConflict(previous,incoming) {
+    const a=bibliographicFields(previous),b=bibliographicFields(incoming);
+    for(const field of ['asin','editionId','edition','language','volume','issue','runId','unitType'])if(a[field]&&b[field]&&metadataTitle(a[field])!==metadataTitle(b[field]))return true;
+    return Boolean(a.isbn?.length&&b.isbn?.length&&!a.isbn.some(id=>b.isbn.includes(id)));
+  }
+  function missingProductIdScope(state) {
+    const summary={examined:state.libraryItems.length,alreadyIdentified:0,missing:0,missingOrigins:0,purchaseKeys:[],historicalRows:state.historicalLibraryItems?.length??0};
+    const purchases=new Set();
+    for(const item of state.libraryItems){const origins=metadataOrigins(item),identified=origins.some(p=>nativeHumbleProductId(p)||p.entitlementId&&!p.entitlementId.startsWith('position-'));
+      if(identified)summary.alreadyIdentified++;else summary.missing++;
+    }
+    for(const item of [...state.libraryItems,...(state.historicalLibraryItems??[])])for(const p of metadataOrigins(item))if(p.purchaseKey&&!nativeHumbleProductId(p)&&!(p.entitlementId&&!p.entitlementId.startsWith('position-'))){purchases.add(p.purchaseKey);summary.missingOrigins++;}
+    summary.purchaseKeys=[...purchases].sort();return summary;
+  }
+  function enrichMissingProductIds(state,evidence) {
+    const index=new Map();for(const item of evidence)for(const p of metadataOrigins(item)){if(!p.purchaseKey)continue;const key=JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]),rows=index.get(key)??[];rows.push({item,p});index.set(key,rows);}
+    const stats={examined:0,alreadyIdentified:0,missing:0,recovered:0,noIdAvailable:0,ambiguous:0,conflicts:0,existingIdentityConflicts:0,historicalRecovered:0,metadataEnriched:0},details=[];
+    function enrich(items,historical){return items.map((item,row)=>{let changed=false,resolvedSource;const origins=metadataOrigins(item).map((p,origin)=>{
+      if(!historical)stats.examined++;
+      if(nativeHumbleProductId(p)||p.entitlementId&&!p.entitlementId.startsWith('position-')){if(!historical){stats.alreadyIdentified++;const sources=index.get(JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]))??[],ids=sources.filter(v=>nativeHumbleProductId(v.p)).map(v=>v.p.providerItemId);if(nativeHumbleProductId(p)&&ids.length&&!ids.includes(p.providerItemId)){stats.existingIdentityConflicts++;details.push({row,origin,title:p.title||item.title,reason:'existingIdentityConflict',candidateIds:ids.map(id=>id.slice((p.purchaseKey+':product:').length))});}}return p;}
+      if(!historical)stats.missing++;
+      const all=index.get(JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]))??[],delivery=p.entitlement??'direct-download';
+      const candidates=all.filter(v=>(v.item.kind??'book')===(item.kind??'book')&&(v.p.entitlement??'direct-download')===delivery),unique=new Map(candidates.filter(v=>nativeHumbleProductId(v.p)).map(v=>[v.p.providerItemId,v]));
+      let reason='noIdAvailable';if(all.length&&!candidates.length||p.providerItemId&&unique.size&&!unique.has(p.providerItemId)||unique.size===1&&productMetadataConflict(item,[...unique.values()][0].item))reason='conflicts';else if(unique.size>1||unique.size===1&&candidates.some(v=>!nativeHumbleProductId(v.p)))reason='ambiguous';else if(unique.size===1&&!p.providerItemId){changed=true;resolvedSource=[...unique.values()][0].item;if(historical)stats.historicalRecovered++;else stats.recovered++;const attributed={...p,providerItemId:[...unique.keys()][0]};return item.provenance?.length?attributed:{...backupRecord(attributed,PROVENANCE_FIELDS,'Recovered purchase origin'),...entitlementFields(attributed)};}
+      if(!historical){stats[reason]++;details.push({row,origin,title:p.title||item.title,reason,candidateIds:[...unique.keys()].map(id=>id.slice((p.purchaseKey+':product:').length))});}return p;
+    });
+      if(!changed)return item;const next={...item,provenance:origins};if(origins.length===1&&!item.providerItemId){next.providerItemId=origins[0].providerItemId;if(metadataTitle(item.title)===metadataTitle(origins[0].title||item.title)){let filled=false;for(const [key,value]of Object.entries(bibliographicFields(resolvedSource)))if(next[key]===undefined||next[key]===null||next[key]===''||Array.isArray(next[key])&&!next[key].length){next[key]=value;filled=true;}if(filled&&!historical)stats.metadataEnriched++;}}return next;
+    });}
+    return {libraryItems:enrich(state.libraryItems,false),historicalLibraryItems:enrich(state.historicalLibraryItems??[],true),stats,details};
+  }
   function createSyncStore(area) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion'];
     async function operate(operation,args){
-      if(['handoffAccounts','handoffSnapshot','handoffImport'].includes(operation)){
+      if(operation==='metadataTabClosed'){const control=(await area.get({[controlKey]:null}))[controlKey];if(control?.mode==='metadata'&&control.tabId===args[0])await area.set({[controlKey]:null});return true;}
+      if(['metadataPreview','metadataBegin','metadataCommit','metadataCancel'].includes(operation)){
+        const state=await area.get(LIBRARY_STATE_DEFAULTS),control=(await area.get({[controlKey]:null}))[controlKey];
+        if(operation==='metadataPreview')return missingProductIdScope(state);
+        if(operation==='metadataBegin'){const [options,tabId]=args;
+          if(control&&!(control.mode==='metadata'&&control.tabId===tabId&&control.profileLabel===state.humbleProfileLabel))throw Error('Another Humble scan is active. Finish it first. If its tab was abandoned, use Import new purchases to establish a fresh scan before refreshing metadata.');
+          if(options.confirmed!==true||!state.humbleProfileLabel||options.profileLabel!==state.humbleProfileLabel)throw Error('Confirm the signed-in account matches the active saved account. Metadata refresh cannot switch accounts.');
+          const token=global.crypto.randomUUID();await area.set({[controlKey]:{token,tabId,profileLabel:state.humbleProfileLabel,mode:'metadata'}});return {token,scope:missingProductIdScope(state),backup:createLibraryBackup(state)};
+        }
+        const [token,evidence,tabId]=args;if(!control||control.mode!=='metadata'||control.token!==token||control.tabId!==tabId||control.profileLabel!==state.humbleProfileLabel)throw Error('Metadata refresh was superseded; original records were retained.');
+        if(operation==='metadataCancel'){await area.set({[controlKey]:null});return true;}
+        if(!Array.isArray(evidence)||evidence.length>50000)throw Error('Invalid metadata evidence.');
+        const clean=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,libraryItems:evidence})),result=enrichMissingProductIds(state,clean.libraryItems);
+        restoreBackupState(createLibraryBackup({...state,libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems}));
+        const sharing=(await area.get({[shareScopeKey]:null}))[shareScopeKey];
+        await area.set({...(result.stats.recovered||result.stats.historicalRecovered?{libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems,[shareScopeKey]:sharing?{...sharing,revisionRef:global.crypto.randomUUID()}:null}:{}),[controlKey]:null});return {stats:result.stats,details:result.details};
+      }
+      if(['handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(operation)){
         const A=globalThis.GalacticPurchaseAdapters,S=globalThis.GalacticPurchaseSnapshot,state=await area.get(LIBRARY_STATE_DEFAULTS);
         if(operation==='handoffAccounts')return A.accounts('hb',state);
         if(operation==='handoffSnapshot')return A.snapshot('hb',state,args[0]);
+        if(operation==='handoffInventory')return A.hbInventory(state,args[0]);
         const [raw,target]=args,data=S.validate(raw);if(data.provider!=='humble')throw Error('Wrong purchase provider.');
-        if((await area.get({[controlKey]:null}))[controlKey])throw Error('Wait for the Humble scan to finish before importing saved purchases.');
+        if(operation!=='handoffPreview'&&(await area.get({[controlKey]:null}))[controlKey])throw Error('Wait for the Humble scan to finish before importing saved purchases.');
         let scope;
         if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label},fresh:true};}
         else scope=await A.selected('hb',state,target?.accountRef);
         const result=A.hbMerge(scope.items,data.records);
+        if(operation==='handoffPreview'){
+          const hi=scope.fresh?await A.inventory({role:'hb',accountRef:'new-account-preview',accountLabel:scope.label,currentCount:0,historicalCount:0,observations:[]}):await A.hbInventory(state,target.accountRef),gi=await A.inventory({role:'gl',accountRef:data.accountRef,accountLabel:data.accountLabel,currentCount:data.records.length,historicalCount:0,observations:data.records.map((r,index)=>({rowRef:'current:'+index,status:'current',title:r.title,mediaType:r.mediaType,purchaseId:r.metadata.purchaseId,providerItemId:r.providerItemId,entitlement:r.metadata.entitlement,bundle:r.metadata.sourceBundle,purchasedAt:r.purchasedAt}))}),comparison=hi?A.reconcileInventories(hi,gi):null;
+          return {readOnly:true,sourceRecords:data.records.length,destinationRecords:scope.items.length,...result.stats,enrichment:result.stats.updated,legacyMatchable:comparison?.counts.historicalPurchaseMatches??0,ambiguous:comparison?.counts.ambiguous??result.stats.skipped,conflicts:comparison?.counts.conflicts??0,limitations:[...data.limitations,'Conflicts are diagnostic; preview reports the existing merge rules, which can retain distinct observations rather than correcting their media.']};
+        }
         const purchaseCounts=new Map();for(const row of data.records)purchaseCounts.set(row.metadata.purchaseId,(purchaseCounts.get(row.metadata.purchaseId)??0)+1);const purchases=new Map((scope.state.purchaseSummaries??[]).map(p=>[p.purchaseKey,p]));for(const row of data.records)if(!purchases.has(row.metadata.purchaseId))purchases.set(row.metadata.purchaseId,{purchaseKey:row.metadata.purchaseId,sourceBundle:row.metadata.sourceBundle??'',purchasedAt:row.purchasedAt,itemCount:purchaseCounts.get(row.metadata.purchaseId)});
         const next={...scope.state,libraryItems:result.items,purchaseSummaries:[...purchases.values()],profileArchives:[]};
         const clean=restoreBackupState(createLibraryBackup(next));
@@ -716,7 +775,7 @@
   const storageRemove=keys=>storageRequest('remove',Array.isArray(keys)?keys:[keys]);
 
   global.HumbleComicLibrary = {
-    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove,
+    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, missingProductIdScope, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
     text, names, validIsbn, bibliographicFields

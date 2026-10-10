@@ -1,7 +1,7 @@
 /* Bounded, peer-scoped pull transfers. No external import endpoint. */
 (function(root){'use strict';
  const S=root.GalacticPurchaseSnapshot,TTL=10*60*1000;
- function createService({runtime,area,authorize,peer,accounts,snapshot,commit,bind=async()=>{},now=()=>Date.now()}){
+ function createService({runtime,area,authorize,peer,accounts,snapshot,commit,inventory,preview,bind=async()=>{},now=()=>Date.now()}){
  const exports=new Map();let preparing=0,running=false;const prefix='GH_PURCHASE_',key='galacticPurchaseOffer';
  function targetIntent(value){
   if(!value||Object.getPrototypeOf(value)!==Object.prototype||Object.keys(value).some(k=>!['accountRef','stamp','newLabel','expectedActiveLabel','expectedActiveId'].includes(k)))throw Error('Invalid destination account choice.');
@@ -11,37 +11,48 @@
  }
  const expired=()=>{for(const [id,value]of exports)if(value.until<=now())exports.delete(id);};
  async function request(id,value){let timer;try{const response=await Promise.race([runtime.sendMessage(id,{...value,protocolVersion:1}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Purchase transfer timed out. Retry; no partial import is applied.')),30000);})]);if(response?.ok===true&&response.protocolVersion!==1)throw Error('Incompatible purchase-sharing protocol. Update both extensions.');if(response?.ok!==true)throw Error(response?.error??'Companion returned an unexpected purchase-sharing response. Update and check pairing.');return response;}finally{clearTimeout(timer);}}
- async function prepare(provider,accountRef,client){expired();if(exports.size+preparing>=2)throw Error('Two outgoing transfers are already prepared. Finish or retry after they expire.');preparing++;try{const data=S.validate(await snapshot(provider,accountRef));if(data.provider!==provider)throw Error('Wrong provider snapshot.');
+ async function prepare(provider,accountRef,client,purpose='snapshot'){expired();if(exports.size+preparing>=2)throw Error('Two outgoing transfers are already prepared. Finish or retry after they expire.');preparing++;try{if(!['snapshot','inventory'].includes(purpose)||purpose==='inventory'&&(provider!=='humble'||!inventory))throw Error('Update both extensions to reconcile Humble records.');const data=purpose==='inventory'?root.GalacticPurchaseAdapters.validateInventory(await inventory(provider,accountRef)):S.validate(await snapshot(provider,accountRef));if(purpose==='snapshot'&&data.provider!==provider)throw Error('Wrong provider snapshot.');
  const chunks=[];let rows=[],bytes=2;for(const row of data.records){const count=S.size(row)+1;if(count+2>S.CHUNK_BYTES)throw Error('One purchase record exceeds the chunk limit.');if(bytes+count>S.CHUNK_BYTES||rows.length>=250){chunks.push(rows);rows=[];bytes=2;}rows.push(row);bytes+=count;}if(rows.length)chunks.push(rows);
  const token=crypto.randomUUID(),digest=await S.hash(JSON.stringify(data));const header={...data};delete header.records;
- const manifest={header,token,count:data.records.length,chunkCount:chunks.length,bytes:S.size(data),digest,expiresAt:now()+TTL};exports.set(token,{client,provider,chunks,manifest,until:manifest.expiresAt});return manifest;}finally{preparing--;}}
+ const manifest={header,token,count:data.records.length,chunkCount:chunks.length,bytes:S.size(data),digest,expiresAt:now()+TTL,...(purpose==='inventory'?{purpose}:{} )};exports.set(token,{client,provider,chunks,manifest,until:manifest.expiresAt});return manifest;}finally{preparing--;}}
  function validateManifest(m,provider){
- if(!m||!m.header||m.header.provider!==provider||typeof m.token!=='string'||!m.token||m.token.length>100||!Number.isInteger(m.count)||m.count<0||m.count>S.MAX_RECORDS||!Number.isInteger(m.chunkCount)||m.chunkCount<0||m.chunkCount>m.count||m.count>0&&m.chunkCount===0||!Number.isInteger(m.bytes)||m.bytes<0||m.bytes>S.MAX_BYTES||!/^[a-f0-9]{64}$/u.test(m.digest)||!Number.isFinite(m.expiresAt)||m.expiresAt<=now()||m.expiresAt>now()+TTL+10000||S.size(m)>20000)throw Error('Invalid or expired purchase manifest.');
- S.validate({...m.header,records:[]});return m;
+ if(!m||!m.header||m.purpose!==undefined&&m.purpose!=='inventory'||(m.purpose==='inventory'?provider!=='humble':m.header.provider!==provider)||typeof m.token!=='string'||!m.token||m.token.length>100||!Number.isInteger(m.count)||m.count<0||m.count>S.MAX_RECORDS||!Number.isInteger(m.chunkCount)||m.chunkCount<0||m.chunkCount>m.count||m.count>0&&m.chunkCount===0||!Number.isInteger(m.bytes)||m.bytes<0||m.bytes>S.MAX_BYTES||!/^[a-f0-9]{64}$/u.test(m.digest)||!Number.isFinite(m.expiresAt)||m.expiresAt<=now()||m.expiresAt>now()+TTL+10000||S.size(m)>20000)throw Error('Invalid or expired purchase manifest.');
+ if(m.purpose==='inventory')root.GalacticPurchaseAdapters.validateInventory({...m.header,records:[]});else S.validate({...m.header,records:[]});return m;
  }
  async function external(message,sender){expired();if(message.protocolVersion!==1)throw Error('Unsupported purchase handoff protocol.');if(!await authorize(sender.id,message.provider))throw Error('Purchase handoff peer/provider is not authorized.');
  if(message.type===prefix+'CAPABILITIES')return {provider:message.provider,maxRecords:S.MAX_RECORDS,maxBytes:S.MAX_BYTES,chunkBytes:S.CHUNK_BYTES};
  if(message.type===prefix+'ACCOUNTS')return {accounts:await accounts(message.provider)};
- if(message.type===prefix+'BEGIN')return {manifest:await prepare(message.provider,message.accountRef,sender.id)};
+ if(message.type===prefix+'BEGIN')return {manifest:await prepare(message.provider,message.accountRef,sender.id,message.purpose??'snapshot')};
+ if(message.type===prefix+'PREVIEW'){if(message.provider!=='humble'||!preview)throw Error('Update both extensions to preview Humble transfers.');const data=await pull(sender.id,message.provider,message.accountRef,'snapshot');return {preview:await preview(data,targetIntent(message.target))};}
  if(message.type===prefix+'CHUNK'||message.type===prefix+'ACK'||message.type===prefix+'CANCEL'){
  const pending=exports.get(message.token);if(!pending||pending.client!==sender.id||pending.provider!==message.provider)throw Error('Purchase transfer expired or source worker restarted. Retry from the beginning.');
  if(message.type!==prefix+'CHUNK'){if(message.type===prefix+'ACK'&&message.digest!==pending.manifest.digest)throw Error('Invalid commit acknowledgement.');exports.delete(message.token);return {};}
  if(!Number.isInteger(message.index)||message.index<0||message.index>=pending.chunks.length)throw Error('Invalid purchase chunk order.');const records=pending.chunks[message.index];return {index:message.index,records,digest:await S.hash(JSON.stringify(records))};}
  if(message.type===prefix+'OFFER'){
- const m=validateManifest(message.manifest,message.provider);const target=message.target?targetIntent(message.target):null;await area.set({[key]:{peerId:sender.id,provider:message.provider,manifest:m,...(target?{target}:{} )}});await runtime.openOptionsPage();return {offered:true};}
+ const m=validateManifest(message.manifest,message.provider);if(m.purpose)throw Error('A diagnostic inventory cannot be offered for import.');const target=message.target?targetIntent(message.target):null;await area.set({[key]:{peerId:sender.id,provider:message.provider,manifest:m,...(target?{target}:{} )}});await runtime.openOptionsPage();return {offered:true};}
  throw Error('Unsupported purchase handoff operation.');}
  const notify=value=>{try{Promise.resolve(runtime.sendMessage({type:'GH_PURCHASE_PROGRESS',...value})).catch(()=>{});}catch{}};
+ async function pull(id,provider,accountRef,purpose){let m;try{
+  m=validateManifest((await request(id,{type:prefix+'BEGIN',provider,accountRef,purpose})).manifest,provider);if((m.purpose??'snapshot')!==purpose||m.header.accountRef!==accountRef)throw Error('Diagnostic source account or scope changed.');
+  const records=[];let bytes=0;for(let index=0;index<m.chunkCount;index++){const chunk=await request(id,{type:prefix+'CHUNK',provider,token:m.token,index});if(chunk.index!==index||!Array.isArray(chunk.records)||chunk.records.length>250||S.size(chunk.records)>S.CHUNK_BYTES||await S.hash(JSON.stringify(chunk.records))!==chunk.digest)throw Error('Corrupt diagnostic chunk.');records.push(...chunk.records);bytes+=S.size(chunk.records);if(records.length>m.count||bytes>S.MAX_BYTES)throw Error('Diagnostic bounds exceeded.');notify({stage:'Reading saved records',done:records.length,total:m.count});}
+  const data=purpose==='inventory'?root.GalacticPurchaseAdapters.validateInventory({...m.header,records}):S.validate({...m.header,records});if(records.length!==m.count||S.size(data)!==m.bytes||await S.hash(JSON.stringify(data))!==m.digest)throw Error('Incomplete diagnostic snapshot.');if(!await authorize(id,provider))throw Error('Purchase sharing permission changed.');return data;
+ }finally{if(m)try{await request(id,{type:prefix+'CANCEL',provider,token:m.token});}catch{}}}
  async function local(message){if(message.action==='pending'){const offer=(await area.get({[key]:null}))[key];return {offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}if(message.action==='state'){const offer=(await area.get({[key]:null}))[key];return {accounts:await accounts(message.provider),offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}
  const id=await peer(message.provider,message.peerId);await bind(id,message.provider);
  if(message.action==='connection'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return {peerId:id,status:'Connected (API 1); purchase sharing supported. No purchases transferred.'};}
  if(message.action==='remoteAccounts'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return request(id,{type:prefix+'ACCOUNTS',provider:message.provider});}
+ if(['reconcile','preview'].includes(message.action)){
+  if(message.provider!=='humble'||!inventory||!preview)throw Error('Update both extensions to use Humble reconciliation.');
+  if(message.action==='preview'){const target=targetIntent(message.target);return message.direction==='send'?request(id,{type:prefix+'PREVIEW',provider:message.provider,accountRef:message.accountRef,target}):{preview:await preview(await pull(id,message.provider,message.accountRef,'snapshot'),target)};}
+  const local=await inventory(message.provider,message.localAccountRef),remote=await pull(id,message.provider,message.remoteAccountRef,'inventory');return {reconciliation:root.GalacticPurchaseAdapters.reconcileInventories(local,remote)};
+ }
  if(message.action==='send'){if(message.confirmed!==true)throw Error('Confirm the source and destination store accounts before sending.');const target=targetIntent(message.target);const manifest=await prepare(message.provider,message.accountRef,id);try{await request(id,{type:prefix+'OFFER',provider:message.provider,manifest,target});return {offered:true,count:manifest.count};}catch(error){exports.delete(manifest.token);throw error;}}
  if(message.action!=='import'||message.confirmed!==true)throw Error('Confirm the source and destination store accounts before importing.');if(running)throw Error('A purchase handoff is already importing. Wait for it to finish.');running=true;let manifest,committed=false;const transferStarted=now();
  try{
  notify({stage:'Preparing purchase records',done:0,total:0});
  if(message.useOffer){const offer=(await area.get({[key]:null}))[key];if(!offer||offer.peerId!==id||offer.provider!==message.provider||offer.manifest.token!==message.offerToken||offer.manifest.expiresAt<=now())throw Error('The purchase offer changed or expired. Refresh and confirm again.');manifest=offer.manifest;}
  else manifest=(await request(id,{type:prefix+'BEGIN',provider:message.provider,accountRef:message.accountRef})).manifest;
- validateManifest(manifest,message.provider);if(manifest.header.accountRef!==message.accountRef)throw Error('Source account changed. Refresh and confirm again.');
+ validateManifest(manifest,message.provider);if(manifest.purpose)throw Error('A diagnostic inventory cannot be imported.');if(manifest.header.accountRef!==message.accountRef)throw Error('Source account changed. Refresh and confirm again.');
  const records=[];let bytes=0;for(let index=0;index<manifest.chunkCount;index++){
  const response=await request(id,{type:prefix+'CHUNK',provider:message.provider,token:manifest.token,index});
  if(response.index!==index||!Array.isArray(response.records)||response.records.length>250||S.size(response.records)>S.CHUNK_BYTES||await S.hash(JSON.stringify(response.records))!==response.digest)throw Error('Corrupt or out-of-order purchase chunk; no import applied.');
