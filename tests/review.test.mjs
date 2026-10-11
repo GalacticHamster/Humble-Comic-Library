@@ -12,7 +12,7 @@ function background(id,externalResponse) {
     storage: { local: { get: async () => ({ galacticLibraryExtensionId: id }) } }, tabs: { create: async value => tabs.push(value) } } };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-adapters.js','theme.js','shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-sync.js', 'purchase-adapters.js','theme.js','shared.js','entitlement-share.js','background.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context);
   return { tabs, listeners,opened,externalRequest:(message,sender)=>new Promise(resolve=>{dispatch(externals,message,sender,resolve);}),request: (message = { type: 'HCL_OPEN_GALACTIC_REVIEW' }, sender = { id: 'self' }) => new Promise(resolve => { dispatch(listeners,message,sender,resolve); }) };
 }
 

@@ -1,5 +1,5 @@
 /* Opening review uses Chrome's trusted options route, not a page-supplied URL. */
-if (typeof importScripts === 'function') importScripts('purchase-snapshot.js','purchase-transfer.js','purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js');
+if (typeof importScripts === 'function') importScripts('purchase-snapshot.js','purchase-transfer.js','purchase-sync.js','purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js');
 const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local);
 const appearanceService=GalacticHamsterTheme.createService({runtime:chrome.runtime,companion:true,
   read:async()=>{const value=await chrome.storage.local.get({galacticHamsterAppearance:null});return value.galacticHamsterAppearance;},
@@ -71,3 +71,7 @@ const purchaseHandoff=GalacticPurchaseTransfer.createService({runtime:chrome.run
  accounts:()=>libraryStore.execute('handoffAccounts'),snapshot:(_,ref)=>libraryStore.execute('handoffSnapshot',[ref]),inventory:(_,ref)=>libraryStore.execute('handoffInventory',[ref]),preview:(data,target)=>libraryStore.execute('handoffPreview',[data,target]),commit:(data,target)=>libraryStore.execute('handoffImport',[data,target])});
 purchaseHandoff.register();
 chrome.tabs?.onRemoved?.addListener(tabId=>{libraryStore.execute('metadataTabClosed',[tabId]).catch(()=>{});});
+
+const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl)});
+purchaseSync.register();
+GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives'], 'hclSyncControl');

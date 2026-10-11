@@ -643,7 +643,11 @@
         const sharing=(await area.get({[shareScopeKey]:null}))[shareScopeKey];
         await area.set({...(result.stats.recovered||result.stats.historicalRecovered?{libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems,[shareScopeKey]:sharing?{...sharing,revisionRef:global.crypto.randomUUID()}:null}:{}),[controlKey]:null});return {stats:result.stats,details:result.details};
       }
-      if(['handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(operation)){
+      if(operation==='syncAccounts'){
+      const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state),saved=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;
+      const result=globalThis.GalacticPurchaseSync.registry(rows,saved);if(Object.keys(result.patch).length)await area.set(result.patch);return result.accounts;
+    }
+    if(['handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(operation)){
         const A=globalThis.GalacticPurchaseAdapters,S=globalThis.GalacticPurchaseSnapshot,state=await area.get(LIBRARY_STATE_DEFAULTS);
         if(operation==='handoffAccounts')return A.accounts('hb',state);
         if(operation==='handoffSnapshot')return A.snapshot('hb',state,args[0]);
@@ -653,7 +657,8 @@
         let scope;
         if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label},fresh:true};}
         else scope=await A.selected('hb',state,target?.accountRef);
-        const result=A.hbMerge(scope.items,data.records);
+      if(operation==='handoffImport'&&target?.autoSync){const ids=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;await globalThis.GalacticPurchaseSync.assertCommit(area,data.provider,target,ids[scope.label]);}
+        const result=A.hbMerge(scope.items,data.records,Boolean(target?.autoSync));
         if(operation==='handoffPreview'){
           const hi=scope.fresh?await A.inventory({role:'hb',accountRef:'new-account-preview',accountLabel:scope.label,currentCount:0,historicalCount:0,observations:[]}):await A.hbInventory(state,target.accountRef),gi=await A.inventory({role:'gl',accountRef:data.accountRef,accountLabel:data.accountLabel,currentCount:data.records.length,historicalCount:0,observations:data.records.map((r,index)=>({rowRef:'current:'+index,status:'current',title:r.title,mediaType:r.mediaType,purchaseId:r.metadata.purchaseId,providerItemId:r.providerItemId,entitlement:r.metadata.entitlement,bundle:r.metadata.sourceBundle,purchasedAt:r.purchasedAt}))}),comparison=hi?A.reconcileInventories(hi,gi):null;
           return {readOnly:true,sourceRecords:data.records.length,destinationRecords:scope.items.length,...result.stats,...A.previewTitles(scope.items,result.items.slice(scope.items.length)),updateBreakdownKnown:false,enrichment:result.stats.updated,legacyMatchable:comparison?.counts.historicalPurchaseMatches??0,ambiguous:comparison?.counts.ambiguous??result.stats.skipped,conflicts:comparison?.counts.conflicts??0,limitations:[...data.limitations,'Conflicts are diagnostic; preview reports the existing merge rules, which can retain distinct observations rather than correcting their media.']};
@@ -683,7 +688,7 @@
           if(next===label)return true;
           if(next===state.humbleProfileLabel||state.profileArchives.some(entry=>entry.profileLabel===next))throw new Error('That account nickname is already in use.');
           const archives=state.profileArchives.map(entry=>entry.profileLabel===label?{profileLabel:next,backup:{...entry.backup,profileLabel:next}}:entry);
-          await area.set({profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+          await area.set({...await globalThis.GalacticPurchaseSync?.renamePatch(area,label,next),profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
         }
         if(label===state.humbleProfileLabel)return true;
         if(!state.humbleProfileLabel&&state.libraryItems.length)throw new Error('Confirm a nickname for the current library through the importer before switching saved accounts.');
@@ -728,11 +733,11 @@
         clean.humbleProfileLabel=control.profileLabel;
         const checked=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,...clean,profileArchives:[]}));for(const field of scanFields)if(Object.hasOwn(clean,field))clean[field]=checked[field];
         const sharing=await area.get({[shareScopeKey]:null});
-        await area.set({...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});return true;
+        await area.set({...(!current.humbleProfileLabel?await globalThis.GalacticPurchaseSync?.renamePatch(area,'',control.profileLabel):{}),...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});return true;
       }
       if(operation==='replace'){
         const replacement=restoreBackupState(createLibraryBackup(args[0]));
-        await area.set({...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
       }
       if(operation==='shareSnapshot'){
         const [profileLabel]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);if(!profileLabel||state.humbleProfileLabel!==profileLabel)throw new Error('The active Humble profile changed. Refresh before sharing.');
@@ -760,7 +765,7 @@
         const keys=args[0];if(!Array.isArray(keys))throw new Error('Invalid removal.');
         const clear=keys.includes('libraryItems');
         if(!clear&&keys.some(key=>!['hclPurchaseFocus','galacticLibraryExtensionId'].includes(key)))throw new Error('Unsupported removal.');
-        await area.remove(clear?[...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey]:keys);return true;
+        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey]:keys);return true;
       }
       throw new Error('Unsupported library operation.');
     }

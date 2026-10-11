@@ -41,6 +41,8 @@ $releaseFiles = @(
   'ui.css',
   'purchase-snapshot.js',
   'purchase-transfer.js',
+  'purchase-sync.js',
+  'purchase-sync-ui.js',
   'purchase-adapters.js',
   'purchase-handoff-ui.js',
   'theme.js',

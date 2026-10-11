@@ -231,6 +231,8 @@ When following GL, your independent mode is retained and its selector is disable
 
 Theme version 1 is authored in GalacticLibrary/shared/theme.js, theme.css, theme-app.css and theme-overlays.css. From GL run `node scripts/sync-companion-themes.mjs`, then `node scripts/sync-companion-themes.mjs --check`; commit and validate the resulting copies in all three repos. Packaged extensions carry their own assets and work independently.
 
-## Manual purchase sharing
+## Automatic purchase synchronization
 
-[Share saved purchases](docs/purchase-sharing.md) with Galactic Library without another website scan. Both directions require compatible linked extensions and explicit destination-account confirmation. Historical limitations are reported; repeated imports are additive and idempotent.
+[Share saved purchases](docs/purchase-sharing.md) with Galactic Library without another website scan. Automatic sharing requires compatible linked extensions and one-time standing permission for the selected account relationship. Historical limitations are reported; repeated imports are additive and idempotent.
+
+Automatic sync is enabled once for an explicitly selected store-account relationship, with standing consent confirmed in each extension. Meaningful saved-purchase commits then synchronize both ways with GL. Manual sharing remains under Advanced. See [purchase sync](docs/purchase-sharing.md) for retries, account replacement, privacy and recovery. The alarms permission supports bounded durable retries.

@@ -26,6 +26,8 @@ const runtimeFiles = [
   'ui.css',
   'purchase-snapshot.js',
   'purchase-transfer.js',
+  'purchase-sync.js',
+  'purchase-sync-ui.js',
   'purchase-adapters.js',
   'purchase-handoff-ui.js',
   'theme.js',
@@ -105,7 +107,7 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
 
     assert.equal(path.basename(chromePath), `Humble-Comic-Library-${chromeManifest.version}.zip`);
     assert.equal(path.basename(firefoxPath), `Humble-Comic-Library-${chromeManifest.version}-firefox.zip`);
-    for(const artifact of [chrome,firefox]){for(const id of ['bjjpfofmcmiipeghcbhdfjedpldmkcii','pdknncacndkicpogbebdfanniibnnpic','ieoobffekgbfjfoiheejkfihneooiadb'])assert(artifact.shared.includes(id));const manifest=JSON.parse(artifact.manifest);assert.equal(manifest.externally_connectable,undefined);assert.equal(manifest.key,undefined);assert.deepEqual(manifest.permissions,['storage']);}
+    for(const artifact of [chrome,firefox]){for(const id of ['bjjpfofmcmiipeghcbhdfjedpldmkcii','pdknncacndkicpogbebdfanniibnnpic','ieoobffekgbfjfoiheejkfihneooiadb'])assert(artifact.shared.includes(id));const manifest=JSON.parse(artifact.manifest);assert.equal(manifest.externally_connectable,undefined);assert.equal(manifest.key,undefined);assert.deepEqual(manifest.permissions,['storage','alarms']);}
     assert.deepEqual(chrome.entries, runtimeFiles);
     assert.deepEqual(firefox.entries, runtimeFiles);
     assert.equal(chrome.manifest, chromeManifestText);

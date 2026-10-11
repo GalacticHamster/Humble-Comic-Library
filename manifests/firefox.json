@@ -3,6 +3,7 @@
     "scripts": [
       "purchase-snapshot.js",
       "purchase-transfer.js",
+      "purchase-sync.js",
       "purchase-adapters.js",
       "theme.js",
       "shared.js",

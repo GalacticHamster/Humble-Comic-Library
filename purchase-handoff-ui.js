@@ -48,6 +48,7 @@
  // Account names never establish identity. Only a single eligible choice is suggested.
  const onlyChoice=(accounts,source)=>{const eligible=accounts.filter(a=>!source||a.eligibleCount!==0);return eligible.length===1?eligible[0].accountRef:'';};
  for(const host of document.querySelectorAll('[data-purchase-handoff]')){
+ const manual=el('details');manual.dataset.purchaseManual='';manual.append(el('summary','Advanced: manual purchase sharing and recovery'));host.append(manual);
  const provider=host.dataset.provider,gl=host.dataset.purchaseHandoff==='gl',store=provider==='humble'?'Humble':'Fanatical',companion=provider==='humble'?'Humble Comic Library':'Fanatical Library',here=gl?'Galactic Library':companion,there=gl?companion:'Galactic Library';
  let local=[],remote=[],offer=null,busy=false,loaded=false,loading=false,localReady=false,remoteReady=false,revision=0,diagnostic=null,review=null,phase='choose',previewFailed=false;
  const direction=el('select');direction.dataset.purchaseControl='direction';for(const [value,text]of [['import','Import purchases from '+there],['send','Send purchases to '+there]]){const option=el('option',text);option.value=value;direction.append(option);}
@@ -73,7 +74,7 @@
  const selectionDetails=el('details'),selectionLimits=el('pre');selectionLimits.style.whiteSpace='pre-wrap';selectionLimits.style.overflowWrap='anywhere';selectionDetails.append(el('summary','Technical details: sharing limits'),selectionLimits);advanced.append(selectionDetails);
  if(gl){const development=el('details');development.append(el('summary','Development companion'),label('Companion ID (must already be allowed in Settings)',peer));advanced.append(development);}
  const help=el('details');help.append(el('summary','How purchase sharing works'),el('p','Continue checks the proposed changes without changing either library. Sending opens '+there+' to review an offer. Only its final approved Import saves purchases. Existing information is kept; purchases absent from a transfer are not deleted.'));
- host.append(el('h4','Share purchases'),el('p','Copy your saved '+store+' purchases between '+here+' and '+there+' without scanning the store again.'),selection,reviewAccounts,diagnosticNote,approval,actions,progress,status,advanced,help);
+ manual.append(el('h4','Share purchases'),el('p','Copy your saved '+store+' purchases between '+here+' and '+there+' without scanning the store again.'),selection,reviewAccounts,diagnosticNote,approval,actions,progress,status,advanced,help);
  const args=()=>({provider,...(gl&&peer.value.trim()?{peerId:peer.value.trim()}:{})});
  const rows=()=>direction.value==='send'?{source:local,target:remote}:{source:remote,target:local};
  function destination(){const accounts=rows().target,selected=accounts.find(p=>p.accountRef===target.value);return target.value==='new'?{newLabel:newName.value.trim(),expectedActiveLabel:accounts.find(p=>p.active)?.label??accounts[0]?.label??'',expectedActiveId:accounts.find(p=>p.active)?.accountRef??null}:{accountRef:target.value,...(selected?.stamp?{stamp:selected.stamp}:{})};}
@@ -105,8 +106,8 @@
  chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.type!=='GH_PURCHASE_PROGRESS'||sender.id!==chrome.runtime.id||!busy)return;status.textContent=(message.stage??'Sharing saved purchases')+'...';progress.max=Math.max(1,message.total??1);if(message.total)progress.value=message.done;});
  // Local library changes invalidate only reviews, never trigger a scan or transfer.
  chrome.storage?.onChanged?.addListener((changes,area)=>{if(area!=='local'||busy||!review)return;const relevant=gl?['galacticLibraryDatabase','galacticLibraryAllowedExternalClientIds']:provider==='humble'?['libraryItems','profileArchives','humbleProfileLabel','galacticLibraryExtensionId']:['fanaticalLibraryItems','fanaticalProfileArchives','fanaticalProfileLabel','galacticLibraryExtensionId'];if(relevant.some(key=>changes[key]&&JSON.stringify(changes[key].oldValue)!==JSON.stringify(changes[key].newValue))){invalidate();loaded=false;localReady=false;update();status.textContent='Saved purchases changed. Choose Retry to reload accounts and review again.';}});
- const disclosure=host.closest('details');disclosure?.addEventListener('toggle',()=>{if(disclosure.open&&!loaded)load().catch(()=>{});});
- function open(){document.dispatchEvent(new CustomEvent('gh-purchase-open',{detail:{provider}}));for(let node=host.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;advanced.open=false;disclosure?.querySelector('summary')?.focus();if(!loaded)load().catch(()=>{});}
+ const disclosure=manual;disclosure?.addEventListener('toggle',()=>{if(disclosure.open&&!loaded)load().catch(()=>{});});
+ function open(){manual.open=true;document.dispatchEvent(new CustomEvent('gh-purchase-open',{detail:{provider}}));for(let node=host.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;advanced.open=false;disclosure?.querySelector('summary')?.focus();if(!loaded)load().catch(()=>{});}
  call({provider,action:'pending'}).then(value=>{if(value.offer){const notice=el('p','Saved '+store+' purchase offer is ready. '),button=el('button','Review purchase offer');button.type='button';button.addEventListener('click',open);notice.append(button);notice.className='compact-notice';document.querySelector('main')?.prepend(notice);}}).catch(()=>{});
  populate();if(disclosure?.open)load().catch(()=>{});
  }

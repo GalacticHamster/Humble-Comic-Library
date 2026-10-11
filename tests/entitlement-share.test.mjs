@@ -46,7 +46,7 @@ test('source sharing scopes reset on restore/clear/profile changes and reject ch
 test('the actual background handler refuses sharing or private snapshot access from storefront content and foreign senders',async()=>{
   const listeners=[],outgoing=[],id='a'.repeat(32),url='chrome-extension://'+id+'/';
   const context=vm.createContext({crypto:webcrypto,TextEncoder,setTimeout,clearTimeout,chrome:{runtime:{id,getURL:path=>url+path,onMessage:{addListener:fn=>listeners.push(fn)},sendMessage:async(...args)=>{outgoing.push(args);return {ok:true};}},storage:{local:{get:async defaults=>structuredClone(defaults),set:async()=>{},remove:async()=>{}}}}});
-  for(const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js','background.js'])vm.runInContext(readFileSync(new URL('../'+file,import.meta.url),'utf8'),context);
+  for(const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-sync.js', 'purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js','background.js'])vm.runInContext(readFileSync(new URL('../'+file,import.meta.url),'utf8'),context);
   const dispatch=(message,sender)=>new Promise(resolve=>{for(const listener of listeners){let responded=false;const pending=listener(message,sender,value=>{responded=true;resolve(value);});if(responded||pending===true)return;}resolve(null);});
   for(const sender of [{id,url:'https://www.humblebundle.com/purchases'},{id:'b'.repeat(32),url:url+'options.html'},{id,url:'https://attacker.example/'}]){
     assert.equal((await dispatch({type:'HCL_SHARE_ENTITLEMENTS',confirmed:true},sender)).ok,false);
