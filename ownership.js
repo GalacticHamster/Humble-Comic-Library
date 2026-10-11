@@ -43,7 +43,13 @@
     }
     const leftUnits = C.titleContents(offered.title, left); const rightUnits = C.titleContents(owned.title, right);
     if (leftUnits.length === 1 && rightUnits.length === 1) {
-      for (const field of ['series', 'run', 'unitType']) if (leftUnits[0][field] && rightUnits[0][field] && key(leftUnits[0][field]) !== key(rightUnits[0][field])) reasons.push(`Different ${field}`);
+      for (const field of ['series', 'run', 'unitType']) {
+        // Compare title-derived series using the same bounded book presentation
+        // rule. Explicit metadata conflicts above remain authoritative.
+        const sameSeries = field === 'series' && offered.kind === 'book'
+          && policy.presentationTitle(leftUnits[0].series+' vol '+leftUnits[0].number, 'book') === policy.presentationTitle(rightUnits[0].series+' vol '+rightUnits[0].number, 'book');
+        if (!sameSeries && leftUnits[0][field] && rightUnits[0][field] && key(leftUnits[0][field]) !== key(rightUnits[0][field])) reasons.push(`Different ${field}`);
+      }
       if (C.numberKey(leftUnits[0].number) !== C.numberKey(rightUnits[0].number)) reasons.push('Different issue/volume');
     }
     if (exact) {

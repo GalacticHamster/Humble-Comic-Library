@@ -1125,5 +1125,244 @@
       }
     ],
     "expected": "possible"
+  },
+  {
+    "label": "article identity Autumnlands volume 1 direction 0",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity Autumnlands volume 1 direction 1",
+    "offer": {
+      "title": "The Autumnlands Vol. 1"
+    },
+    "records": [
+      {
+        "title": "AUTUMNLANDS, VOL. 1 TP (Digital)"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity Autumnlands volume 2 direction 0",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 2 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 2"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity Autumnlands volume 2 direction 1",
+    "offer": {
+      "title": "The Autumnlands Vol. 2"
+    },
+    "records": [
+      {
+        "title": "AUTUMNLANDS, VOL. 2 TP (Digital)"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity leading A",
+    "media": "book",
+    "offer": {
+      "title": "A Silver Harbor Vol. 01"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity leading An",
+    "media": "book",
+    "offer": {
+      "title": "An Autumnlands Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Autumnlands Vol. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "article identity different volumes",
+    "media": "book",
+    "offer": {
+      "title": "Autumnlands Vol. 1"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 2"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "article identity substantive subtitle",
+    "media": "book",
+    "offer": {
+      "title": "Autumnlands Vol. 1: First Voyage"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1: Silent Forest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "article identity omitted subtitle",
+    "media": "book",
+    "offer": {
+      "title": "Autumnlands Vol. 1"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1: First Voyage"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity different title editions",
+    "media": "book",
+    "offer": {
+      "title": "Autumnlands Vol. 1: Revised Edition"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1: New Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity generic numbered title",
+    "media": "book",
+    "offer": {
+      "title": "The Complete Guide Vol. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "Complete Guide Vol. 1"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity short numbered title",
+    "media": "book",
+    "offer": {
+      "title": "The Room Vol. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "Room Vol. 1"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity internal article remains",
+    "media": "book",
+    "offer": {
+      "title": "Autumnlands and The Visitors Vol. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "Autumnlands and Visitors Vol. 1"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity different authors",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 1 TP (Digital)",
+      "authors": [
+        "Writer A"
+      ]
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1",
+        "authors": [
+          "Writer B"
+        ]
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "article identity different runs",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 1 TP (Digital)",
+      "run": "2020"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1",
+        "run": "1995"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "article identity different ISBNs",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 1 TP (Digital)",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1",
+        "isbn": "9780140328721"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity different edition metadata",
+    "offer": {
+      "title": "AUTUMNLANDS, VOL. 1 TP (Digital)",
+      "edition": "Revised"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1",
+        "edition": "First"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "article identity conflicting explicit series metadata",
+    "offer": {
+      "title": "Autumnlands Vol. 1 TP (Digital)",
+      "series": "Different Series"
+    },
+    "records": [
+      {
+        "title": "The Autumnlands Vol. 1",
+        "series": "Autumnlands"
+      }
+    ],
+    "expected": "possible"
   }
 ]
