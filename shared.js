@@ -5,15 +5,20 @@
   function presentationTitle(value, kind = 'book') {
     let title = String(value ?? '').normalize('NFKC').toLowerCase().trim();
     if (kind === 'book') {
-      const format = /\s+(?:[\[(]\s*)?(?:pdf|cbz|cbr|epub|mobi|kindle|tp|tpb|hc|hardcover|paperback|trade paperback|digital edition)(?:\s*[\])])?\s*$/iu;
+      const format = /\s+(?:\(digital\)|(?:[\[(]\s*)?(?:pdf|cbz|cbr|epub|mobi|kindle|tp|tpb|hc|hardcover|paperback|trade paperback|digital edition)(?:\s*[\])])?)\s*$/iu;
       while (format.test(title)) title = title.replace(format, '').trim();
+      // A format token before a labeled volume is store presentation, not a subtitle.
+      title = title.replace(/\s+tpb?\s+(?=vol(?:ume)?\.?\s+\d+\b)/gu, ' ');
     }
-    return title.replace(/&/gu, ' and ').replace(/\bvolume\b|\bvol\.?\b/giu, ' vol ')
+    title = title.replace(/&/gu, ' and ').replace(/\bvolume\b|\bvol\.?\b/giu, ' vol ')
       .replace(/['\u2018\u2019\u0060]/gu, '')
       .replace(/\d+(?:[.\-\u2013\u2014]\d+)+|[^\p{L}\p{N}\p{M}+#/]+/gu,
         part => /^\d/u.test(part) ? part.replace(/[\u2013\u2014]/gu, '-') : ' ')
       .replace(/\b(vol|issue)\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, (_match, unit, number) => unit + ' ' + roman[number])
       .replace(/\s+/gu, ' ').trim();
+    // Limit zero padding to explicitly labeled whole book volumes.
+    if (kind === 'book') title = title.replace(/\bvol\s+0+(\d+)(?=\s|$)/gu, 'vol $1');
+    return title;
   }
   function ownershipTitleKeys(title, kind = 'book') {
     const keys = [presentationTitle(title, kind)];

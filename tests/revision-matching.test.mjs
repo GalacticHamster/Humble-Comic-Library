@@ -68,10 +68,10 @@ test('revision contract: exact GL identity and original access stay separate fro
 });
 
 
-test('numbered collection relations survive the shipped GL request and companion response paths', async t => {
+test('collection and format identity survive the shipped GL request and companion response paths', async t => {
   if (!gl) return t.skip('Adjacent Galactic Library checkout is not available');
   const cases = JSON.parse(fs.readFileSync(new URL('./common-matching-cases.json', import.meta.url), 'utf8'))
-    .filter(row => row.label.startsWith('numbered collection '));
+    .filter(row => row.label.startsWith('numbered collection ') || row.label.startsWith('format identity '));
   for (const row of cases) {
     const f = fixture([], 'book', row.offer);
     const items = row.records.map((record, index) => gl.normalizeProviderItem({provider:'kindle',
@@ -92,4 +92,40 @@ test('numbered collection relations survive the shipped GL request and companion
   const local = await fixture(records, 'book', {title:'30 Days of Night'}).classify();
   assert.equal(local.match.state, 'possible');
   for (const title of titles) assert.ok(local.candidates.some(item => item.title === title), title);
+});
+
+
+function checkFormatPresentation(policy) {
+  const p = (title, kind = 'book') => policy.presentationTitle(title, kind);
+  assert.equal(p('FREE AGENTS TP VOL 01 (Digital)'), p('FREE AGENTS, VOL. 1'));
+  assert.equal(p('FREE AGENTS TPB VOLUME 001 (Digital)'), p('FREE AGENTS, VOL. 1'));
+  for (const [left,right,kind] of [
+    ['Project 01','Project 1','book'], ['Series #01','Series #1','book'],
+    ['Series Book 01','Series Book 1','book'], ['Series Vol. 01.5','Series Vol. 1.5','book'],
+    ['Series Vol. 01/2','Series Vol. 1/2','book'], ['Digital Agents','Agents','book'],
+    ['Agents Digital','Agents','book'], ['Agents TP Stories Vol. 1','Agents Stories Vol. 1','book'],
+    ['Agents TP VOL 01 (Digital)','Agents Vol. 1','game'],
+    ['Agents Vol. 01','Agents Vol. 1','software'],
+    ['Agents Vol. 1: Revised Edition','Agents Vol. 1','book'],
+    ['Agents Vol. 1: Another Story','Agents Vol. 1','book']
+  ]) assert.notEqual(p(left,kind),p(right,kind),left+' must keep meaningful information');
+}
+
+test('format presentation preserves meaningful numbers, words and edition labels', () => {
+  checkFormatPresentation(fixture([], 'book', {title:'Unused'}).context.LibraryMatchingPolicy);
+});
+
+test('format-equivalent GL records still require permanent ownership', async t => {
+  if (!gl) return t.skip('Adjacent Galactic Library checkout is not available');
+  for (const ownership of ['unknown','borrowed','subscription']) {
+    const item = gl.normalizeProviderItem({provider:'kindle',providerItemId:'format-access',
+      title:'FREE AGENTS, VOL. 1',mediaType:'book',ownership});
+    const db = {...gl.createEmptyDatabase(),providerItems:{[item.id]:item}};
+    const {requestId,...central} = gl.handleExternalApiRequest(db,{type:'MATCH_ITEMS',apiVersion:1,
+      items:[{title:'FREE AGENTS TP VOL 01 (Digital)',mediaType:'book'}]}).results[0];
+    assert.equal(central.owned,false);
+    assert.equal(central.matches[0].relationship,'same-edition');
+    const result = await fixture([], 'book', {title:'FREE AGENTS TP VOL 01 (Digital)'}, central).classify();
+    assert.equal(result.match.state,'possible');
+  }
 });

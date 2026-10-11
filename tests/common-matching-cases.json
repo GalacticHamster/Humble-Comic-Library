@@ -969,5 +969,161 @@
       }
     ],
     "expected": "possible"
+  },
+  {
+    "label": "format identity Free Agents direction 0",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "format identity Free Agents direction 1",
+    "offer": {
+      "title": "FREE AGENTS, VOL. 1"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS TP VOL 01 (Digital)"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "format identity TPB before volume",
+    "offer": {
+      "title": "FREE AGENTS TPB VOLUME 001 (Digital)"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "format identity different volumes",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 02 (Digital)"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "format identity conflicting authors",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)",
+      "authors": [
+        "Writer A"
+      ]
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1",
+        "authors": [
+          "Writer B"
+        ]
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "format identity conflicting ISBNs",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)",
+      "isbn": "9780306406157"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1",
+        "isbn": "9780140328721"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "format identity conflicting runs",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)",
+      "run": "2020"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1",
+        "run": "1995"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "format identity conflicting editions",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)",
+      "edition": "Revised edition"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1",
+        "edition": "First edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "format identity substantive subtitle retained",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01 (Digital)"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1: A Different Story"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "format identity arbitrary zero padding retained",
+    "offer": {
+      "title": "Project 01"
+    },
+    "records": [
+      {
+        "title": "Project 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "format identity format words in real title retained",
+    "offer": {
+      "title": "Digital Agents Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Agents Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "format identity explicit edition wording retained",
+    "offer": {
+      "title": "FREE AGENTS TP VOL 01: Revised Edition (Digital)"
+    },
+    "records": [
+      {
+        "title": "FREE AGENTS, VOL. 1"
+      }
+    ],
+    "expected": "possible"
   }
 ]
