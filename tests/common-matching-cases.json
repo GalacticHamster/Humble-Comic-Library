@@ -609,5 +609,365 @@
       }
     ],
     "expected": "owned"
+  },
+  {
+    "label": "numbered collection Astro City same explicit volume direction 0",
+    "offer": {
+      "title": "ASTRO CITY, VOL. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "Astro City (1995–1996) Vol. 1: Life in the Big City: New Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection Astro City same explicit volume direction 1",
+    "offer": {
+      "title": "Astro City (1995–1996) Vol. 1: Life in the Big City: New Edition"
+    },
+    "records": [
+      {
+        "title": "ASTRO CITY, VOL. 1 TP (Digital)"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection different explicit volume direction 0",
+    "offer": {
+      "title": "ASTRO CITY, VOL. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "Astro City (1995–1996) Vol. 2: Life in the Big City: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection different explicit volume direction 1",
+    "offer": {
+      "title": "Astro City (1995–1996) Vol. 2: Life in the Big City: New Edition"
+    },
+    "records": [
+      {
+        "title": "ASTRO CITY, VOL. 1 TP (Digital)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection independently different subtitles direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1: First Voyage"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1: Silent Forest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection independently different subtitles direction 1",
+    "offer": {
+      "title": "Silver Harbor Vol. 1: Silent Forest"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1: First Voyage"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection distinct series same volume direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Golden Valley Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection distinct series same volume direction 1",
+    "offer": {
+      "title": "Golden Valley Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection generic series insufficient direction 0",
+    "offer": {
+      "title": "The Complete Guide Vol. 1 TP (Digital)"
+    },
+    "records": [
+      {
+        "title": "The Complete Guide (1995–1996) Vol. 1: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection generic series insufficient direction 1",
+    "offer": {
+      "title": "The Complete Guide (1995–1996) Vol. 1: New Edition"
+    },
+    "records": [
+      {
+        "title": "The Complete Guide Vol. 1 TP (Digital)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection same volume changed editions direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1: Revised Edition"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1: New Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection same volume changed editions direction 1",
+    "offer": {
+      "title": "Silver Harbor Vol. 1: New Edition"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1: Revised Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection same volume subtitle omitted direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor (1995–1996) Vol. 1: First Voyage"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection same volume subtitle omitted direction 1",
+    "offer": {
+      "title": "Silver Harbor (1995–1996) Vol. 1: First Voyage"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection explicit different runs direction 0",
+    "offer": {
+      "title": "Silver Harbor (1995–1996) Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor (2020–2021) Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection explicit different runs direction 1",
+    "offer": {
+      "title": "Silver Harbor (2020–2021) Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor (1995–1996) Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection normalized identical product direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1"
+    },
+    "records": [
+      {
+        "title": "SILVER HARBOR, VOLUME 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "numbered collection normalized identical product direction 1",
+    "offer": {
+      "title": "SILVER HARBOR, VOLUME 1"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 1 direction 0",
+    "offer": {
+      "title": "30 Days of Night"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night Deluxe Edition Book 1"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 1 direction 1",
+    "offer": {
+      "title": "30 Days of Night Deluxe Edition Book 1"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 2 direction 0",
+    "offer": {
+      "title": "30 Days of Night"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night Deluxe Edition Book 2"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 2 direction 1",
+    "offer": {
+      "title": "30 Days of Night Deluxe Edition Book 2"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 3 direction 0",
+    "offer": {
+      "title": "30 Days of Night"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night Deluxe Edition Book 3"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection 30 Days of Night book 3 direction 1",
+    "offer": {
+      "title": "30 Days of Night Deluxe Edition Book 3"
+    },
+    "records": [
+      {
+        "title": "30 Days of Night"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection different volumes with edition wording direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1: Revised Edition"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 2: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection different volumes with edition wording direction 1",
+    "offer": {
+      "title": "Silver Harbor Vol. 2: New Edition"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1: Revised Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection generic word overlap direction 0",
+    "offer": {
+      "title": "Silver Harbor Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Silver Garden Vol. 1: Harbor Stories"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection generic word overlap direction 1",
+    "offer": {
+      "title": "Silver Garden Vol. 1: Harbor Stories"
+    },
+    "records": [
+      {
+        "title": "Silver Harbor Vol. 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "numbered collection existing single-word revision control direction 0",
+    "offer": {
+      "title": "Dune Vol. 1"
+    },
+    "records": [
+      {
+        "title": "Dune Vol. 1: Revised Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "numbered collection existing single-word revision control direction 1",
+    "offer": {
+      "title": "Dune Vol. 1: Revised Edition"
+    },
+    "records": [
+      {
+        "title": "Dune Vol. 1"
+      }
+    ],
+    "expected": "possible"
   }
 ]

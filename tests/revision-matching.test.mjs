@@ -66,3 +66,30 @@ test('revision contract: exact GL identity and original access stay separate fro
     assert.equal(related.owned,false,'Override must not promote related identity');assert.equal(related.matches.length,0);assert.equal(related.possibleMatches.length,1);
   }
 });
+
+
+test('numbered collection relations survive the shipped GL request and companion response paths', async t => {
+  if (!gl) return t.skip('Adjacent Galactic Library checkout is not available');
+  const cases = JSON.parse(fs.readFileSync(new URL('./common-matching-cases.json', import.meta.url), 'utf8'))
+    .filter(row => row.label.startsWith('numbered collection '));
+  for (const row of cases) {
+    const f = fixture([], 'book', row.offer);
+    const items = row.records.map((record, index) => gl.normalizeProviderItem({provider:'kindle',
+      providerItemId:'collection-'+index, title:record.title, mediaType:'book', ownership:'owned', metadata:record}));
+    const db = {...gl.createEmptyDatabase(), providerItems:Object.fromEntries(items.map(item => [item.id, item]))};
+    const before = JSON.stringify(db);
+    const request = fanatical
+      ? f.context.FanaticalLibrary.galacticRequestItems([{...row.offer, sourceItemId:'collection', mediaType:'book'}], true)[0]
+      : {title:row.offer.title, mediaType:'book', ...f.context.HumbleOwnership.request({...row.offer, kind:'book'})};
+    const {requestId, ...central} = gl.handleExternalApiRequest(db, {type:'MATCH_ITEMS', apiVersion:1, items:[request]}).results[0];
+    const linked = await fixture([], 'book', row.offer, central).classify();
+    assert.equal(linked.match.state, row.expected === 'owned' ? (fanatical ? 'owned-elsewhere' : 'elsewhere') : row.expected, row.label);
+    if (row.expected === 'possible') assert.ok(linked.candidates.some(item => item.title === row.records[0].title), row.label);
+    assert.equal(JSON.stringify(db), before, 'Read-only matching must not mutate library evidence');
+  }
+  const titles = [1,2,3].map(number => '30 Days of Night Deluxe Edition Book '+number);
+  const records = titles.map(title => ({title}));
+  const local = await fixture(records, 'book', {title:'30 Days of Night'}).classify();
+  assert.equal(local.match.state, 'possible');
+  for (const title of titles) assert.ok(local.candidates.some(item => item.title === title), title);
+});

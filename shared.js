@@ -93,6 +93,38 @@
       && presentationTitle(a.base, kind) === presentationTitle(b.base, kind)
       && presentationTitle(a.qualifier, kind) !== presentationTitle(b.qualifier, kind));
   }
+  // Review-only collection structure. Never used for full-title identity.
+  function numberedCollectionRelation(left, right, kind = 'book') {
+    if (!['book', 'audiobook'].includes(kind)) return null;
+    const parts = value => {
+      let title = String(value ?? '').normalize('NFKC').trim();
+      const format = /\s+(?:[\[(]\s*)?(?:digital|digital edition|tp|tpb|hc|paperback|hardcover|trade paperback|pdf|epub|cbz|cbr)(?:\s*[\])])?\s*$/iu;
+      while (format.test(title)) title = title.replace(format, '').trim();
+      const match = /^(.*?)\b(?:vol(?:ume)?\.?|book)\s*(\d+(?:\.\d+)?)(?=$|\s|:)/iu.exec(title);
+      if (!match) return { series: presentationTitle(title, kind), unit: '', subtitle: '', run: '' };
+      const tail = title.slice(match[0].length).trim();
+      // Do not reinterpret ranges, unlabeled prose, or multiple units.
+      if (tail && !tail.startsWith(':')) return null;
+      const run = /\((\d{4}(?:\s*[-\u2013\u2014]\s*\d{4})?)\)/u.exec(match[1]);
+      let series = match[1].replace(/\(\d{4}(?:\s*[-\u2013\u2014]\s*\d{4})?\)/gu, '').replace(/[,;:\s]+$/u, '');
+      series = series.replace(/\s+(?:deluxe|new|revised|updated|expanded|\d+(?:st|nd|rd|th)?)\s+edition$/iu, '');
+      const text = tail.replace(/^:\s*/u, '');
+      const editionOnly = /^(?:(?:new|deluxe|revised|updated|expanded|annotated|\d+(?:st|nd|rd|th)?)\s+)*(?:edition|ed\.?)$/iu.test(text);
+      const subtitle = revisionTitleParts(editionOnly ? '' : text, kind);
+      return { series: presentationTitle(series, kind), unit: unitKey(match[2]),
+        subtitle: presentationTitle(subtitle.base, kind), run: run ? presentationTitle(run[1], 'unit') : '' };
+    };
+    const a = parts(left), b = parts(right);
+    if (!a || !b || !(a.unit || b.unit)) return null;
+    if (a.unit && b.unit && a.unit !== b.unit) return '';
+    if (a.series !== b.series) return null;
+    if (a.run && b.run && a.run !== b.run) return '';
+    const generic = new Set(['the', 'a', 'an', 'and', 'of', 'in', 'to', 'for', 'with', 'book', 'books', 'guide', 'complete', 'collection', 'introduction', 'manual']);
+    const distinctive = new Set(a.series.split(' ').filter(word => /\p{L}/u.test(word) && word.length >= 3 && !generic.has(word)));
+    if (distinctive.size < 2) return null;
+    if (a.subtitle && b.subtitle && a.subtitle !== b.subtitle) return '';
+    return 'Related distinctive series with compatible or unspecified volume; subtitle, run or edition identity needs review.';
+  }
   function personKey(value) {
     let name = String(value ?? '').normalize('NFKC').toLowerCase().trim();
     name = name.replace(/\s*\((?:author|writer|artist|illustrator|editor|translator|pencill?er|inker|colorist|colourist|letterer)\)\s*$/u, '').trim();
@@ -149,7 +181,7 @@
     return /^\d+(?:\.\d+)?$/u.test(text) ? String(Number(text)) : presentationTitle(text, 'unit');
   }
   global.LibraryMatchingPolicy = Object.freeze({ presentationTitle, ownershipTitleKeys, fullTitleMatches,
-    relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
+    relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, numberedCollectionRelation, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
 }(globalThis));
 // END SHARED MATCHING POLICY
 /* Global helpers shared by the options page and Humble page overlay. */
@@ -241,6 +273,8 @@
   function possibleTitleRelation(left, right, kind = 'book') {
     const a = normalizeTitle(left); const b = normalizeTitle(right);
     if (!a || !b) return '';
+    const numbered = global.LibraryMatchingPolicy.numberedCollectionRelation(left, right, kind);
+    if (numbered !== null) return numbered;
     const presentation = global.LibraryMatchingPolicy.relatedPresentationReason(left, right, kind);
     if (presentation) return presentation;
     if (a === b) return 'Related title presentation; identity needs review.';

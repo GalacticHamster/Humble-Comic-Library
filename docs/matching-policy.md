@@ -34,3 +34,5 @@ New means no match found in the libraries successfully checked. Check incomplete
 Regression coverage lives in `tests/common-matching-cases.json` and the shipped matcher tests. GL additionally checks that the shared policy code and fixtures remain identical across adjacent checkouts (ignoring source line endings).
 
 Bundle context can prioritize competing candidate explanations while preserving authoritative results. See [Bundle-aware candidate explanations](bundle-match-context.md).
+
+Possible discovery also compares explicit book/volume structure for distinctive multiword series names. Equal volumes, or a bare series title on one side, can warn about overlap despite a parenthesized publication run, store formats, omitted subtitle, or edition wording. Different explicit volumes/runs and independently different subtitles are rejected by this rule. The structured comparison is review-only: it never supplies full-title equality, canonical identity or contents coverage. Existing author/run/unit conflicts still apply.
