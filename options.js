@@ -35,7 +35,7 @@
     try { items = HumbleComicLibrary.normalizeWishlist(value); }
     catch (error) { list.replaceChildren(); wishlistStatus.textContent = `Could not read wishlist: ${error.message}`; return; }
     wishlist = items;
-    const filtered = items.filter(item => item.title.toLowerCase().includes(document.querySelector('#wishlist-search').value.toLowerCase())).sort((a,b) => b.weight-a.weight || a.title.localeCompare(b.title));
+    const filtered = items.filter(item => item.title.toLowerCase().includes(document.querySelector('#wishlist-search').value.toLowerCase())).sort((a,b) => b.weight-a.weight || globalThis.LibraryTitleSort.compare(a.title,b.title));
     const pages = Math.max(1, Math.ceil(filtered.length/50));
     wishlistPage = Math.max(0, Math.min(wishlistPage, pages-1));
     document.querySelector('#wishlist-count').textContent = `${filtered.length} wishes; page ${wishlistPage+1} of ${pages}.`;
@@ -126,7 +126,7 @@
     document.querySelector('#confirm-reminder-sharing').checked=false;
     count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other saved accounts (selectable above; excluded from active matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
     document.querySelector('#preview-note').textContent=items.length?`Showing ${Math.min(50,items.length)} of ${items.length} items, alphabetically.`:'Your library is empty. Import purchases or restore a backup to see a preview.';
-    const collator=new Intl.Collator('en',{numeric:true,sensitivity:'base'});
+    const collator=globalThis.LibraryTitleSort;
     preview.replaceChildren(...[...items].sort((a,b)=>collator.compare(a.title,b.title)).slice(0, 50).map((item) => {
       const row = document.createElement('li');
       row.textContent = item.sourceBundle ? `${item.title} — ${item.sourceBundle}` : item.title;
@@ -151,7 +151,7 @@
       return;
     }
     const now = Date.now();
-    const sorted = [...reminders].sort((left, right) => keyReminderSortValue(left, now) - keyReminderSortValue(right, now) || left.title.localeCompare(right.title));
+    const sorted = [...reminders].sort((left, right) => keyReminderSortValue(left, now) - keyReminderSortValue(right, now) || globalThis.LibraryTitleSort.compare(left.title,right.title));
     const expiringSoon = sorted.filter((record) => {
       const days = keyReminderDaysRemaining(record, now);
       return days !== null && days >= 0 && days <= 30;

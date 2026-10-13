@@ -988,10 +988,9 @@ function forceDocumentCardOrder(card) {
   card.dataset.hclSortOrder = 'document';
 }
 
-const HCL_NATURAL_TITLE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 function naturalTitleCompare(left, right) {
-  return HCL_NATURAL_TITLE_COLLATOR.compare(displayTitle(left), displayTitle(right));
+  return globalThis.LibraryTitleSort.compare(displayTitle(left), displayTitle(right));
 }
 
 function audiobookLookupTitle(title) {
@@ -2341,7 +2340,7 @@ function downloadTierTitleList(tierTitles) {
   for (const tier of ordered) {
     const titles = [...tier.titles.values()];
     lines.push(`${tier.label} — ${titles.length} title${titles.length === 1 ? '' : 's'}`);
-    for (const title of titles.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))) lines.push(`- ${title}`);
+    for (const title of titles.sort((left, right) => globalThis.LibraryTitleSort.compare(left,right))) lines.push(`- ${title}`);
     lines.push('');
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));

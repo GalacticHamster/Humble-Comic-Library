@@ -4,6 +4,7 @@
   const waitFor = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(done => setTimeout(done, 30)); } throw new Error('Timed out waiting for storefront'); };
   let error;
   try {
+    check(['Book Six','Book Three','Book Two'].sort(globalThis.LibraryTitleSort.compare).join('|')==='Book Two|Book Three|Book Six','Written book numbers sort naturally in the storefront runtime');
     await waitFor(() => document.querySelector('#hcl-summary'));
     check(!document.querySelector('.hcl-advanced').open && document.querySelector('.hcl-advanced').contains(document.querySelector('#hcl-bundle-plan')), 'Closed Advanced contains all goal selection');
     check(document.querySelector('.hcl-summary-counts').textContent.includes('Possible 1'), 'Possible appears in complete headline counts');
