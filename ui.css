@@ -60,3 +60,18 @@ code { font-family: ui-monospace, monospace; }
 .account-manager select, .account-manager input:not([type="checkbox"]) { max-width:100%; padding:.35rem; }
 .account-manager .account-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
 .account-manager [data-account-status] { display:block; margin-top:.5rem; overflow-wrap:anywhere; }
+
+/* Library browser controls and pagination */
+.library-controls { display:flex; flex-direction:column; gap:.75rem; margin:1rem 0 .5rem; }
+.library-search-row { display:flex; flex-direction:column; gap:.35rem; }
+.library-search-row label { font-size:.9rem; font-weight:600; margin:0; }
+.library-search-row input[type="search"] { width:100%; box-sizing:border-box; }
+.library-filter-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(9.5rem, 1fr)); gap:.75rem; }
+.library-filter-row label { display:flex; flex-direction:column; gap:.35rem; font-size:.85rem; margin:0; }
+.library-filter-row select { width:100%; box-sizing:border-box; }
+.library-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin:.75rem 0 .25rem; }
+.library-navigation p { margin:0; font-size:.9rem; color:var(--gh-text-muted); }
+.library-navigation .actions { margin:0; }
+#library-preview { max-height:28rem; overflow:auto; padding-left:1.5rem; margin:.5rem 0; }
+#library-preview li { margin:.3rem 0; overflow-wrap:anywhere; }
+

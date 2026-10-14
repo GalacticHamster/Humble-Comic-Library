@@ -18,6 +18,13 @@
   const galacticLibraryExtensionId = document.querySelector('#galactic-library-extension-id');
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
   const wishlistStatus = document.querySelector('#wishlist-status');
+  const librarySearch = document.querySelector('#library-search');
+  const libraryFilterMedia = document.querySelector('#library-filter-media');
+  const libraryFilterMetadata = document.querySelector('#library-filter-metadata');
+  const librarySort = document.querySelector('#library-sort');
+  const libraryPageSize = document.querySelector('#library-page-size');
+  const libraryPrevious = document.querySelector('#library-previous');
+  const libraryNext = document.querySelector('#library-next');
 
   async function editWishlist(action,items) {
     try {
@@ -97,6 +104,226 @@
     const response=await HumbleComicLibrary.testGalacticLink(message=>chrome.runtime.sendMessage(id,message));return response;
   }
 
+  const STORAGE_KEY = 'hb_library_browser_state';
+  const defaultLibraryState = {
+    search: '',
+    media: '',
+    metadata: '',
+    sort: 'title-asc',
+    pageSize: 50,
+    page: 0
+  };
+
+  function loadLibraryState() {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const raw = sessionStorage.getItem(STORAGE_KEY);
+        if (raw) return { ...defaultLibraryState, ...JSON.parse(raw) };
+      }
+    } catch {}
+    return { ...defaultLibraryState };
+  }
+
+  function saveLibraryState(state) {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+    } catch {}
+  }
+
+  const libraryBrowserState = loadLibraryState();
+
+  function getItemPurchaseDate(item) {
+    if (!item || typeof item !== 'object') return null;
+    const raw = item.purchasedAt || item.purchaseDate
+      || (Array.isArray(item.purchaseOrigins) && item.purchaseOrigins[0]?.purchaseDate)
+      || (Array.isArray(item.provenance) && (item.provenance[0]?.purchasedAt || item.provenance[0]?.purchaseDate));
+    if (!raw) return null;
+    const time = Date.parse(raw);
+    return Number.isFinite(time) ? time : null;
+  }
+
+  function formatPurchaseDate(timestamp) {
+    if (!timestamp) return '';
+    try {
+      return new Date(timestamp).toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
+  }
+
+  function filterAndSortLibrary(items, { search = '', media = '', metadata = '', sort = 'title-asc' } = {}) {
+    const collator = globalThis.LibraryTitleSort || new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+    let result = Array.isArray(items) ? [...items] : [];
+
+    const query = String(search || '').trim().toLowerCase();
+    if (query) {
+      result = result.filter((item) => {
+        const title = (typeof item === 'string' ? item : (item.title || '')).toLowerCase();
+        return title.includes(query);
+      });
+    }
+
+    if (media) {
+      const targetMedia = media.toLowerCase();
+      result = result.filter((item) => {
+        const kind = typeof item === 'string' ? 'book' : (item.kind || item.mediaType || 'book');
+        return kind.toLowerCase() === targetMedia;
+      });
+    }
+
+    if (metadata) {
+      result = result.filter((item) => {
+        if (metadata === 'dated') return getItemPurchaseDate(item) !== null;
+        if (metadata === 'bundle') return Boolean(typeof item === 'object' && (item.sourceBundle || item.bundle?.title));
+        if (metadata === 'humble') return typeof item === 'object' && (item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
+        if (metadata === 'manual') return typeof item === 'string' || !(item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
+        if (metadata === 'key') return typeof item === 'object' && (item.entitlement === 'third-party-key' || item.provenance?.some((p) => p.entitlement === 'third-party-key') || Boolean(item.keyType) || (Array.isArray(item.keys) && item.keys.length > 0));
+        if (metadata === 'download') return typeof item === 'object' && (item.entitlement === 'direct-download' || item.provenance?.some((p) => p.entitlement === 'direct-download') || (Array.isArray(item.downloads) && item.downloads.length > 0) || (Array.isArray(item.downloadPlatforms) && item.downloadPlatforms.length > 0) || Boolean(item.downloadUrl));
+        return true;
+      });
+    }
+
+    result.sort((a, b) => {
+      const titleA = typeof a === 'string' ? a : (a.title || '');
+      const titleB = typeof b === 'string' ? b : (b.title || '');
+
+      if (sort === 'title-desc') {
+        return collator.compare(titleB, titleA);
+      }
+      if (sort === 'date-desc') {
+        const dateA = getItemPurchaseDate(a);
+        const dateB = getItemPurchaseDate(b);
+        if (dateA !== null && dateB !== null) {
+          if (dateB !== dateA) return dateB - dateA;
+          return collator.compare(titleA, titleB);
+        }
+        if (dateA !== null) return -1;
+        if (dateB !== null) return 1;
+        return collator.compare(titleA, titleB);
+      }
+      if (sort === 'date-asc') {
+        const dateA = getItemPurchaseDate(a);
+        const dateB = getItemPurchaseDate(b);
+        if (dateA !== null && dateB !== null) {
+          if (dateA !== dateB) return dateA - dateB;
+          return collator.compare(titleA, titleB);
+        }
+        if (dateA !== null) return -1;
+        if (dateB !== null) return 1;
+        return collator.compare(titleA, titleB);
+      }
+      return collator.compare(titleA, titleB);
+    });
+
+    return result;
+  }
+
+  function renderLibraryRow(item) {
+    const row = document.createElement('li');
+    const bundle = typeof item === 'object' ? (item.sourceBundle || item.bundle?.title || '') : '';
+    const title = typeof item === 'string' ? item : (item.title || '');
+    let text = bundle ? `${title} — ${bundle}` : title;
+    const date = getItemPurchaseDate(item);
+    const dateStr = formatPurchaseDate(date);
+    if (dateStr) text += ` · ${dateStr}`;
+    row.textContent = text;
+    return row;
+  }
+
+  let latestLibraryItems = [];
+
+  function renderLibraryBrowser(items = latestLibraryItems) {
+    latestLibraryItems = Array.isArray(items) ? items : [];
+    if (!preview) return;
+
+    if (librarySearch && librarySearch.value !== libraryBrowserState.search) librarySearch.value = libraryBrowserState.search;
+    if (libraryFilterMedia && libraryFilterMedia.value !== libraryBrowserState.media) libraryFilterMedia.value = libraryBrowserState.media;
+    if (libraryFilterMetadata && libraryFilterMetadata.value !== libraryBrowserState.metadata) libraryFilterMetadata.value = libraryBrowserState.metadata;
+    if (librarySort && librarySort.value !== libraryBrowserState.sort) librarySort.value = libraryBrowserState.sort;
+    if (libraryPageSize && Number(libraryPageSize.value) !== libraryBrowserState.pageSize) libraryPageSize.value = String(libraryBrowserState.pageSize);
+
+    const processed = filterAndSortLibrary(latestLibraryItems, {
+      search: libraryBrowserState.search,
+      media: libraryBrowserState.media,
+      metadata: libraryBrowserState.metadata,
+      sort: libraryBrowserState.sort
+    });
+
+    const pageSize = libraryBrowserState.pageSize || 50;
+    const totalPages = Math.max(1, Math.ceil(processed.length / pageSize));
+    libraryBrowserState.page = Math.max(0, Math.min(libraryBrowserState.page, totalPages - 1));
+    saveLibraryState(libraryBrowserState);
+
+    const start = libraryBrowserState.page * pageSize;
+    const pageItems = processed.slice(start, start + pageSize);
+
+    preview.start = start + 1;
+    preview.replaceChildren(...pageItems.map(renderLibraryRow));
+
+    if (libraryPrevious) libraryPrevious.disabled = libraryBrowserState.page === 0;
+    if (libraryNext) libraryNext.disabled = (libraryBrowserState.page + 1) * pageSize >= processed.length;
+
+    const note = document.querySelector('#preview-note');
+    if (note) {
+      if (!latestLibraryItems.length) {
+        note.textContent = 'Your library is empty. Import purchases or restore a backup to see a preview.';
+      } else if (!processed.length) {
+        note.textContent = `No items match your search or filter criteria (0 of ${latestLibraryItems.length} items).`;
+      } else {
+        const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.page + 1} of ${totalPages})` : '';
+        const filterInfo = processed.length !== latestLibraryItems.length ? ` (filtered from ${latestLibraryItems.length})` : '';
+        const sortLabel = libraryBrowserState.sort === 'date-desc' ? 'by purchase date (newest)'
+          : libraryBrowserState.sort === 'date-asc' ? 'by purchase date (oldest)'
+          : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'
+          : 'alphabetically';
+        note.textContent = `Showing ${pageItems.length} of ${processed.length} items${filterInfo}${pageInfo}, ${sortLabel}.`;
+      }
+    }
+  }
+
+  librarySearch?.addEventListener('input', () => {
+    libraryBrowserState.page = 0;
+    libraryBrowserState.search = librarySearch.value;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  libraryFilterMedia?.addEventListener('change', () => {
+    libraryBrowserState.page = 0;
+    libraryBrowserState.media = libraryFilterMedia.value;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  libraryFilterMetadata?.addEventListener('change', () => {
+    libraryBrowserState.page = 0;
+    libraryBrowserState.metadata = libraryFilterMetadata.value;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  librarySort?.addEventListener('change', () => {
+    libraryBrowserState.page = 0;
+    libraryBrowserState.sort = librarySort.value;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  libraryPageSize?.addEventListener('change', () => {
+    libraryBrowserState.page = 0;
+    libraryBrowserState.pageSize = Number(libraryPageSize.value) || 50;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  libraryPrevious?.addEventListener('click', () => {
+    libraryBrowserState.page--;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  libraryNext?.addEventListener('click', () => {
+    libraryBrowserState.page++;
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+
   async function library() {
     return (await chrome.storage.local.get({ libraryItems: [] })).libraryItems;
   }
@@ -125,13 +352,7 @@
     document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
     document.querySelector('#confirm-reminder-sharing').checked=false;
     count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other saved accounts (selectable above; excluded from active matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
-    document.querySelector('#preview-note').textContent=items.length?`Showing ${Math.min(50,items.length)} of ${items.length} items, alphabetically.`:'Your library is empty. Import purchases or restore a backup to see a preview.';
-    const collator=globalThis.LibraryTitleSort;
-    preview.replaceChildren(...[...items].sort((a,b)=>collator.compare(a.title,b.title)).slice(0, 50).map((item) => {
-      const row = document.createElement('li');
-      row.textContent = item.sourceBundle ? `${item.title} — ${item.sourceBundle}` : item.title;
-      return row;
-    }));
+    renderLibraryBrowser(items);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;
     openDirectPurchaseLinks.checked = directPurchaseLinksEnabled;
@@ -380,5 +601,12 @@
     await render();
   });
   LibraryAccountProfiles.mount(document.querySelector('#account-profiles'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives'],onActiveChange:()=>render()});
+  globalThis.LibraryBrowser = {
+    filterAndSortLibrary,
+    getItemPurchaseDate,
+    getState: () => ({ ...libraryBrowserState }),
+    setState: (next) => { Object.assign(libraryBrowserState, next); saveLibraryState(libraryBrowserState); renderLibraryBrowser(); },
+    render: () => renderLibraryBrowser()
+  };
   render();
 }());
