@@ -295,3 +295,94 @@ test('options library browser preserves state in sessionStorage and restores upo
   assert.equal(ui.get('#library-sort').value, 'title-desc');
   assert.equal(ui.get('#library-page-size').value, '20');
 });
+
+test('exact duplicate library items consolidate into one row with expandable provenance details', async () => {
+  const ui = await optionsHarness({
+    libraryItems: [
+      item('Exact Game', {
+        kind: 'game',
+        mediaType: 'game',
+        sourceBundle: 'First Bundle',
+        purchaseKey: 'order-1',
+        purchasedAt: '2026-01-15T00:00:00Z',
+        entitlement: 'third-party-key',
+        keyType: 'Steam',
+        keyStatus: 'revealed'
+      }),
+      item('Exact Game', {
+        kind: 'game',
+        mediaType: 'game',
+        sourceBundle: 'Second Bundle',
+        purchaseKey: 'order-2',
+        purchasedAt: '2026-06-20T00:00:00Z',
+        entitlement: 'third-party-key',
+        keyType: 'Steam',
+        keyStatus: 'unrevealed'
+      })
+    ]
+  });
+
+  const preview = ui.get('#library-preview');
+  // Both purchases consolidate into 1 exact library row
+  assert.equal(preview.children.length, 1);
+  const row = preview.children[0];
+  assert.match(row.textContent, /Exact Game — Second Bundle \(2 purchases\) · 2026-06-20/);
+
+  // Expandable details element
+  assert.equal(row.children.length, 1);
+  const details = row.children[0];
+  assert.equal(details.className, 'library-item-details');
+  const summary = details.children[0];
+  assert.equal(summary.className, 'library-item-summary');
+  assert.equal(summary.textContent, 'View all 2 purchases');
+
+  // Provenance list shows both individual purchases ordered newest first
+  const list = details.children[1];
+  assert.equal(list.className, 'library-provenance-list');
+  assert.equal(list.children.length, 2);
+  assert.match(list.children[0].textContent, /Bundle: Second Bundle · Purchased: 2026-06-20 · Order: order-2 · Key: Steam \(unrevealed\)/);
+  assert.match(list.children[1].textContent, /Bundle: First Bundle · Purchased: 2026-01-15 · Order: order-1 · Key: Steam \(revealed\)/);
+});
+
+test('different editions, versions, and volumes remain separate and are not consolidated', async () => {
+  const ui = await optionsHarness({
+    libraryItems: [
+      item('Hero Comic', { edition: 'Standard Edition', sourceBundle: 'Bundle A' }),
+      item('Hero Comic', { edition: 'Deluxe Edition', sourceBundle: 'Bundle B' }),
+      item('Saga Series', { volume: '1', sourceBundle: 'Bundle C' }),
+      item('Saga Series', { volume: '2', sourceBundle: 'Bundle D' }),
+      item('Adventure Game', { kind: 'game', mediaType: 'game', sourceBundle: 'Bundle E' }),
+      item('Adventure Game', { kind: 'book', mediaType: 'book', sourceBundle: 'Bundle F' })
+    ]
+  });
+
+  const preview = ui.get('#library-preview');
+  // Different editions, volumes, and kinds must remain distinct items
+  assert.equal(preview.children.length, 6);
+  const note = ui.get('#preview-note').textContent;
+  assert.match(note, /Showing 6 of 6 items/);
+});
+
+test('incomplete or missing provenance is handled gracefully', async () => {
+  const ui = await optionsHarness({
+    libraryItems: [
+      'Manual Book Without Provenance',
+      item('Item With Partial Provenance', { sourceBundle: '', purchasedAt: null, purchaseKey: '' })
+    ]
+  });
+
+  const preview = ui.get('#library-preview');
+  assert.equal(preview.children.length, 2);
+
+  const manualRow = preview.children.find((r) => r.textContent.includes('Manual Book Without Provenance'));
+  assert(manualRow);
+  const manualDetails = manualRow.children[0];
+  assert.equal(manualDetails.className, 'library-item-details');
+  assert.equal(manualDetails.children[0].textContent, 'Provenance details');
+  assert.equal(manualDetails.children[1].textContent, 'No bundle or purchase record stored.');
+});
+
+test('ui.css configures library-preview with 4.25rem padding-left to prevent clipping 3-5 digit item numbers', () => {
+  const css = fs.readFileSync(new URL('../ui.css', import.meta.url), 'utf8');
+  assert.match(css, /#library-preview\s*\{[^}]*padding-left:\s*4\.25rem/);
+});

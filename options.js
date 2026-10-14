@@ -153,9 +153,171 @@
     }
   }
 
+  function itemsMatchExactly(a, b) {
+    if (a === b) return true;
+    const titleA = (typeof a === 'string' ? a : (a?.title || '')).trim().toLowerCase();
+    const titleB = (typeof b === 'string' ? b : (b?.title || '')).trim().toLowerCase();
+    if (!titleA || titleA !== titleB) return false;
+
+    const kindA = (typeof a === 'string' ? 'book' : (a?.kind || a?.mediaType || 'book')).toLowerCase();
+    const kindB = (typeof b === 'string' ? 'book' : (b?.kind || b?.mediaType || 'book')).toLowerCase();
+    if (kindA !== kindB) return false;
+
+    if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
+      const idA = (a.providerItemId || '').trim();
+      const idB = (b.providerItemId || '').trim();
+      if (idA && idB && idA !== idB) return false;
+
+      const edA = (a.edition || a.editionId || '').trim().toLowerCase();
+      const edB = (b.edition || b.editionId || '').trim().toLowerCase();
+      if (edA !== edB) return false;
+
+      const volA = (a.volume || '').trim().toLowerCase();
+      const volB = (b.volume || '').trim().toLowerCase();
+      if (volA !== volB) return false;
+
+      const issA = (a.issue || '').trim().toLowerCase();
+      const issB = (b.issue || '').trim().toLowerCase();
+      if (issA !== issB) return false;
+
+      const isbnA = Array.isArray(a.isbn) ? a.isbn.join(',').toLowerCase() : (a.isbn || '').trim().toLowerCase();
+      const isbnB = Array.isArray(b.isbn) ? b.isbn.join(',').toLowerCase() : (b.isbn || '').trim().toLowerCase();
+      if (isbnA && isbnB && isbnA !== isbnB) return false;
+    }
+
+    return true;
+  }
+
+  function extractItemProvenance(item) {
+    if (!item || typeof item !== 'object') return [];
+    if (Array.isArray(item.provenance) && item.provenance.length > 0) {
+      return item.provenance.map((p) => ({
+        title: p?.title || item.title || '',
+        sourceBundle: p?.sourceBundle || item.sourceBundle || (item.bundle?.title || ''),
+        purchaseKey: p?.purchaseKey || item.purchaseKey || '',
+        purchasedAt: p?.purchasedAt || item.purchasedAt || null,
+        providerItemId: p?.providerItemId || item.providerItemId || '',
+        entitlement: p?.entitlement || item.entitlement || '',
+        entitlementId: p?.entitlementId || item.entitlementId || '',
+        keyType: p?.keyType || item.keyType || '',
+        keyStatus: p?.keyStatus || item.keyStatus || '',
+        expiresAt: p?.expiresAt || item.expiresAt || null
+      }));
+    }
+    const sourceBundle = item.sourceBundle || (item.bundle?.title || '');
+    const purchaseKey = item.purchaseKey || '';
+    const purchasedAt = item.purchasedAt || null;
+    if (sourceBundle || purchaseKey || purchasedAt || item.entitlement || item.keyType || item.keyStatus) {
+      return [{
+        title: item.title || '',
+        sourceBundle,
+        purchaseKey,
+        purchasedAt,
+        providerItemId: item.providerItemId || '',
+        entitlement: item.entitlement || '',
+        entitlementId: item.entitlementId || '',
+        keyType: item.keyType || '',
+        keyStatus: item.keyStatus || '',
+        expiresAt: item.expiresAt || null
+      }];
+    }
+    return [];
+  }
+
+  function mergeProvenanceRecords(existingList, incomingList) {
+    const merged = new Map();
+    function recordKey(rec) {
+      if (rec.purchaseKey) {
+        return `key:${rec.purchaseKey}:${rec.entitlementId || rec.providerItemId || ''}`;
+      }
+      return `bundle:${(rec.sourceBundle || '').toLowerCase()}:${rec.purchasedAt || ''}:${rec.keyStatus || ''}`;
+    }
+    for (const rec of [...existingList, ...incomingList]) {
+      const key = recordKey(rec);
+      if (!merged.has(key)) {
+        merged.set(key, rec);
+      } else {
+        const prev = merged.get(key);
+        merged.set(key, {
+          ...prev,
+          ...rec,
+          sourceBundle: prev.sourceBundle || rec.sourceBundle,
+          purchaseKey: prev.purchaseKey || rec.purchaseKey,
+          purchasedAt: prev.purchasedAt || rec.purchasedAt,
+          keyStatus: rec.keyStatus || prev.keyStatus,
+          expiresAt: rec.expiresAt || prev.expiresAt
+        });
+      }
+    }
+    return [...merged.values()].sort((a, b) => {
+      const timeA = a.purchasedAt ? Date.parse(a.purchasedAt) : 0;
+      const timeB = b.purchasedAt ? Date.parse(b.purchasedAt) : 0;
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+      if (timeA && !timeB) return -1;
+      if (!timeA && timeB) return 1;
+      return (a.sourceBundle || '').localeCompare(b.sourceBundle || '');
+    });
+  }
+
+  function consolidateItemInto(target, incoming) {
+    const targetObj = typeof target === 'string' ? { title: target, kind: 'book' } : { ...target };
+    const incomingObj = typeof incoming === 'string' ? { title: incoming, kind: 'book' } : incoming;
+
+    const targetProv = extractItemProvenance(targetObj);
+    const incomingProv = extractItemProvenance(incomingObj);
+    const allProv = mergeProvenanceRecords(targetProv, incomingProv);
+
+    const latestProv = allProv[0];
+    const targetDate = getItemPurchaseDate(targetObj);
+    const incomingDate = getItemPurchaseDate(incomingObj);
+    const useIncomingDate = incomingDate !== null && (targetDate === null || incomingDate > targetDate);
+
+    return {
+      ...targetObj,
+      ...(useIncomingDate ? incomingObj : {}),
+      providerItemId: targetObj.providerItemId || incomingObj.providerItemId,
+      sourceBundle: latestProv?.sourceBundle || targetObj.sourceBundle || incomingObj.sourceBundle || '',
+      purchasedAt: latestProv?.purchasedAt || (useIncomingDate ? incomingObj.purchasedAt : targetObj.purchasedAt) || null,
+      purchaseKey: latestProv?.purchaseKey || targetObj.purchaseKey || incomingObj.purchaseKey || '',
+      entitlement: latestProv?.entitlement || targetObj.entitlement || incomingObj.entitlement,
+      keyType: latestProv?.keyType || targetObj.keyType || incomingObj.keyType,
+      keyStatus: latestProv?.keyStatus || targetObj.keyStatus || incomingObj.keyStatus,
+      expiresAt: latestProv?.expiresAt || targetObj.expiresAt || incomingObj.expiresAt,
+      provenance: allProv
+    };
+  }
+
+  function consolidateLibrary(items) {
+    if (!Array.isArray(items)) return [];
+    const buckets = new Map();
+    for (const item of items) {
+      const title = (typeof item === 'string' ? item : (item?.title || '')).trim().toLowerCase();
+      const kind = (typeof item === 'string' ? 'book' : (item?.kind || item?.mediaType || 'book')).toLowerCase();
+      const bucketKey = `${kind}:::${title}`;
+      let group = buckets.get(bucketKey);
+      if (!group) {
+        group = [];
+        buckets.set(bucketKey, group);
+      }
+      const existingIndex = group.findIndex((candidate) => itemsMatchExactly(candidate, item));
+      if (existingIndex >= 0) {
+        group[existingIndex] = consolidateItemInto(group[existingIndex], item);
+      } else {
+        const itemObj = typeof item === 'string' ? { title: item, kind } : { ...item };
+        const prov = extractItemProvenance(itemObj);
+        group.push({ ...itemObj, provenance: prov });
+      }
+    }
+    const consolidated = [];
+    for (const group of buckets.values()) {
+      consolidated.push(...group);
+    }
+    return consolidated;
+  }
+
   function filterAndSortLibrary(items, { search = '', media = '', metadata = '', sort = 'title-asc' } = {}) {
     const collator = globalThis.LibraryTitleSort || new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-    let result = Array.isArray(items) ? [...items] : [];
+    let result = Array.isArray(items) ? consolidateLibrary(items) : [];
 
     const query = String(search || '').trim().toLowerCase();
     if (query) {
@@ -225,10 +387,61 @@
     const bundle = typeof item === 'object' ? (item.sourceBundle || item.bundle?.title || '') : '';
     const title = typeof item === 'string' ? item : (item.title || '');
     let text = bundle ? `${title} — ${bundle}` : title;
+    const records = extractItemProvenance(item);
+    if (records.length > 1) {
+      text += ` (${records.length} purchases)`;
+    }
     const date = getItemPurchaseDate(item);
     const dateStr = formatPurchaseDate(date);
     if (dateStr) text += ` · ${dateStr}`;
     row.textContent = text;
+
+    const details = document.createElement('details');
+    details.className = 'library-item-details';
+    const summary = document.createElement('summary');
+    summary.className = 'library-item-summary';
+
+    if (records.length > 1) {
+      summary.textContent = `View all ${records.length} purchases`;
+    } else if (records.length === 1) {
+      summary.textContent = 'View purchase details';
+    } else {
+      summary.textContent = 'Provenance details';
+    }
+    details.append(summary);
+
+    if (records.length > 0) {
+      const list = document.createElement('ul');
+      list.className = 'library-provenance-list';
+      for (const rec of records) {
+        const li = document.createElement('li');
+        const parts = [];
+        if (rec.sourceBundle) parts.push(`Bundle: ${rec.sourceBundle}`);
+        const pDate = formatPurchaseDate(rec.purchasedAt);
+        if (pDate) parts.push(`Purchased: ${pDate}`);
+        if (rec.purchaseKey) parts.push(`Order: ${rec.purchaseKey}`);
+        if (rec.entitlement === 'third-party-key' || rec.keyType) {
+          const status = rec.keyStatus ? ` (${rec.keyStatus})` : '';
+          parts.push(`Key: ${rec.keyType || 'Key'}${status}`);
+          if (rec.expiresAt) {
+            const exp = formatPurchaseDate(rec.expiresAt);
+            if (exp) parts.push(`Expires: ${exp}`);
+          }
+        } else if (rec.entitlement === 'direct-download') {
+          parts.push('Direct download');
+        }
+        li.textContent = parts.join(' · ') || 'Purchase record stored without bundle details';
+        list.append(li);
+      }
+      details.append(list);
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'library-provenance-empty';
+      empty.textContent = 'No bundle or purchase record stored.';
+      details.append(empty);
+    }
+
+    row.append(details);
     return row;
   }
 
@@ -244,7 +457,8 @@
     if (librarySort && librarySort.value !== libraryBrowserState.sort) librarySort.value = libraryBrowserState.sort;
     if (libraryPageSize && Number(libraryPageSize.value) !== libraryBrowserState.pageSize) libraryPageSize.value = String(libraryBrowserState.pageSize);
 
-    const processed = filterAndSortLibrary(latestLibraryItems, {
+    const uniqueItems = consolidateLibrary(latestLibraryItems);
+    const processed = filterAndSortLibrary(uniqueItems, {
       search: libraryBrowserState.search,
       media: libraryBrowserState.media,
       metadata: libraryBrowserState.metadata,
@@ -270,10 +484,10 @@
       if (!latestLibraryItems.length) {
         note.textContent = 'Your library is empty. Import purchases or restore a backup to see a preview.';
       } else if (!processed.length) {
-        note.textContent = `No items match your search or filter criteria (0 of ${latestLibraryItems.length} items).`;
+        note.textContent = `No items match your search or filter criteria (0 of ${uniqueItems.length} items).`;
       } else {
         const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.page + 1} of ${totalPages})` : '';
-        const filterInfo = processed.length !== latestLibraryItems.length ? ` (filtered from ${latestLibraryItems.length})` : '';
+        const filterInfo = processed.length !== uniqueItems.length ? ` (filtered from ${uniqueItems.length})` : '';
         const sortLabel = libraryBrowserState.sort === 'date-desc' ? 'by purchase date (newest)'
           : libraryBrowserState.sort === 'date-asc' ? 'by purchase date (oldest)'
           : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'

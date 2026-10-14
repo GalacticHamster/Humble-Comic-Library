@@ -9,7 +9,7 @@ button { padding: 0.55rem 0.8rem; cursor: pointer; }
 .danger { color: var(--gh-on-status); background: var(--gh-danger-fill); border-color: var(--gh-danger-fill); }
 .actions { display: flex; gap: 0.75rem; }
 #galactic-library-extension-id { display: block; width: min(100%, 28rem); margin-top: 0.35rem; }
-#library-preview { max-height: 24rem; overflow: auto; padding-left: 1.5rem; }
+#library-preview { max-height: 28rem; overflow: auto; padding-left: 4.25rem; }
 #key-reminder-list { display: grid; gap: 0.75rem; max-height: 30rem; margin: 0.75rem 0 0; padding: 0; overflow: auto; list-style: none; }
 .key-reminder-group { margin-top: 0.5rem; color: var(--gh-text-muted); font-size: 0.85rem; font-weight: 700; }
 .key-reminder-card { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid var(--gh-divider); border-left: 0.3rem solid var(--gh-neutral-fill); border-radius: 0.45rem; background: var(--gh-surface); }
@@ -71,7 +71,14 @@ code { font-family: ui-monospace, monospace; }
 .library-filter-row select { width:100%; box-sizing:border-box; }
 .library-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin:.75rem 0 .25rem; }
 .library-navigation p { margin:0; font-size:.9rem; color:var(--gh-text-muted); }
-.library-navigation .actions { margin:0; }
-#library-preview { max-height:28rem; overflow:auto; padding-left:1.5rem; margin:.5rem 0; }
+#library-preview { max-height:28rem; overflow:auto; padding-left:4.25rem; margin:.5rem 0; }
 #library-preview li { margin:.3rem 0; overflow-wrap:anywhere; }
+
+/* Provenance details in library browser */
+.library-item-details { margin: 0.25rem 0 0.35rem; font-size: 0.85rem; }
+.library-item-summary { cursor: pointer; color: var(--gh-text-muted); font-size: 0.82rem; user-select: none; }
+.library-item-summary:hover { color: var(--gh-text); }
+.library-provenance-list { margin: 0.35rem 0 0.25rem 1.25rem; padding: 0; list-style: disc; font-size: 0.82rem; color: var(--gh-text-muted); }
+.library-provenance-list li { margin: 0.2rem 0; }
+.library-provenance-empty { margin: 0.25rem 0 0.25rem 0.5rem; font-style: italic; color: var(--gh-text-muted); font-size: 0.82rem; }
 
