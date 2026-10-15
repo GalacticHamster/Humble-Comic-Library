@@ -498,6 +498,15 @@
     return result;
   }
 
+  function normalizeFormat(f) {
+    if (typeof f !== 'string') return '';
+    const trimmed = f.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('.')) return trimmed.toLowerCase();
+    if (/^[a-z0-9]{2,16}$/iu.test(trimmed)) return '.' + trimmed.toLowerCase();
+    return trimmed;
+  }
+
   function restoreBackupItem(value, label) {
     if (typeof value === 'string') {
       const item = normalizeLibraryImportItem(value);
@@ -508,14 +517,14 @@
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
     if (item.automaticKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.automaticKind)) throw new Error(`${label}.automaticKind is unsupported.`);
     if (item.manualKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.manualKind)) throw new Error(`${label}.manualKind is unsupported.`);
-    if (Array.isArray(value.formats)) {
-      item.formats = [...new Set(value.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+        if (Array.isArray(value.formats)) {
+      item.formats = [...new Set(value.formats.map(normalizeFormat).filter(Boolean))].sort();
     }
     if (value.provenance !== undefined) {
       item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => {
         const origin = { ...backupRecord(record, { ...PROVENANCE_FIELDS, delivery: 'string', streaming: 'boolean' }, path), ...entitlementFields(record) };
         if (Array.isArray(record.formats)) {
-          origin.formats = [...new Set(record.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+          origin.formats = [...new Set(record.formats.map(normalizeFormat).filter(Boolean))].sort();
         }
         return origin;
       });
@@ -577,7 +586,7 @@
       });
     }
     const mediaImportVersion = value.mediaImportVersion === undefined ? 1 : value.mediaImportVersion;
-    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 7) {
+    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 8) {
       throw new Error('Unsupported media import scan version.');
     }
     const customCollectionMappings = global.HumbleCollectionMappings.validateCustomMappings(value.collectionMappings === undefined ? [] : value.collectionMappings);
@@ -606,7 +615,7 @@
         title: 'string', purchaseKey: 'string', sourceBundle: 'string?', purchasedAt: 'string?', providerItemId: 'string?', reason: 'string?', entitlement: 'string?', delivery: 'string?', streaming: 'boolean'
       }, path, ['title', 'purchaseKey']);
       if (Array.isArray(record.formats)) {
-        rec.formats = [...new Set(record.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+        rec.formats = [...new Set(record.formats.map(normalizeFormat).filter(Boolean))].sort();
       }
       return rec;
     });

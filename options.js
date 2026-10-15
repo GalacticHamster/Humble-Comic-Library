@@ -239,7 +239,7 @@
         keyType: p?.keyType || item.keyType || '',
         keyStatus: p?.keyStatus || item.keyStatus || '',
         expiresAt: p?.expiresAt || item.expiresAt || null,
-        formats: Array.isArray(p?.formats) && p.formats.length ? p.formats : (Array.isArray(item.formats) ? item.formats : []),
+        formats: Array.isArray(p?.formats) ? p.formats : (Array.isArray(item.formats) ? item.formats : undefined),
         delivery: p?.delivery || item.delivery || '',
         streaming: Boolean(p?.streaming || item.streaming)
       })));
@@ -247,7 +247,7 @@
     const sourceBundle = item.sourceBundle || (item.bundle?.title || '');
     const purchaseKey = item.purchaseKey || '';
     const purchasedAt = item.purchasedAt || null;
-    if (sourceBundle || purchaseKey || purchasedAt || item.entitlement || item.keyType || item.keyStatus || item.formats?.length) {
+    if (sourceBundle || purchaseKey || purchasedAt || item.entitlement || item.keyType || item.keyStatus || item.formats !== undefined) {
       return [{
         title: item.title || '',
         sourceBundle,
@@ -259,7 +259,7 @@
         keyType: item.keyType || '',
         keyStatus: item.keyStatus || '',
         expiresAt: item.expiresAt || null,
-        formats: Array.isArray(item.formats) ? item.formats : [],
+        formats: Array.isArray(item.formats) ? item.formats : undefined,
         delivery: item.delivery || '',
         streaming: Boolean(item.streaming)
       }];
@@ -281,6 +281,9 @@
         merged.set(key, rec);
       } else {
         const prev = merged.get(key);
+        const combinedFormats = Array.isArray(prev.formats) || Array.isArray(rec.formats)
+          ? [...new Set([...(prev.formats || []), ...(rec.formats || [])])].sort()
+          : undefined;
         merged.set(key, {
           ...prev,
           ...rec,
@@ -288,7 +291,10 @@
           purchaseKey: prev.purchaseKey || rec.purchaseKey,
           purchasedAt: prev.purchasedAt || rec.purchasedAt,
           keyStatus: rec.keyStatus || prev.keyStatus,
-          expiresAt: rec.expiresAt || prev.expiresAt
+          expiresAt: rec.expiresAt || prev.expiresAt,
+          delivery: rec.delivery || prev.delivery || '',
+          streaming: Boolean(rec.streaming || prev.streaming),
+          ...(combinedFormats !== undefined ? { formats: combinedFormats } : {})
         });
       }
     }
@@ -311,8 +317,8 @@
 
     return {
       ...targetObj,
-      ...(combinedFormats.length ? { formats: combinedFormats } : {}),
       ...(useIncomingDate ? incomingObj : {}),
+      ...(combinedFormats.length ? { formats: combinedFormats } : {}),
       providerItemId: targetObj.providerItemId || incomingObj.providerItemId,
       sourceBundle: latestProv?.sourceBundle || targetObj.sourceBundle || incomingObj.sourceBundle || '',
       purchasedAt: latestProv?.purchasedAt || (useIncomingDate ? incomingObj.purchasedAt : targetObj.purchasedAt) || null,
@@ -524,13 +530,19 @@
           const deliveryLabel = rec.streaming || rec.delivery === 'streaming' ? 'Streaming' : 'Direct download';
           secondaryParts.push(deliveryLabel);
         }
-        const formats = Array.isArray(rec.formats) && rec.formats.length > 0
+        const formats = Array.isArray(rec.formats)
           ? rec.formats
-          : (Array.isArray(item.formats) && item.formats.length > 0 ? item.formats : []);
-        if (formats.length > 0) {
-          secondaryParts.push(`Formats: ${formats.map(f => f.startsWith('.') ? f : '.' + f).join(', ')}`);
-        } else if (rec.entitlement === 'direct-download' || item.entitlement === 'direct-download' || rec.delivery === 'direct-download' || (!rec.keyType && rec.entitlement !== 'third-party-key' && (item.kind === 'unclassified' || item.kind === 'book' || item.kind === 'comic' || item.kind === 'software' || item.kind === 'video' || item.kind === 'audiobook'))) {
-          secondaryParts.push('File formats unavailable');
+          : (Array.isArray(item.formats) ? item.formats : null);
+        if (formats && formats.length > 0) {
+          secondaryParts.push(`Formats: ${formats.map(f => f.startsWith('.') ? f : (/^[a-z0-9]{2,10}$/iu.test(f) ? '.' + f.toLowerCase() : f)).join(', ')}`);
+        } else if (formats && formats.length === 0) {
+          if (rec.entitlement !== 'third-party-key' && !rec.keyType && !rec.streaming && rec.delivery !== 'streaming') {
+            secondaryParts.push('No file formats in purchase metadata');
+          }
+        } else if (formats === null) {
+          if (rec.entitlement !== 'third-party-key' && !rec.keyType && !rec.streaming && rec.delivery !== 'streaming') {
+            secondaryParts.push('Format details require library rescan');
+          }
         }
 
         if (secondaryParts.length > 0) {
@@ -859,9 +871,12 @@
           titleSpan.textContent = rec.title;
           const metaSpan = document.createElement('span');
           metaSpan.className = 'library-rejected-meta';
-          const formatsText = Array.isArray(rec.formats) && rec.formats.length > 0
-            ? `Formats: ${rec.formats.map(f => f.startsWith('.') ? f : '.' + f).join(', ')}`
-            : (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'File formats unavailable' : '');
+          const rejFormats = Array.isArray(rec.formats) ? rec.formats : null;
+          const formatsText = rejFormats && rejFormats.length > 0
+            ? `Formats: ${rejFormats.map(f => f.startsWith('.') ? f : (/^[a-z0-9]{2,10}$/iu.test(f) ? '.' + f.toLowerCase() : f)).join(', ')}`
+            : rejFormats && rejFormats.length === 0
+            ? (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'No file formats in purchase metadata' : '')
+            : (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'Format details require library rescan' : '');
           const deliveryText = rec.delivery === 'streaming' ? 'Streaming' : (rec.entitlement === 'third-party-key' || rec.delivery === 'third-party-key' ? (rec.keyType ? `Key: ${rec.keyType}` : 'External key') : (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'Direct download' : ''));
           const parts = [
             rec.sourceBundle ? `Bundle: ${rec.sourceBundle}` : '',
@@ -1180,6 +1195,7 @@
   });
   LibraryAccountProfiles.mount(document.querySelector('#account-profiles'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives'],onActiveChange:()=>render()});
   globalThis.LibraryBrowser = {
+    consolidateItemInto,
     filterAndSortLibrary,
     getItemPurchaseDate,
     getState: () => ({ ...libraryBrowserState }),

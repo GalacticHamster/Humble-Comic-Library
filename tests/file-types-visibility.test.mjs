@@ -156,11 +156,11 @@ test('HB file-type extraction: extracts distinct extensions from downloads metad
 
   const unclassified = items.find(i => i.title === 'Mystery Direct Download Package');
   assert.equal(unclassified.kind, 'unclassified');
-  assert.equal(unclassified.formats, undefined);
+  assert.deepEqual(plain(unclassified.formats), []);
   assert.equal(unclassified.delivery, 'direct-download');
 });
 
-test('HB options UI: formats visibility in expanded row details and explicit indication when unavailable', async () => {
+test('HB options UI: formats visibility in expanded row details and distinct explanations for missing formats', async () => {
   const harness = await createHarness({
     libraryItems: [
       {
@@ -177,13 +177,26 @@ test('HB options UI: formats visibility in expanded row details and explicit ind
         }]
       },
       {
-        title: 'Unclassified Download Without Formats',
+        title: 'Scanned Download Without Storefront Formats',
         kind: 'unclassified',
+        formats: [],
         provenance: [{
-          title: 'Unclassified Download Without Formats',
+          title: 'Scanned Download Without Storefront Formats',
           sourceBundle: 'Mystery Bundle',
           purchaseKey: 'hb-order-2',
           purchasedAt: '2026-03-02T00:00:00Z',
+          entitlement: 'direct-download',
+          formats: []
+        }]
+      },
+      {
+        title: 'Legacy Unscanned Book',
+        kind: 'book',
+        provenance: [{
+          title: 'Legacy Unscanned Book',
+          sourceBundle: 'Old Book Bundle',
+          purchaseKey: 'hb-order-legacy',
+          purchasedAt: '2025-01-01T00:00:00Z',
           entitlement: 'direct-download'
         }]
       },
@@ -206,7 +219,7 @@ test('HB options UI: formats visibility in expanded row details and explicit ind
   await harness.context.render();
 
   const preview = harness.elements.get('#library-preview');
-  assert.equal(preview.children.length, 3);
+  assert.equal(preview.children.length, 4);
 
   // 1. Item with formats displays "Formats: .cbz, .pdf"
   const comicRow = preview.children.find(r => r.textContent.includes('Digital Comic #1'));
@@ -218,16 +231,23 @@ test('HB options UI: formats visibility in expanded row details and explicit ind
   assert.match(comicSecondary.textContent, /Formats:\s*\.cbz,\s*\.pdf/);
   assert.match(comicSecondary.textContent, /Direct download/);
 
-  // 2. Direct download item without format metadata displays "File formats unavailable"
-  const unclassRow = preview.children.find(r => r.textContent.includes('Unclassified Download Without Formats'));
-  assert(unclassRow, 'unclassified row found');
-  const unclassDetails = unclassRow.children[0];
-  const unclassProvList = unclassDetails.children.find(c => c.className === 'library-provenance-list');
-  const unclassProvItem = unclassProvList.children[0];
-  const unclassSecondary = unclassProvItem.children.find(c => c.className === 'library-provenance-secondary');
-  assert.match(unclassSecondary.textContent, /File formats unavailable/);
+  // 2. Scanned direct download item genuinely lacking formats in storefront metadata
+  const scannedEmptyRow = preview.children.find(r => r.textContent.includes('Scanned Download Without Storefront Formats'));
+  assert(scannedEmptyRow, 'scanned empty row found');
+  const scannedDetails = scannedEmptyRow.children[0];
+  const scannedProvList = scannedDetails.children.find(c => c.className === 'library-provenance-list');
+  const scannedSecondary = scannedProvList.children[0].children.find(c => c.className === 'library-provenance-secondary');
+  assert.match(scannedSecondary.textContent, /No file formats in purchase metadata/);
 
-  // 3. Key item displays Key information and not "File formats unavailable"
+  // 3. Legacy unscanned item predating format extraction displays rescan requirement
+  const legacyRow = preview.children.find(r => r.textContent.includes('Legacy Unscanned Book'));
+  assert(legacyRow, 'legacy row found');
+  const legacyDetails = legacyRow.children[0];
+  const legacyProvList = legacyDetails.children.find(c => c.className === 'library-provenance-list');
+  const legacySecondary = legacyProvList.children[0].children.find(c => c.className === 'library-provenance-secondary');
+  assert.match(legacySecondary.textContent, /Format details require library rescan/);
+
+  // 4. Key item displays Key information and not downloadable format notice
   const gameRow = preview.children.find(r => r.textContent.includes('Steam Game Entry'));
   assert(gameRow, 'game row found');
   const gameDetails = gameRow.children[0];
@@ -236,6 +256,8 @@ test('HB options UI: formats visibility in expanded row details and explicit ind
   const gameSecondary = gameProvItem.children.find(c => c.className === 'library-provenance-secondary');
   assert.match(gameSecondary.textContent, /Key:\s*Steam/);
   assert(!gameSecondary.textContent.includes('File formats unavailable'));
+  assert(!gameSecondary.textContent.includes('No file formats in purchase metadata'));
+  assert(!gameSecondary.textContent.includes('Format details require library rescan'));
 });
 
 test('HB options UI: rejected purchase reviews display delivery and formats or unavailable indication', async () => {
@@ -269,7 +291,7 @@ test('HB options UI: rejected purchase reviews display delivery and formats or u
   assert.match(item1Meta.textContent, /Direct download/);
 
   const item2Meta = rejectedList.children[1].children.find(c => c.className === 'library-rejected-meta');
-  assert.match(item2Meta.textContent, /File formats unavailable/);
+  assert.match(item2Meta.textContent, /Format details require library rescan/);
 });
 
 test('HB backup export and restore preserves file formats and delivery metadata', async () => {
@@ -316,4 +338,88 @@ test('HB backup export and restore preserves file formats and delivery metadata'
   assert.deepEqual(plain(restored.rejectedPurchaseItems[0].formats), ['.mp4']);
   assert.equal(restored.rejectedPurchaseItems[0].delivery, 'streaming');
   assert.equal(restored.rejectedPurchaseItems[0].streaming, true);
+});
+
+test('HB realistic multi-format extraction and preservation across provenance merges and consolidation', async () => {
+  const detail = {
+    subproducts: [
+      {
+        machine_name: 'real_humble_comic',
+        human_name: 'Saga Deluxe Edition Vol 1',
+        downloads: [
+          {
+            machine_name: 'saga_ebook',
+            platform: 'ebook',
+            download_struct: [
+              { name: 'PDF (HQ)', format: 'pdf', url: { web: 'https://dl.humble.com/get/uuid?sig=abc' } },
+              { name: 'CBZ (HQ)', format: 'cbz', url: { web: 'https://dl.humble.com/get/uuid2?sig=def' } },
+              { name: 'EPUB', format: 'epub', url: { web: 'https://dl.humble.com/get/uuid3?sig=ghi' } }
+            ]
+          }
+        ]
+      },
+      {
+        machine_name: 'real_humble_audio',
+        human_name: 'Chiptune Soundtrack Anthology',
+        downloads: [
+          {
+            platform: 'audio',
+            download_struct: [
+              { name: 'Lossless FLAC', format: 'audio' },
+              { name: 'MP3 (320kbps)', format: 'audio' }
+            ]
+          }
+        ]
+      },
+      {
+        machine_name: 'custom_format_tool',
+        human_name: 'Game Engine Toolkit',
+        content_type: 'software',
+        downloads: [
+          {
+            download_struct: [
+              { format: 'Unity Package' },
+              { name: 'Windows (.exe)', url: { web: 'https://example.invalid/setup.exe' } }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  const harness = await createHarness();
+  const items = vm.runInContext(`extractLibraryItems(${JSON.stringify(detail)}, { product: { human_name: 'Mega Bundle' } }, 'order-real-1')`, harness.context);
+  assert.equal(items.length, 3);
+
+  // Verify comic formats: .cbz, .epub, .pdf
+  const comic = items.find(i => i.title.includes('Saga Deluxe'));
+  assert.deepEqual(plain(comic.formats), ['.cbz', '.epub', '.pdf']);
+
+  // Verify audio formats extracted from names despite generic 'audio' format: .flac, .mp3
+  const audio = items.find(i => i.title.includes('Chiptune Soundtrack'));
+  assert.deepEqual(plain(audio.formats), ['.flac', '.mp3']);
+
+  // Verify custom format label 'Unity Package' preserved and .exe extracted
+  const tool = items.find(i => i.title.includes('Game Engine Toolkit'));
+  assert.deepEqual(plain(tool.formats), ['.exe', 'Unity Package']);
+
+  // Verify mergeLibraryItem unions formats properly
+  const duplicateComic = {
+    ...comic,
+    formats: ['.cbr'],
+    provenance: [{
+      title: comic.title,
+      sourceBundle: 'Another Bundle',
+      purchaseKey: 'order-real-2',
+      purchasedAt: '2026-04-01T00:00:00Z',
+      entitlement: 'direct-download',
+      formats: ['.cbr']
+    }]
+  };
+  const merged = vm.runInContext(`mergeLibraryItem(${JSON.stringify(comic)}, ${JSON.stringify(duplicateComic)})`, harness.context);
+  assert.deepEqual(plain(merged.formats), ['.cbr', '.cbz', '.epub', '.pdf']);
+
+  // Verify consolidateItemInto preserves formats
+  const consolidated = vm.runInContext(`LibraryBrowser.consolidateItemInto(${JSON.stringify(comic)}, ${JSON.stringify(duplicateComic)})`, harness.context);
+  assert.deepEqual(plain(consolidated.formats), ['.cbr', '.cbz', '.epub', '.pdf']);
 });

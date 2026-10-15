@@ -1956,14 +1956,14 @@ function itemProvenance(item) {
         purchasedAt: item.purchasedAt,
         ...(item.providerItemId ? { providerItemId: item.providerItemId } : {}),
         ...HumbleComicLibrary.entitlementFields(item),
-        ...(Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {}),
+        ...(Array.isArray(item.formats) ? { formats: item.formats } : {}),
         ...(item.delivery ? { delivery: item.delivery } : {}),
         ...(item.streaming ? { streaming: item.streaming } : {})
       }];
   return records.map((record) => ({
     ...record,
     title: record.title ?? item.title,
-    ...(Array.isArray(record.formats) && record.formats.length ? { formats: record.formats } : (Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {})),
+    ...(Array.isArray(record.formats) ? { formats: record.formats } : (Array.isArray(item.formats) ? { formats: item.formats } : {})),
     ...(record.delivery ? { delivery: record.delivery } : (item.delivery ? { delivery: item.delivery } : {})),
     ...(record.streaming || item.streaming ? { streaming: true } : {})
   }));
@@ -3408,20 +3408,24 @@ function withProvenance(item) {
     ...item,
     automaticKind,
     ...(item.manualKind ? { manualKind: item.manualKind } : {}),
-    ...(Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {}),
+    ...(Array.isArray(item.formats) ? { formats: item.formats } : {}),
     provenance: dedupeProvenance(itemProvenance(item))
   };
 }
 
 function mergeLibraryItem(existing, incoming) {
-  const formats = [...new Set([...(existing.formats || []), ...(incoming.formats || [])])].sort();
+  const combinedFormats = Array.isArray(existing.formats) || Array.isArray(incoming.formats)
+    ? [...new Set([...(existing.formats || []), ...(incoming.formats || [])])].sort()
+    : undefined;
   return {
     ...existing,
     kind: existing.manualKind || incoming.manualKind || existing.kind || incoming.kind,
     automaticKind: incoming.automaticKind || incoming.kind || existing.automaticKind || existing.kind || 'unclassified',
     ...(existing.manualKind || incoming.manualKind ? { manualKind: existing.manualKind || incoming.manualKind } : {}),
     ...HumbleComicLibrary.entitlementFields(incoming),
-    ...(formats.length ? { formats } : {}),
+    delivery: incoming.delivery || existing.delivery,
+    ...(incoming.streaming || existing.streaming ? { streaming: true } : {}),
+    ...(combinedFormats !== undefined ? { formats: combinedFormats } : {}),
     purchasedAt: existing.purchasedAt || incoming.purchasedAt,
     purchaseKey: existing.purchaseKey || incoming.purchaseKey,
     provenance: dedupeProvenance([...itemProvenance(existing), ...itemProvenance(incoming)])
@@ -3434,7 +3438,21 @@ function dedupeProvenance(records) {
     const origin = `${record.title ?? ''}\u0000${record.purchaseKey ?? ''}${record.purchaseKey ? '' : `\u0000${record.sourceBundle ?? ''}`}`;
     if (record.entitlementId) current.delete(origin);
     const key = `${origin}${record.entitlementId ? `\u0000${record.entitlementId}` : ''}`;
-    current.set(key, { ...current.get(key), ...record });
+    const prev = current.get(key);
+    if (!prev) {
+      current.set(key, record);
+    } else {
+      const combinedFormats = Array.isArray(prev.formats) || Array.isArray(record.formats)
+        ? [...new Set([...(prev.formats || []), ...(record.formats || [])])].sort()
+        : undefined;
+      current.set(key, {
+        ...prev,
+        ...record,
+        delivery: record.delivery || prev.delivery,
+        ...(record.streaming || prev.streaming ? { streaming: true } : {}),
+        ...(combinedFormats !== undefined ? { formats: combinedFormats } : {})
+      });
+    }
   }
   return [...current.values()];
 }
@@ -3531,36 +3549,110 @@ function isConfirmedPurchaseProduct(product, isSubproduct = true) {
 function extractProductFormats(product) {
   if (!product || typeof product !== 'object') return [];
   const formats = new Set();
-  const addExt = (raw) => {
+  const GENERIC_CATEGORY_OR_DELIVERY = /^(?:audio|video|ebook|book|comic|software|game|download|direct\s+download|web|torrent|bittorrent|stream|streaming|external\s+key|steam\s+key|key)$/iu;
+
+  const addFormat = (raw, isExplicitFormatField = false) => {
     if (!raw || typeof raw !== 'string') return;
-    let ext = raw.trim().toLowerCase();
-    if (ext.startsWith('.')) ext = ext.slice(1);
-    const match = ext.match(/\.([a-z0-9]{2,16})(?:[?#]|$)/iu);
-    if (match) {
-      formats.add(`.${match[1].toLowerCase()}`);
-    } else if (/^[a-z0-9]{2,16}$/iu.test(ext)) {
-      formats.add(`.${ext.toLowerCase()}`);
+    const trimmed = raw.trim();
+    if (!trimmed || GENERIC_CATEGORY_OR_DELIVERY.test(trimmed)) return;
+
+    // Check MIME type first
+    const mimeMatch = trimmed.match(/^(?:application|video|audio|image)\/([a-z0-9.+_-]+)$/iu);
+    if (mimeMatch) {
+      const sub = mimeMatch[1].toLowerCase();
+      if (sub === 'pdf') { formats.add('.pdf'); return; }
+      if (sub.includes('epub')) { formats.add('.epub'); return; }
+      if (sub.includes('cbz') || sub.includes('x-cbz')) { formats.add('.cbz'); return; }
+      if (sub.includes('cbr') || sub.includes('x-cbr')) { formats.add('.cbr'); return; }
+      if (sub.includes('mobi')) { formats.add('.mobi'); return; }
+      if (sub === 'mp4') { formats.add('.mp4'); return; }
+      if (sub === 'flac') { formats.add('.flac'); return; }
+      if (sub === 'mpeg' || sub === 'mp3') { formats.add('.mp3'); return; }
+      if (sub === 'wav' || sub.includes('wave')) { formats.add('.wav'); return; }
+      if (sub === 'zip') { formats.add('.zip'); return; }
+      if (sub.includes('octet-stream')) return;
     }
-  };
-  const scanDownload = (d) => {
-    if (!d || typeof d !== 'object') return;
-    addExt(d.format);
-    addExt(d.filetype);
-    addExt(d.extension);
-    addExt(d.name);
-    if (typeof d.url === 'string') addExt(d.url);
-    else if (d.url && typeof d.url === 'object') {
-      for (const u of Object.values(d.url)) {
-        if (typeof u === 'string') addExt(u);
+
+    // Check URL or file path
+    if (/^https?:\/\//iu.test(trimmed) || trimmed.includes('/') || trimmed.includes('\\')) {
+      const queryMatch = trimmed.match(/[?&](?:filename|file|name)=([^&#]+)/iu);
+      if (queryMatch) {
+        addFormat(decodeURIComponent(queryMatch[1]), isExplicitFormatField);
+      }
+      const pathPart = trimmed.split(/[?#]/)[0];
+      const extMatch = pathPart.match(/\.([a-z0-9]{2,16})$/iu);
+      if (extMatch && !GENERIC_CATEGORY_OR_DELIVERY.test(extMatch[1])) {
+        formats.add(`.${extMatch[1].toLowerCase()}`);
+      }
+      return;
+    }
+
+    // Check for explicit format in parentheses or brackets: e.g. "PDF (HQ)", "1080p (MP4)", "Source Files (ZIP)", "Blender Project (.blend)"
+    const parenMatch = trimmed.match(/\((?:[a-z0-9\s_-]*\.)?([a-z0-9]{2,16})\)/iu)
+      || trimmed.match(/\[(?:[a-z0-9\s_-]*\.)?([a-z0-9]{2,16})\]/iu);
+    if (parenMatch) {
+      const cand = parenMatch[1].toLowerCase();
+      if (/^(?:pdf|epub|cbz|cbr|mobi|azw3|djvu|zip|rar|7z|tar|gz|exe|dmg|pkg|deb|rpm|appimage|mp4|mkv|mov|avi|webm|m4v|flv|mp3|flac|wav|m4a|m4b|ogg|opus|blend|unitypackage|uproject|uasset|gmz|yyz)$/iu.test(cand)) {
+        formats.add(`.${cand}`);
+        return;
       }
     }
-    if (Array.isArray(d.download_struct)) {
-      d.download_struct.forEach(scanDownload);
+
+
+    // Check for known format keywords: e.g. "PDF - High Quality", "Lossless FLAC", "MP3 320kbps", "Blender"
+    const keywordMatch = trimmed.match(/\b(pdf|epub|cbz|cbr|mobi|azw3|djvu|zip|rar|7z|tar\.gz|exe|dmg|pkg|deb|rpm|appimage|mp4|mkv|mov|avi|webm|m4v|mp3|flac|wav|m4a|m4b|ogg|opus|blend)\b/iu);
+    if (keywordMatch) {
+      formats.add(`.${keywordMatch[1].toLowerCase()}`);
+      return;
+    }
+
+    // Check if string is a simple extension or dotted extension: e.g. ".pdf", "pdf", "CBZ"
+    let clean = trimmed.toLowerCase();
+    if (clean.startsWith('.')) clean = clean.slice(1);
+    if (/^[a-z0-9]{2,16}$/iu.test(clean) && !GENERIC_CATEGORY_OR_DELIVERY.test(clean)) {
+      formats.add(`.${clean}`);
+      return;
+    }
+
+    // Only if source metadata explicitly provides a format label without a literal extension (e.g. format: "Unity Package")
+    if (isExplicitFormatField && trimmed.length <= 40 && !GENERIC_CATEGORY_OR_DELIVERY.test(trimmed)) {
+      formats.add(trimmed);
     }
   };
+
+  const scanDownload = (d) => {
+    if (!d || typeof d !== 'object') return;
+    addFormat(d.format, true);
+    addFormat(d.filetype, true);
+    addFormat(d.file_type, true);
+    addFormat(d.extension, true);
+    addFormat(d.file_extension, true);
+    addFormat(d.ext, true);
+    addFormat(d.mime_type, true);
+    addFormat(d.type, false);
+    addFormat(d.name, false);
+    addFormat(d.filename, false);
+    addFormat(d.file_name, false);
+    if (typeof d.url === 'string') addFormat(d.url, false);
+    else if (d.url && typeof d.url === 'object') {
+      for (const u of Object.values(d.url)) {
+        if (typeof u === 'string') addFormat(u, false);
+      }
+    }
+    if (Array.isArray(d.download_struct)) d.download_struct.forEach(scanDownload);
+    if (Array.isArray(d.files)) d.files.forEach(scanDownload);
+    if (Array.isArray(d.items)) d.items.forEach(scanDownload);
+  };
+
   if (Array.isArray(product.downloads)) product.downloads.forEach(scanDownload);
   if (Array.isArray(product.download_struct)) product.download_struct.forEach(scanDownload);
-  return [...formats].sort();
+  if (Array.isArray(product.files)) product.files.forEach(scanDownload);
+  if (product.download && typeof product.download === 'object') scanDownload(product.download);
+  if (typeof product.download_url === 'string') addFormat(product.download_url, false);
+  if (typeof product.format === 'string') addFormat(product.format, true);
+  if (Array.isArray(product.formats)) product.formats.forEach(f => addFormat(f, true));
+
+  return [...formats].sort((a, b) => a.localeCompare(b));
 }
 
 function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}, rejectedList = null) {
@@ -3592,7 +3684,7 @@ function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}
               reason: 'Unclassified promotional or non-product content',
               delivery: hasStreaming ? 'streaming' : (hasDownloads ? 'direct-download' : undefined),
               ...(hasDownloads ? { entitlement: 'direct-download' } : {}),
-              ...(formats.length ? { formats } : {})
+              formats
             });
           }
           return null;
@@ -3618,7 +3710,7 @@ function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}
         entitlement: 'direct-download',
         delivery: hasStreaming ? 'streaming' : 'direct-download',
         ...(hasStreaming ? { streaming: true } : {}),
-        ...(formats.length ? { formats } : {}),
+        formats,
         ...HumbleComicLibrary.bibliographicFields(product)
       };
     })
