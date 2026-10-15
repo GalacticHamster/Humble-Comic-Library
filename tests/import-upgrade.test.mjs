@@ -18,18 +18,18 @@ function harness(initial={},onSet=()=>{}){
 const product=(title='Example',extra={})=>({human_name:title,machine_name:title.toLowerCase(),downloads:[{format:'pdf'}],...extra});
 const detail=title=>({subproducts:[product(title)]});
 const legacy=(key,title)=>({title,kind:'book',source:'humble',purchaseKey:key,providerItemId:key+':product:'+title.toLowerCase(),provenance:[{title,purchaseKey:key,providerItemId:key+':product:'+title.toLowerCase(),entitlement:'direct-download'}]});
-const baseline=()=>({libraryItems:[legacy('a','Alpha'),legacy('b','Beta')],purchaseSummaries:[{purchaseKey:'a'},{purchaseKey:'b'}],historicalLibraryItems:[{title:'Retired',kind:'book',source:'humble',purchaseKey:'retired',formats:['.epub']}],mediaTypeOverrides:{}});
+const baseline=()=>({libraryItems:[legacy('a','Alpha'),legacy('b','Beta')],purchaseSummaries:[{purchaseKey:'a'},{purchaseKey:'b'}],historicalPurchaseSummaries:[{purchaseKey:'retired',importVersion:9}],historicalLibraryItems:[{title:'Retired',kind:'book',source:'humble',purchaseKey:'retired',formats:['.epub']}],mediaTypeOverrides:{}});
 
-test('version 7 to 8 backfills each purchase once, then incremental skips current purchases while full always reads all',async()=>{
+test('version 7 to current backfills each purchase once, then incremental skips current purchases while full always reads all',async()=>{
  const h=harness(baseline()),details={a:detail('Alpha'),b:detail('Beta'),new:detail('New')};
- const result=await h.scan(details);assert.equal(result.metadataUpgrades,2);assert.equal(result.newPurchases,1);assert.deepEqual(h.requests,['a','b','new']);assert.equal(h.stored.mediaImportVersion,8);assert(h.stored.purchaseSummaries.every(p=>p.importVersion===8));assert(h.messages.some(m=>m.includes('one-time backfill')));
+ const result=await h.scan(details);assert.equal(result.metadataUpgrades,2);assert.equal(result.newPurchases,1);assert.deepEqual(h.requests,['a','b','new']);assert.equal(h.stored.mediaImportVersion,9);assert(h.stored.purchaseSummaries.every(p=>p.importVersion===9));assert(h.messages.some(m=>m.includes('one-time update')));
  h.requests.length=0;await h.scan(details);assert.deepEqual(h.requests,[]);await h.scan(details,{full:true});assert.deepEqual(h.requests,['a','b','new']);
- const restored=h.context.HumbleComicLibrary.restoreBackupState(h.context.HumbleComicLibrary.createLibraryBackup(h.stored));assert(restored.purchaseSummaries.every(p=>p.importVersion===8));
+ const restored=h.context.HumbleComicLibrary.restoreBackupState(h.context.HumbleComicLibrary.createLibraryBackup(h.stored));assert(restored.purchaseSummaries.every(p=>p.importVersion===9));
 });
 test('failed upgrades mark only successful purchases and retry only outstanding versions',async()=>{
  const h=harness(baseline()),details={a:detail('Alpha'),b:detail('Beta')};await h.scan(details,{fail:['b']});
- assert.equal(h.stored.mediaImportVersion,7);assert.equal(h.stored.purchaseSummaries.find(p=>p.purchaseKey==='a').importVersion,8);assert.equal(h.stored.purchaseSummaries.find(p=>p.purchaseKey==='b').importVersion,undefined);assert(h.stored.libraryItems.some(i=>i.title==='Beta'));assert.deepEqual(h.stored.historicalLibraryItems,baseline().historicalLibraryItems);
- h.requests.length=0;await h.scan(details);assert.deepEqual(h.requests,['b']);assert.equal(h.stored.mediaImportVersion,8);
+ assert.equal(h.stored.mediaImportVersion,7);assert.equal(h.stored.purchaseSummaries.find(p=>p.purchaseKey==='a').importVersion,9);assert.equal(h.stored.purchaseSummaries.find(p=>p.purchaseKey==='b').importVersion,undefined);assert(h.stored.libraryItems.some(i=>i.title==='Beta'));assert.deepEqual(h.stored.historicalLibraryItems,baseline().historicalLibraryItems);
+ h.requests.length=0;await h.scan(details);assert.deepEqual(h.requests,['b']);assert.equal(h.stored.mediaImportVersion,9);
 });
 test('a failed key-evidence extraction preserves prior reminders and cannot mark its purchase upgraded',async()=>{
  const prior={id:'pending',purchaseKey:'a',title:'Alpha',status:'unrevealed'},h=harness({...baseline(),keyReminders:[prior]});
@@ -40,7 +40,7 @@ test('interruption and quota failures cannot commit upgrade versions or erase pu
  let quota=false;const h=harness(baseline(),updates=>{if(quota&&updates.libraryItems)throw Error('kQuotaBytes');}),before=JSON.stringify(h.stored.libraryItems),details={a:detail('Alpha'),b:detail('Beta')};
  await assert.rejects(h.scan(details,{interrupt:true}),/interruption/);assert.equal(h.stored.mediaImportVersion,7);assert.equal(JSON.stringify(h.stored.libraryItems),before);
  quota=true;await assert.rejects(h.scan(details),/quota/i);assert.equal(h.stored.mediaImportVersion,7);assert(h.stored.purchaseSummaries.every(p=>p.importVersion===undefined));assert.equal(JSON.stringify(h.stored.libraryItems),before);assert.equal(h.stored.hclSyncControl,null);
- quota=false;await h.scan(details);assert.equal(h.stored.mediaImportVersion,8);
+ quota=false;await h.scan(details);assert.equal(h.stored.mediaImportVersion,9);
 });
 test('incremental classification corrections use the same native purchase product and retain manual overrides and provenance',async()=>{
  const item={...legacy('a','Night Springs Comic Book'),kind:'unclassified',automaticKind:'unclassified',formats:['.zip']};

@@ -833,10 +833,10 @@
       }
       diagnostics.append(summaryList);
 
-      if (videos === 0 && purchaseSummaries.length > 0) {
+      if (mediaImportVersion < HumbleComicLibrary.CURRENT_IMPORT_VERSION && purchaseSummaries.length > 0) {
         const note = document.createElement('p');
         note.className = 'library-rescan-tip';
-        note.textContent = 'To recover video purchases, streaming media, or unclassified items predating media classifier updates, run a scan from the Humble Bundle website. Historical purchases will be automatically re-checked.';
+        note.textContent = 'Choose Import new purchases on the Humble Bundle website to update older saved purchases automatically.';
         diagnostics.append(note);
       }
     }

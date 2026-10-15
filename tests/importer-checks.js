@@ -35,7 +35,7 @@
       }
       return realFetch(url,...args);
     };
-    Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey})),mediaImportVersion:8,
+    Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey,importVersion:9})),mediaImportVersion:9,
       keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'}],keyReminderScan:{complete:true,purchaseKeys:['pending','unchanged'],baselinePurchaseKeys:['pending','unchanged']},lastImport:null});
     panel.querySelector('[data-profile-label]').value='fixture';panel.querySelector('[data-profile-confirm]').checked=true;
     quick.click();
@@ -54,26 +54,22 @@
       return realFetch(url,...args);
     };
     quick.click();await wait(()=>!quick.disabled);
-    check(detailRequests.length===2&&fixtureStored.mediaImportVersion===8&&fixtureStored.purchaseSummaries.every(p=>p.importVersion===8),'version 7 metadata upgrade fetches each old purchase and records successful version 8 results');
-    check(panel.querySelector('output').textContent.includes('upgraded metadata in 2 purchases')&&panel.querySelector('output').textContent.includes('file formats and media labels'),'completed metadata backfill is distinguished from a normal incremental import');
+    check(detailRequests.length===2&&fixtureStored.mediaImportVersion===9&&fixtureStored.purchaseSummaries.every(p=>p.importVersion===9),'version 7 metadata upgrade fetches each old purchase and records successful current-version results');
+    check(panel.querySelector('output').textContent.includes('updated saved details for 2 purchases')&&panel.querySelector('output').textContent.includes('one-time update'),'completed metadata backfill is distinguished from a normal incremental import');
     detailRequests.length=0;quick.click();await wait(()=>!quick.disabled);check(detailRequests.length===0,'completed upgrade returns the importer to skipping unchanged purchases');
-    const metadata=panel.querySelector('[data-import-mode=metadata]'),cancel=panel.querySelector('[data-metadata-cancel]');
-    check(metadata.textContent==='Refresh missing product IDs'&&cancel.hidden&&getComputedStyle(cancel).display==='none','metadata refresh is explicit and its cancel control starts hidden');
+    check(!panel.querySelector('[data-import-mode="metadata"]')&&!panel.querySelector('[data-metadata-cancel]'),'normal importer has no separate product-ID maintenance controls');
     const old={title:'Old book',kind:'book',source:'humble',purchaseKey:'saved-order',sourceBundle:'Historical bundle',purchasedAt:'2020-01-01T00:00:00Z'};
-    Object.assign(fixtureStored,{libraryItems:[old],historicalLibraryItems:[structuredClone(old)],hclSyncControl:null});
-    const libraryBefore=JSON.stringify(fixtureStored.libraryItems),downloads=[];window.downloadJsonFile=(name,value)=>downloads.push({name,value});detailRequests.length=0;
-    window.fetch=async(url,...args)=>{if(String(url).startsWith('/api/v1/order/')){detailRequests.push(url);return {ok:true,status:200,text:async()=>JSON.stringify({subproducts:[{human_name:'Old book',machine_name:'source-book',downloads:[{format:'pdf'}]}]})};}return realFetch(url,...args);};
-    window.confirm=()=>false;metadata.click();await wait(()=>!metadata.disabled);
-    check(detailRequests.length===0&&JSON.stringify(fixtureStored.libraryItems)===libraryBefore,'declining scope confirmation performs no acquisition or library write');
-    window.confirm=()=>true;metadata.click();await wait(()=>!metadata.disabled);
-    check(detailRequests.length===1&&detailRequests[0]==='/api/v1/order/saved-order?all_tpkds=true','metadata refresh fetches only the affected saved purchase, without fetching the order index');
-    check(downloads.length===2&&downloads[0].value.version===9&&!downloads[0].value.items[0].providerItemId,'a normal pre-refresh safety backup precedes the completion report');
-    check(fixtureStored.libraryItems[0].providerItemId==='saved-order:product:source-book'&&fixtureStored.libraryItems[0].sourceBundle===old.sourceBundle&&fixtureStored.libraryItems[0].purchasedAt===old.purchasedAt,'metadata refresh fills a confident ID and preserves historical bundle/date facts');
-    check(panel.querySelector('output').textContent.includes('1 IDs recovered')&&downloads[1].value.stats.historicalRecovered===1,'completion separates current and historical enrichment and recommends reconciliation');
-    Object.assign(fixtureStored,{libraryItems:[structuredClone(old)],historicalLibraryItems:[structuredClone(old)],hclSyncControl:null});let release;
-    window.fetch=async(url,...args)=>String(url).startsWith('/api/v1/order/')?new Promise(resolve=>{release=()=>resolve({ok:true,status:200,text:async()=>JSON.stringify({subproducts:[{human_name:'Old book',machine_name:'source-book',downloads:[{format:'pdf'}]}]})});}):realFetch(url,...args);
-    metadata.click();await wait(()=>release&&!cancel.hidden);cancel.click();release();await wait(()=>!metadata.disabled);
-    check(cancel.hidden&&JSON.stringify(fixtureStored.libraryItems)===libraryBefore&&panel.querySelector('output').textContent.includes('cancelled'),'cancelling the active metadata request retains original rows and resets the control');
+    Object.assign(fixtureStored,{libraryItems:[old],historicalLibraryItems:[structuredClone(old)],purchaseSummaries:[{purchaseKey:'saved-order'}],historicalPurchaseSummaries:[],mediaImportVersion:1,keyReminders:[],keyReminderScan:null,hclSyncControl:null});
+    detailRequests.length=0;
+    window.fetch=async(url,...args)=>{
+      if(url==='/api/v1/user/order?all=true')return {ok:true,json:async()=>[{gamekey:'saved-order'}]};
+      if(String(url).startsWith('/api/v1/order/')){detailRequests.push(url);return {ok:true,status:200,text:async()=>JSON.stringify({subproducts:[{human_name:'Old book',machine_name:'source-book',downloads:[{format:'pdf'}],authors:['Author']}]})};}
+      return realFetch(url,...args);
+    };
+    quick.click();await wait(()=>!quick.disabled);
+    check(fixtureStored.libraryItems.length===1&&fixtureStored.libraryItems[0].providerItemId==='saved-order:product:source-book'&&fixtureStored.libraryItems[0].sourceBundle===old.sourceBundle&&fixtureStored.libraryItems[0].purchasedAt===old.purchasedAt,'Import new purchases automatically recovers legacy IDs and preserves original purchase facts');
+    check(fixtureStored.historicalLibraryItems[0].providerItemId==='saved-order:product:source-book','the normal import also recovers historical source identities');
+    detailRequests.length=0;quick.click();await wait(()=>!quick.disabled);check(detailRequests.length===0,'a migrated legacy library returns to normal incremental imports');
     window.fetch=realFetch;
     await fetch('/test-result',{method:'POST',body:JSON.stringify({checks})});
   }catch(error){await fetch('/test-result',{method:'POST',body:JSON.stringify({checks,error:error.message})});}

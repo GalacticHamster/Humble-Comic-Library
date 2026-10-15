@@ -47,8 +47,8 @@ function importer(initial, orders, details, failures = []) {
 function initialState() {
   return {
     libraryItems: [item('Old Book'), item('Old Game', 'game'), item('Old Software', 'software'), item('Old Audio', 'audiobook'), { title: 'Manual book' }],
-    purchaseSummaries: [{ purchaseKey: 'old', sourceBundle: 'Old Bundle', itemCount: 4, pricePaid: 8 }],
-    mediaImportVersion: 8,
+    purchaseSummaries: [{ purchaseKey: 'old', importVersion:9, sourceBundle: 'Old Bundle', itemCount: 4, pricePaid: 8 }],
+    mediaImportVersion: 9,
     keyReminders: [{ id: 'old-reminder', purchaseKey: 'old', title: 'Old Game', status: 'unrevealed' }],
     keyReminderScan: { complete: true, purchaseKeys: ['old'], baselinePurchaseKeys: ['old'] },
     customCollectionMappings: [{ id: 'keep-this-rule' }]
@@ -57,11 +57,11 @@ function initialState() {
 
 test('26 known pending purchases report key rechecks rather than new purchases, sharing each detail request', async () => {
   const keys = Array.from({length:26}, (_, index) => `pending-${index}`);
-  const initial = {...initialState(), purchaseSummaries:keys.map(purchaseKey => ({purchaseKey})),
+  const initial = {...initialState(), purchaseSummaries:[...initialState().purchaseSummaries,...keys.map(purchaseKey => ({purchaseKey,importVersion:9}))],
     keyReminders:keys.map(purchaseKey => ({id:purchaseKey,purchaseKey,title:'Pending game',status:'unrevealed'}))};
   const details = Object.fromEntries(keys.map(key => [key,{all_tpks:[{human_name:'Pending game',machine_name:'game',keyindex:0}]}]));
   const scan = importer(initial, [...keys.map(order),order('unchanged')], details);
-  scan.stored.purchaseSummaries.push({purchaseKey:'unchanged'});
+  scan.stored.purchaseSummaries.push({purchaseKey:'unchanged',importVersion:9});
   const result = await scan.scan(false);
   assert.deepEqual(scan.requests, keys);
   assert.equal(result.newPurchases, 0);
@@ -85,7 +85,7 @@ test('an unchanged library with no pending keys returns without any purchase-det
 });
 
 test('mixed incremental imports distinguish new purchases, failed retries and known key refreshes', async () => {
-  const initial = {...initialState(),purchaseSummaries:[{purchaseKey:'retry'},{purchaseKey:'pending'},{purchaseKey:'unchanged'}],
+  const initial = {...initialState(),purchaseSummaries:[...initialState().purchaseSummaries,{purchaseKey:'retry',importVersion:9},{purchaseKey:'pending',importVersion:9},{purchaseKey:'unchanged',importVersion:9}],
     lastImport:{failedPurchaseKeys:['retry','removed']},
     keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'},{id:'retry',purchaseKey:'retry',title:'Retry game',status:'unrevealed'},{id:'removed',purchaseKey:'removed',title:'Removed game',status:'unrevealed'}],
     keyReminderScan:{failedPurchaseKeys:['removed']}};
@@ -101,10 +101,10 @@ test('mixed incremental imports distinguish new purchases, failed retries and kn
 });
 
 test('upgrade backfills and explicit full scans keep their separate status explanations', async () => {
-  const scan=importer({...initialState(),mediaImportVersion:6,keyReminders:[]},[order('old')],{old:bookDetail('Old Book')});
+  const scan=importer({...initialState(),mediaImportVersion:6,purchaseSummaries:[{purchaseKey:'old',importVersion:6}],keyReminders:[]},[order('old')],{old:bookDetail('Old Book')});
   const backfill=await scan.scan(false);
-  assert.match(scan.summary(backfill), /^No new purchases; upgraded metadata in 1 purchase \(file formats and media labels; one-time backfill\)$/);
-  assert.ok(scan.messages.some(message=>message.startsWith('Upgrading saved purchase metadata, file formats and media labels (one-time backfill):')));
+  assert.match(scan.summary(backfill), /^No new purchases; updated saved details for 1 purchase \(one-time update\)$/);
+  assert.ok(scan.messages.some(message=>message.startsWith('Updating older saved purchases (one-time update):')));
   scan.messages.length=0;
   const full=await scan.scan();
   assert.match(scan.summary(full), /^Rescanned 1 purchase; current snapshot reconciled; historical evidence archived$/);
@@ -113,9 +113,9 @@ test('upgrade backfills and explicit full scans keep their separate status expla
 
 test('key evidence backfills once, then pending refresh updates purchase status without duplicates',async()=>{
   const details={old:{all_tpks:[{human_name:'Old Game',machine_name:'game',keyindex:0,key_type:'steam'}]}};
-  const initial={...initialState(),mediaImportVersion:6,keyReminders:[],keyReminderScan:null};
+  const initial={...initialState(),mediaImportVersion:6,purchaseSummaries:[{purchaseKey:'old',importVersion:6}],keyReminders:[],keyReminderScan:null};
   const scan=importer(initial,[order('old')],details);
-  await scan.scan(false);assert.equal(scan.stored.mediaImportVersion,8);
+  await scan.scan(false);assert.equal(scan.stored.mediaImportVersion,9);
   assert.deepEqual(scan.requests,['old']);assert.equal(scan.stored.libraryItems.find(item=>item.title==='Old Game').keyStatus,'unrevealed');
   details.old.all_tpks[0].is_expired=true;scan.requests.length=0;
   await scan.scan(false);

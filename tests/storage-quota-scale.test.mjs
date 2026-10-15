@@ -81,6 +81,7 @@ function generateRealisticLibrary(count) {
   for (let pIdx = 0; pIdx < purchaseCount; pIdx++) {
     purchases.push({
       purchaseKey: `order-scale-${pIdx}`,
+      importVersion:9,
       sourceBundle: `Humble Massive Bundle Volume ${pIdx + 1} with Extra Long Title For Realism`,
       purchasedAt: '2023-04-15T10:20:30.000Z',
       itemCount: 25,
@@ -251,7 +252,7 @@ test('incremental import adds new purchases without full rescan, preserving exis
   const harness = createScaleHarness({
     libraryItems: lib.items,
     purchaseSummaries: lib.purchases,
-    mediaImportVersion: 8, keyReminderScan: { complete: true, purchaseKeys: lib.purchases.map(p => p.purchaseKey), baselinePurchaseKeys: lib.purchases.map(p => p.purchaseKey) }
+    mediaImportVersion: 9, keyReminderScan: { complete: true, purchaseKeys: lib.purchases.map(p => p.purchaseKey), baselinePurchaseKeys: lib.purchases.map(p => p.purchaseKey) }
   });
 
   const newOrder = { gamekey: 'new-order-999', product: { human_name: 'New 2026 Comic Bundle' } };
@@ -404,4 +405,21 @@ test('manual overrides and Galactic Library pairings survive full rescans and GL
   assert.ok(overridden);
   assert.equal(overridden.kind, 'comic', 'Manual classification override must be applied during full rescan');
   assert.equal(overridden.manualKind, 'comic');
+});
+
+
+test('6,000 item public-release upgrade stays compact and skips all purchases after successful migration',async()=>{
+  const items=[],purchases=[],details={},orders=[];
+  for(let p=0;p<200;p++){
+    const key='legacy-'+p;purchases.push({purchaseKey:key});orders.push({gamekey:key});details[key]={subproducts:[]};
+    for(let n=0;n<30;n++){
+      const title='Legacy Book '+(p*30+n);items.push({title,source:'humble',purchaseKey:key,sourceBundle:'Original bundle'});
+      details[key].subproducts.push({human_name:title,machine_name:'native-'+n,downloads:[{format:'epub'}]});
+    }
+  }
+  const harness=createScaleHarness({libraryItems:items,purchaseSummaries:purchases}),runner=harness.importer(orders,details);
+  await runner.scan(false);assert.equal(harness.stored.libraryItems.length,6000);assert.equal(harness.stored.historicalLibraryItems.length,0);
+  assert(harness.stored.libraryItems.every(item=>item.providerItemId&&item.formats.includes('.epub')&&item.provenance.length===1));
+  const bytes=Buffer.byteLength(JSON.stringify(harness.stored));assert(bytes<5.5*1024*1024,'legacy upgrade must preserve the compact storage budget');
+  harness.requests.length=0;await runner.scan(false);assert.equal(harness.requests.length,0);assert.equal(harness.stored.libraryItems.length,6000);
 });

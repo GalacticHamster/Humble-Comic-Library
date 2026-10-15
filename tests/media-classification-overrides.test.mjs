@@ -671,5 +671,8 @@ test('options diagnostics summary displays breakdown by media type and shows bac
   // Rescan tip for version < 8
   const rescanTip = diagnostics.children[1];
   assert.ok(rescanTip, 'Rescan tip rendered for version < 8');
-  assert.match(rescanTip.textContent, /run a scan from the Humble Bundle website/i);
+  assert.match(rescanTip.textContent, /Choose Import new purchases on the Humble Bundle website/i);
+  harness.stored.mediaImportVersion = context.HumbleComicLibrary.CURRENT_IMPORT_VERSION;
+  await vm.runInContext('render()', context);
+  assert.equal(diagnostics.children.length, 1, 'A current library with no videos does not keep showing an upgrade prompt');
 });

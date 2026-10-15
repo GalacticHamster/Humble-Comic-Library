@@ -469,7 +469,7 @@
   }
 
   const BACKUP_VERSION = 9;
-  const CURRENT_IMPORT_VERSION = 8;
+  const CURRENT_IMPORT_VERSION = 9;
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
     keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
@@ -736,16 +736,7 @@
     for(const field of ['asin','editionId','edition','language','volume','issue','runId','unitType'])if(a[field]&&b[field]&&metadataTitle(a[field])!==metadataTitle(b[field]))return true;
     return Boolean(a.isbn?.length&&b.isbn?.length&&!a.isbn.some(id=>b.isbn.includes(id)));
   }
-  function missingProductIdScope(state) {
-    const summary={examined:state.libraryItems.length,alreadyIdentified:0,missing:0,missingOrigins:0,purchaseKeys:[],historicalRows:state.historicalLibraryItems?.length??0};
-    const purchases=new Set();
-    for(const item of state.libraryItems){const origins=metadataOrigins(item),identified=origins.some(p=>nativeHumbleProductId(p)||p.entitlementId&&!p.entitlementId.startsWith('position-'));
-      if(identified)summary.alreadyIdentified++;else summary.missing++;
-    }
-    for(const item of [...state.libraryItems,...(state.historicalLibraryItems??[])])for(const p of metadataOrigins(item))if(p.purchaseKey&&!nativeHumbleProductId(p)&&!(p.entitlementId&&!p.entitlementId.startsWith('position-'))){purchases.add(p.purchaseKey);summary.missingOrigins++;}
-    summary.purchaseKeys=[...purchases].sort();return summary;
-  }
-  function enrichMissingProductIds(state,evidence) {
+  function enrichMissingProductIds(state,evidence,{legacyImport=false}={}) {
     const index=new Map();for(const item of evidence)for(const p of metadataOrigins(item)){if(!p.purchaseKey)continue;const key=JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]),rows=index.get(key)??[];rows.push({item,p});index.set(key,rows);}
     const stats={examined:0,alreadyIdentified:0,missing:0,recovered:0,noIdAvailable:0,ambiguous:0,conflicts:0,existingIdentityConflicts:0,historicalRecovered:0,metadataEnriched:0},details=[];
     function enrich(items,historical){return items.map((item,row)=>{let changed=false,resolvedSource;const origins=metadataOrigins(item).map((p,origin)=>{
@@ -753,11 +744,16 @@
       if(nativeHumbleProductId(p)||p.entitlementId&&!p.entitlementId.startsWith('position-')){if(!historical){stats.alreadyIdentified++;const sources=index.get(JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]))??[],ids=sources.filter(v=>nativeHumbleProductId(v.p)).map(v=>v.p.providerItemId);if(nativeHumbleProductId(p)&&ids.length&&!ids.includes(p.providerItemId)){stats.existingIdentityConflicts++;details.push({row,origin,title:p.title||item.title,reason:'existingIdentityConflict',candidateIds:ids.map(id=>id.slice((p.purchaseKey+':product:').length))});}}return p;}
       if(!historical)stats.missing++;
       const all=index.get(JSON.stringify([p.purchaseKey,metadataTitle(p.title||item.title)]))??[],delivery=p.entitlement??'direct-download';
-      const candidates=all.filter(v=>(v.item.kind??'book')===(item.kind??'book')&&(v.p.entitlement??'direct-download')===delivery),unique=new Map(candidates.filter(v=>nativeHumbleProductId(v.p)).map(v=>[v.p.providerItemId,v]));
-      let reason='noIdAvailable';if(all.length&&!candidates.length||p.providerItemId&&unique.size&&!unique.has(p.providerItemId)||unique.size===1&&productMetadataConflict(item,[...unique.values()][0].item))reason='conflicts';else if(unique.size>1||unique.size===1&&candidates.some(v=>!nativeHumbleProductId(v.p)))reason='ambiguous';else if(unique.size===1&&!p.providerItemId){changed=true;resolvedSource=[...unique.values()][0].item;if(historical)stats.historicalRecovered++;else stats.recovered++;const attributed={...p,providerItemId:[...unique.keys()][0]};return item.provenance?.length?attributed:{...backupRecord(attributed,PROVENANCE_FIELDS,'Recovered purchase origin'),...entitlementFields(attributed)};}
+      const candidates=all.filter(v=>{
+        const priorKind=item.automaticKind??item.kind??'book',nextKind=v.item.automaticKind??v.item.kind??'book';
+        const compatibleKind=(v.item.kind??'book')===(item.kind??'book')||legacyImport&&(item.manualKind||priorKind==='unclassified'||priorKind==='book'&&nextKind==='comic'||priorKind==='game'&&nextKind==='software');
+        const compatibleDelivery=(v.p.entitlement??'direct-download')===delivery||legacyImport&&!p.entitlement&&['game','software'].includes(priorKind);
+        return compatibleKind&&compatibleDelivery;
+      }),unique=new Map(candidates.filter(v=>nativeHumbleProductId(v.p)||legacyImport&&v.p.entitlementId&&!v.p.entitlementId.startsWith('position-')).map(v=>[v.p.providerItemId,v]));
+      let reason='noIdAvailable';if(all.length&&!candidates.length||p.providerItemId&&!(legacyImport&&p.providerItemId.includes(':product:position-'))&&unique.size&&!unique.has(p.providerItemId)||unique.size===1&&productMetadataConflict(item,[...unique.values()][0].item))reason='conflicts';else if(unique.size>1||unique.size===1&&candidates.some(v=>!nativeHumbleProductId(v.p)&&!(legacyImport&&v.p.entitlementId&&!v.p.entitlementId.startsWith('position-'))))reason='ambiguous';else if(unique.size===1&&(!p.providerItemId||legacyImport&&p.providerItemId.includes(':product:position-'))){changed=true;resolvedSource=[...unique.values()][0].item;if(historical)stats.historicalRecovered++;else stats.recovered++;const source=[...unique.values()][0].p,attributed={...p,providerItemId:source.providerItemId,...(legacyImport?{...entitlementFields(source),...entitlementFields(p)}:{})};return item.provenance?.length?attributed:{...backupRecord(attributed,PROVENANCE_FIELDS,'Recovered purchase origin'),...entitlementFields(attributed)};}
       if(!historical){stats[reason]++;details.push({row,origin,title:p.title||item.title,reason,candidateIds:[...unique.keys()].map(id=>id.slice((p.purchaseKey+':product:').length))});}return p;
     });
-      if(!changed)return item;const next={...item,provenance:origins};if(origins.length===1&&!item.providerItemId){next.providerItemId=origins[0].providerItemId;if(metadataTitle(item.title)===metadataTitle(origins[0].title||item.title)){let filled=false;for(const [key,value]of Object.entries(bibliographicFields(resolvedSource)))if(next[key]===undefined||next[key]===null||next[key]===''||Array.isArray(next[key])&&!next[key].length){next[key]=value;filled=true;}if(filled&&!historical)stats.metadataEnriched++;}}return next;
+      if(!changed)return item;const next={...item,provenance:origins};if(origins.length===1&&(!item.providerItemId||legacyImport&&item.providerItemId.includes(':product:position-'))){next.providerItemId=origins[0].providerItemId;if(metadataTitle(item.title)===metadataTitle(origins[0].title||item.title)){let filled=false;for(const [key,value]of Object.entries(bibliographicFields(resolvedSource)))if(next[key]===undefined||next[key]===null||next[key]===''||Array.isArray(next[key])&&!next[key].length){next[key]=value;filled=true;}if(filled&&!historical)stats.metadataEnriched++;}}return next;
     });}
     return {libraryItems:enrich(state.libraryItems,false),historicalLibraryItems:enrich(state.historicalLibraryItems??[],true),stats,details};
   }
@@ -766,32 +762,6 @@
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
     async function operate(operation,args){
-      if(operation==='metadataTabClosed'){const control=(await area.get({[controlKey]:null}))[controlKey];if(control?.mode==='metadata'&&control.tabId===args[0])await area.set({[controlKey]:null});return true;}
-      if(['metadataPreview','metadataBegin','metadataCommit','metadataCancel'].includes(operation)){
-        const state=await area.get(LIBRARY_STATE_DEFAULTS),control=(await area.get({[controlKey]:null}))[controlKey];
-        if(operation==='metadataPreview')return missingProductIdScope(state);
-        if(operation==='metadataBegin'){const [options,tabId]=args;
-          if(control&&!(control.mode==='metadata'&&control.tabId===tabId&&control.profileLabel===state.humbleProfileLabel))throw Error('Another Humble scan is active. Finish it first. If its tab was abandoned, use Import new purchases to establish a fresh scan before refreshing metadata.');
-          if(options.confirmed!==true||!state.humbleProfileLabel||options.profileLabel!==state.humbleProfileLabel)throw Error('Confirm the signed-in account matches the active saved account. Metadata refresh cannot switch accounts.');
-          const token=global.crypto.randomUUID();await area.set({[controlKey]:{token,tabId,profileLabel:state.humbleProfileLabel,mode:'metadata'}});return {token,scope:missingProductIdScope(state),backup:createLibraryBackup(state)};
-        }
-        const [token,evidence,tabId]=args;if(!control||control.mode!=='metadata'||control.token!==token||control.tabId!==tabId||control.profileLabel!==state.humbleProfileLabel)throw Error('Metadata refresh was superseded; original records were retained.');
-        if(operation==='metadataCancel'){await area.set({[controlKey]:null});return true;}
-        if(!Array.isArray(evidence)||evidence.length>50000)throw Error('Invalid metadata evidence.');
-        const clean=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,libraryItems:evidence})),result=enrichMissingProductIds(state,clean.libraryItems);
-        restoreBackupState(createLibraryBackup({...state,libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems}));
-        const sharing=(await area.get({[shareScopeKey]:null}))[shareScopeKey];
-        try {
-          await area.set({...(result.stats.recovered||result.stats.historicalRecovered?{libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems,[shareScopeKey]:sharing?{...sharing,revisionRef:global.crypto.randomUUID()}:null}:{}),[controlKey]:null});
-          return {stats:result.stats,details:result.details};
-        } catch(error) {
-          try { await area.set({[controlKey]:null}); } catch (_) {}
-          if (/quota/iu.test(String(error?.message ?? '')) || /kQuotaBytes/iu.test(String(error?.message ?? ''))) {
-            throw new Error('Storage quota exceeded while saving metadata refresh. Your existing library was preserved.');
-          }
-          throw error;
-        }
-      }
       if(operation==='syncAccounts'){
       const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state),saved=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;
       const result=globalThis.GalacticPurchaseSync.registry(rows,saved);if(Object.keys(result.patch).length)await area.set(result.patch);return result.accounts;
@@ -854,7 +824,7 @@
         const state=await area.get(LIBRARY_STATE_DEFAULTS);const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
         if(changing&&state.profileArchives.some(entry=>entry.profileLabel===profileLabel))throw new Error('This account is already saved. Use saved account before importing.');
         if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan all purchases and explicitly select Save a new account.');
-        const forceFull=changing||!state.humbleProfileLabel;const token=global.crypto.randomUUID();
+        const forceFull=changing||(!state.humbleProfileLabel&&!state.libraryItems.length&&!state.purchaseSummaries.length);const token=global.crypto.randomUUID();
         await area.set({[controlKey]:{token,tabId,profileLabel,changing,forceFull,fullRescan:options.fullRescan===true}});
         const baseline=changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:state.libraryItems.filter(item=>item.source!=='humble'),customCollectionMappings:state.customCollectionMappings}:state;
         return {token,forceFull,state:baseline};
@@ -1033,7 +1003,7 @@
 
   global.HumbleComicLibrary = {
     CURRENT_IMPORT_VERSION,
-    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, missingProductIdScope, enrichMissingProductIds,
+    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
