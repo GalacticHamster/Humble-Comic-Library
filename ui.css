@@ -200,25 +200,70 @@ code { font-family: ui-monospace, monospace; }
   font-size: 0.78rem;
   cursor: pointer;
 }
+.library-classification-diagnostics {
+  margin: 0.6rem 0 0.8rem 0;
+}
+.library-diagnostics-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.library-diag-pill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: 12px;
+  border: 1px solid var(--gh-border, #4b5563);
+  background-color: var(--gh-surface-alt, rgba(255, 255, 255, 0.04));
+  color: var(--gh-text);
+}
+.library-rescan-tip {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.82rem;
+  color: var(--gh-text-muted);
+  border-left: 3px solid var(--gh-primary, #6366f1);
+  padding-left: 0.6rem;
+  line-height: 1.4;
+}
 .library-rejected-section {
-  margin-top: 1.5rem;
-  padding: 1rem;
+  margin: 0.8rem 0 1rem 0;
+  padding: 0.5rem 0.75rem;
   background-color: var(--gh-surface-alt, rgba(255, 255, 255, 0.03));
   border: 1px dashed var(--gh-border, #4b5563);
   border-radius: 6px;
 }
-.library-rejected-section h3 {
-  margin-top: 0;
-  font-size: 0.95rem;
+.library-rejected-section summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
   color: var(--gh-text);
 }
+.library-rejected-content {
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--gh-border, rgba(255, 255, 255, 0.08));
+}
+.library-rejected-description {
+  margin: 0.25rem 0 0.5rem 0;
+  font-size: 0.82rem;
+  color: var(--gh-text-muted);
+}
+.library-rejected-empty {
+  font-size: 0.82rem;
+  color: var(--gh-text-muted);
+  font-style: italic;
+  margin: 0.35rem 0;
+}
+.library-rejected-actions {
+  margin: 0.4rem 0;
+}
 .library-rejected-list {
-  margin: 0.5rem 0 0 1.2rem;
+  margin: 0.4rem 0 0 1.2rem;
   padding: 0;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
 }
 .library-rejected-item {
-  margin: 0.5rem 0;
+  margin: 0.45rem 0;
   line-height: 1.4;
 }
 .library-rejected-meta {
@@ -228,9 +273,12 @@ code { font-family: ui-monospace, monospace; }
   padding: 0.15rem 0.35rem;
   font-size: 0.78rem;
 }
-.library-recover-btn {
+.library-recover-btn, .library-dismiss-btn {
   padding: 0.15rem 0.5rem;
   font-size: 0.78rem;
   cursor: pointer;
+}
+.library-dismiss-btn {
+  margin-left: 0.25rem;
 }
 

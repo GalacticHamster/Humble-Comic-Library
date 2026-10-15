@@ -1165,7 +1165,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   const matchStartedAt = performance.now();
   if (comparison) comparison.collectionMappings = collectionMappings;
   const records = [...(libraryMatcher.mediaMatchers?.values() ?? [libraryMatcher])].flatMap(matcher => [...matcher.libraryByKey.values()]);
-  const localContents = HumbleOwnership.localEvidence(records.filter(record => (record.kind ?? 'book') === 'book'), collectionMappings);
+  const localContents = HumbleOwnership.localEvidence(records.filter(record => (record.kind ?? 'book') === 'book' || record.kind === 'comic'), collectionMappings);
   const counts = { owned: 0, elsewhere: 0, partial: 0, possible: 0, new: 0, unchecked: 0 };
   const titlesByState = { owned: [], elsewhere: [], partial: [], possible: [], new: [], unchecked: [] };
   const matchesByTitleKey = new Map();
@@ -2761,6 +2761,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   // be corrected from the live Humble metadata.
   const softwareBackfill = mediaImportVersion < 6;
   const entitlementBackfill = mediaImportVersion < 7;
+
   const purchaseKey = (order) => order?.gamekey ?? order?.key ?? order?.order_key;
   if (orderList.some((order) => typeof purchaseKey(order) !== 'string' || !purchaseKey(order).trim())) {
     throw new Error('Humble returned a purchase without a valid identifier. No scan data was changed.');
@@ -2809,7 +2810,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   const failures = [];
   const reminders = new Map(existingReminders.map((record) => [record.id, record]));
   let reminderFailures = 0;
-  const rejected = [...rejectedPurchaseItems];
+  const rejected = fullRescan ? [] : [...rejectedPurchaseItems];
   for (let index = 0; index < purchasesToInspect.length; index += 1) {
     const order = purchasesToInspect[index];
     const key = purchaseKey(order);
@@ -2950,10 +2951,12 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     baselinePurchaseKeys,
     failedPurchaseKeys: [...failedReminderKeys]
   };
+  const importedKeys = new Set([...merged.values()].map(item => `${item.purchaseKey}:${item.providerItemId || item.title}`));
   const dedupedRejected = [];
   const seenRejected = new Set();
   for (const item of rejected) {
-    const rKey = `${item.purchaseKey}:${item.title}`;
+    const rKey = `${item.purchaseKey}:${item.providerItemId || item.title}`;
+    if (importedKeys.has(rKey) || importedKeys.has(`${item.purchaseKey}:${item.title}`)) continue;
     if (!seenRejected.has(rKey)) {
       seenRejected.add(rKey);
       dedupedRejected.push(item);
@@ -3111,11 +3114,11 @@ async function discoverSoftwareProductMetadata(report) {
       const detail = await fetchOrderDetail(purchaseKey);
       const sourceBundle = extractBundleName(order, detail);
       for (const product of directOrderProducts(detail)) {
-        const kind = productKind(product);
+        const kind = productKind(product, sourceBundle);
         // Books and audiobooks already use delivery-specific import paths.
         // This report focuses on the ambiguous products that could plausibly
         // represent Software without logging an entire purchase response.
-        if (kind === 'book' || kind === 'audiobook') continue;
+        if (kind === 'book' || kind === 'comic' || kind === 'audiobook') continue;
         products.push(softwareDiscoveryRecord(product, sourceBundle, kind, 'direct-product'));
       }
       // Subscription/tool products can be delivered as Humble third-party
@@ -3484,16 +3487,19 @@ function isConfirmedPurchaseProduct(product, isSubproduct = true) {
   if (!title) return false;
   const promotionalPattern = /^(?:how\s+to\s+redeem|redemption\s+instructions?|getting\s+started(?:\s+guide)?|about\s+this\s+bundle|terms\s+(?:and|&)\s+conditions|terms\s+of\s+service|please\s+read\s+first|instructions|readme|coupon|discount\s+voucher|\d+%\s+off\s+coupon)\b/iu;
   if (promotionalPattern.test(title)) return false;
+  const hasStreaming = Boolean(product.streaming || product.video_streams || product.stream_url || product.video_id);
   if (!isSubproduct) {
     const hasDelivery = (Array.isArray(product.downloads) && product.downloads.length > 0)
       || (Array.isArray(product.download_struct) && product.download_struct.length > 0)
-      || Boolean(product.machine_name || product.product_key || product.product_id);
+      || Boolean(product.machine_name || product.product_key || product.product_id)
+      || hasStreaming;
     if (!hasDelivery) return false;
   }
   return Boolean(
     product.machine_name || product.product_key || product.product_id || product.id || product.uuid
     || (Array.isArray(product.downloads) && product.downloads.length > 0)
     || (Array.isArray(product.download_struct) && product.download_struct.length > 0)
+    || hasStreaming
     || product.payee
   );
 }
@@ -3508,12 +3514,12 @@ function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}
       const providerItemId = `${purchaseKey}:product:${String(product.machine_name ?? product.product_key ?? product.product_id ?? product.id ?? product.uuid ?? '').trim() || `position-${index}`}`;
       const title = String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim();
       if (!title) return null;
-      let detectedKind = productKind(product);
+      let detectedKind = productKind(product, sourceBundle);
       if (!detectedKind) {
         if (isConfirmedPurchaseProduct(product, isSubproducts)) {
           detectedKind = 'unclassified';
         } else {
-          if (rejectedList) {
+          if (rejectedList && !rejectedList.some(r => r.purchaseKey === purchaseKey && (r.providerItemId === providerItemId || r.title === title))) {
             rejectedList.push({
               providerItemId,
               title,
@@ -3727,7 +3733,7 @@ function normalizeDate(value) {
   return Number.isNaN(Date.parse(trimmed)) ? null : trimmed;
 }
 
-function productKind(product) {
+function productKind(product, sourceBundle = '') {
   // An explicit Humble software type is stronger evidence than a bundled
   // executable or platform field. This includes assets/tools that Humble
   // files under Software without guessing from an archive extension.
@@ -3735,13 +3741,18 @@ function productKind(product) {
   // GameMaker project archives are importable source/project deliveries, not
   // executable games. This is a narrow, format-specific Software signal.
   if (hasSoftwareAssetDelivery(product)) return 'software';
+  // Check video delivery before game: Humble often tags video downloads
+  // with platforms like windows, mac, linux, or android for player compatibility,
+  // which must not cause movies or video courses to be classified as games.
+  if (hasVideoDownload(product, sourceBundle)) return 'video';
   // Check game delivery next: game bundles can include PDF manuals or art
   // books, which must not cause the game itself to be filed as a book.
   if (hasGameEntitlement(product)) return 'game';
   // Audiobook products can include a PDF booklet; identify their delivered
   // audio before the broader book-format check below.
-  if (hasVideoDownload(product)) return 'video';
   if (hasAudiobookDownload(product)) return 'audiobook';
+  // Comic files (CBZ/CBR) or purchases from Comic/Manga bundles
+  if (hasComicDownload(product, sourceBundle)) return 'comic';
   return hasBookDownload(product) ? 'book' : null;
 }
 
@@ -3783,10 +3794,29 @@ function hasBookDownload(product) {
     || /"(?:format|filetype|extension)"\s*:\s*"(?:pdf|epub|cbz|cbr|mobi)"/iu.test(serialized);
 }
 
-function hasVideoDownload(product) {
+function hasComicDownload(product, sourceBundle = '') {
+  if (!product || typeof product !== 'object') return false;
   const serialized = JSON.stringify(product);
-  return /\.(?:mp4|mkv|mov|avi|webm|m4v)(?:["?\\]|$)/iu.test(serialized)
-    || /"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:video|movie|film|mp4|mkv|mov|avi|webm|m4v)"/iu.test(serialized);
+  if (/\.(?:cbz|cbr)(?:["?\\]|$)/iu.test(serialized)) return true;
+  if (/"(?:format|filetype|extension)"\s*:\s*"(?:cbz|cbr)"/iu.test(serialized)) return true;
+  if (/\b(?:comics?\s+bundle|manga\s+bundle|graphic\s+novels?\s+bundle)\b/iu.test(sourceBundle)) return true;
+  return false;
+}
+
+function hasVideoDownload(product, sourceBundle = '') {
+  if (!product || typeof product !== 'object') return false;
+  const serialized = JSON.stringify(product);
+  if (/\.(?:mp4|mkv|mov|avi|webm|m4v|wmv|flv|ogv|m3u8|ts)(?:["?\\]|$)/iu.test(serialized)) return true;
+  if (/"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:video|movie|film|mp4|mkv|mov|avi|webm|m4v|streaming|stream)"/iu.test(serialized)) return true;
+  if (/"(?:streaming|video_streaming|is_video)"\s*:\s*true/iu.test(serialized)) return true;
+  if (/"(?:video_streams?|stream_urls?|streaming_urls?|video_urls?|video_struct|video_id|bento_id)"\s*:/iu.test(serialized)) return true;
+  if (/"name"\s*:\s*"(?:watch\s+online|stream|video\s+stream|1080p|720p|480p|4k|hd|sd)(?:\s*\(.*?\))?"/iu.test(serialized)) return true;
+  if (/\b(?:video\s+bundle|film\s+bundle|movie\s+bundle|documentary\s+bundle)\b/iu.test(sourceBundle)) {
+    if (!hasSoftwareEntitlement(product) && !hasBookDownload(product) && !hasAudiobookDownload(product)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasAudiobookDownload(product) {

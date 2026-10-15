@@ -4,7 +4,7 @@
   const roman = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
   function presentationTitle(value, kind = 'book') {
     let title = String(value ?? '').normalize('NFKC').toLowerCase().trim();
-    if (kind === 'book') {
+    if (kind === 'book' || kind === 'comic') {
       const format = /\s+(?:\(digital\)|(?:[\[(]\s*)?(?:pdf|cbz|cbr|epub|mobi|kindle|tp|tpb|hc|hardcover|paperback|trade paperback|digital edition)(?:\s*[\])])?)\s*$/iu;
       while (format.test(title)) title = title.replace(format, '').trim();
       // A format token before a labeled volume is store presentation, not a subtitle.
@@ -17,7 +17,7 @@
       .replace(/\b(vol|issue)\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, (_match, unit, number) => unit + ' ' + roman[number])
       .replace(/\s+/gu, ' ').trim();
     // Limit zero padding to explicitly labeled whole book volumes.
-    if (kind === 'book') {
+    if (kind === 'book' || kind === 'comic') {
       title = title.replace(/\bvol\s+0+(\d+)(?=\s|$)/gu, 'vol $1');
       // Only a leading article in a distinctive, explicitly numbered series is
       // presentation-equivalent. Short/generic and unnumbered works stay literal.
@@ -32,7 +32,7 @@
   }
   function ownershipTitleKeys(title, kind = 'book') {
     const keys = [presentationTitle(title, kind)];
-    if (kind === 'book' && /\s*\(plus extra content\)\s*$/iu.test(title)) {
+    if ((kind === 'book' || kind === 'comic') && /\s*\(plus extra content\)\s*$/iu.test(title)) {
       keys.push(presentationTitle(String(title).replace(/\s*\(plus extra content\)\s*$/iu, ''), kind));
     }
     return [...new Set(keys.filter(Boolean))];
@@ -205,7 +205,7 @@
 
   const FORMAT_WORDS = /\b(?:pdf|cbz|cbr|epub|mobi|kindle|digital\s+edition)\b/giu;
   const PRESENTATION_WORDS = /\b(?:preview|sample|read\s+now)\b/giu;
-  const LIBRARY_ITEM_KINDS = new Set(['book', 'comic', 'game', 'software', 'audiobook', 'video', 'unclassified', 'unknown']);
+  const LIBRARY_ITEM_KINDS = new Set(['book', 'comic', 'game', 'software', 'audiobook', 'video', 'unclassified']);
   const ROMAN_NUMERALS = new Map([
     ['i', '1'], ['ii', '2'], ['iii', '3'], ['iv', '4'], ['v', '5'],
     ['vi', '6'], ['vii', '7'], ['viii', '8'], ['ix', '9'], ['x', '10']
@@ -233,6 +233,18 @@
   // Roman numbers after an explicit volume/issue label are unit numbers.
   function presentationTitle(value, kind = 'book') { return global.LibraryMatchingPolicy.presentationTitle(value, kind); }
 
+  function isComicItem(item) {
+    if (!item || typeof item !== 'object') return false;
+    const kind = String(item.kind || item.mediaType || '').toLowerCase();
+    if (kind === 'comic') return true;
+    if (kind !== 'book') return false;
+    if (item.manualKind && item.manualKind !== 'comic') return false;
+    const bundles = [item.sourceBundle, ...(Array.isArray(item.provenance) ? item.provenance.map(p => p.sourceBundle) : [])].filter(Boolean);
+    if (bundles.some(b => /\b(?:comic|comics|manga|graphic\s+novel)s?\b/iu.test(b))) return true;
+    const serialized = JSON.stringify(item);
+    return /\b(?:cbz|cbr)\b/iu.test(serialized);
+  }
+
   function relationTitleParts(value, kind) {
     let title = String(value ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
     const revision = global.LibraryMatchingPolicy.revisionTitleParts(title, kind);
@@ -254,7 +266,7 @@
       title = qualifier[1].trim(); stripEdition();
     }
     const subtitle = /^(.*?)\s*:\s+(.+)$/u.exec(title);
-    return { primary: kind === 'book' ? presentationTitle(subtitle?.[1]?.trim() || title, kind) : normalizeTitle(subtitle?.[1]?.trim() || title), subtitle: Boolean(subtitle),
+    return { primary: (kind === 'book' || kind === 'comic') ? presentationTitle(subtitle?.[1]?.trim() || title, kind) : normalizeTitle(subtitle?.[1]?.trim() || title), subtitle: Boolean(subtitle),
       qualifier: Boolean(qualifier), hasEdition, hasVersion: false };
   }
 
@@ -706,7 +718,7 @@
   function createSyncStore(area) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
-    const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems'];
+    const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
     async function operate(operation,args){
       if(operation==='metadataTabClosed'){const control=(await area.get({[controlKey]:null}))[controlKey];if(control?.mode==='metadata'&&control.tabId===args[0])await area.set({[controlKey]:null});return true;}
       if(['metadataPreview','metadataBegin','metadataCommit','metadataCancel'].includes(operation)){
@@ -876,7 +888,7 @@
         const [rejectedRecord, targetKind] = args;
         if (!LIBRARY_ITEM_KINDS.has(targetKind)) throw new Error('Unsupported media type.');
         const state = await area.get(LIBRARY_STATE_DEFAULTS);
-        const rejected = (state.rejectedPurchaseItems ?? []).filter(r => !(r.purchaseKey === rejectedRecord.purchaseKey && r.title === rejectedRecord.title));
+        const rejected = (state.rejectedPurchaseItems ?? []).filter(r => !(r.purchaseKey === rejectedRecord.purchaseKey && (r.title === rejectedRecord.title || (r.providerItemId && r.providerItemId === rejectedRecord.providerItemId))));
         const newItem = {
           title: rejectedRecord.title,
           kind: targetKind,
@@ -899,6 +911,20 @@
         const overrides = { ...(state.mediaTypeOverrides ?? {}), [overrideKey]: targetKind };
         const libraryItems = [...(state.libraryItems ?? []), newItem];
         await area.set({ rejectedPurchaseItems: rejected, libraryItems, mediaTypeOverrides: overrides });
+        return true;
+      }
+      if (operation === 'dismissRejectedItem') {
+        const [rejectedRecord] = args;
+        const state = await area.get(LIBRARY_STATE_DEFAULTS);
+        let rejected;
+        if (!rejectedRecord) {
+          rejected = [];
+        } else {
+          rejected = (state.rejectedPurchaseItems ?? []).filter(r =>
+            !(r.purchaseKey === rejectedRecord.purchaseKey && (r.title === rejectedRecord.title || (r.providerItemId && r.providerItemId === rejectedRecord.providerItemId)))
+          );
+        }
+        await area.set({ rejectedPurchaseItems: rejected });
         return true;
       }
       if(operation==='patch'){
@@ -934,7 +960,7 @@
   global.HumbleComicLibrary = {
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, missingProductIdScope, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
-    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS,
+    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
   };
 }(globalThis));

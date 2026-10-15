@@ -48,7 +48,7 @@
       for (const field of ['series', 'run', 'unitType']) {
         // Compare title-derived series using the same bounded book presentation
         // rule. Explicit metadata conflicts above remain authoritative.
-        const sameSeries = field === 'series' && offered.kind === 'book'
+        const sameSeries = field === 'series' && (offered.kind === 'book' || offered.kind === 'comic')
           && policy.presentationTitle(leftUnits[0].series+' vol '+leftUnits[0].number, 'book') === policy.presentationTitle(rightUnits[0].series+' vol '+rightUnits[0].number, 'book');
         if (!sameSeries && leftUnits[0][field] && rightUnits[0][field] && key(leftUnits[0][field]) !== key(rightUnits[0][field])) reasons.push(`Different ${field}`);
       }
@@ -117,7 +117,7 @@
     const fingerprints = new Set(lists.map(entries => JSON.stringify(entries.map(entry => `${C.contentKey(entry)}:${entry.completeness}`).sort())));
     if (fingerprints.size > 1) return { entries: [], complete: false, uncertain: true, reason: 'Conflicting collection mappings' };
     if (lists.length) return { entries: lists[0], complete: applicable.some(mapping => mapping.contentsComplete === true), mappings: applicable, uncertain: false };
-    return { entries: item.kind === 'book' || !item.kind ? C.titleContents(item.lookupTitle ?? item.title, H.bibliographicFields(item)) : [], complete: false, mappings: [], uncertain: false };
+    return { entries: item.kind === 'book' || item.kind === 'comic' || !item.kind ? C.titleContents(item.lookupTitle ?? item.title, H.bibliographicFields(item)) : [], complete: false, mappings: [], uncertain: false };
   }
 
   function localEvidence(records, mappings) {
@@ -249,7 +249,8 @@
 
   function wishlistRelation(wanted, item) {
     const kind=(item.kind??item.mediaType??'book'), wantedKind=(wanted.kind??wanted.mediaType??'book');
-    if(kind!==wantedKind)return 'none';
+    const normKind = k => k === 'comic' ? 'book' : k;
+    if(normKind(kind)!==normKind(wantedKind))return 'none';
     const a=H.bibliographicFields(wanted), b=H.bibliographicFields(item), policy=global.LibraryMatchingPolicy;
     const hard=conflicts(item,wanted,false);
     if(hard.some(reason=>/issue|volume|unitType|seriesId|runId|Different run/iu.test(reason)))return 'none';
@@ -382,7 +383,7 @@
   function readingTargets(resolved) {
     const groups=new Map();let limited=false,budget=20000;
     for(const {item,target}of resolved){
-      if(item.kind!=='book')continue;
+      if(item.kind!=='book'&&item.kind!=='comic')continue;
       for(const entry of target?.entries||[]){
         if(entry.completeness!=='full')continue;
         const scope=seriesKey(entry);if(!groups.has(scope)&&groups.size>=100){limited=true;continue;}

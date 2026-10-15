@@ -70,8 +70,22 @@
       <section>
         <h2>Library</h2><p>Export backup saves ownership and purchase evidence. Export title catalog saves titles and identity metadata only; it cannot restore ownership. Your wishlist has its own export and restore above. Clear library removes all saved accounts, ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
         <p id="library-count">Loading…</p>
+        <div id="library-classification-diagnostics" class="library-classification-diagnostics" aria-live="polite"></div>
         <div class="actions"><button id="export-library">Export backup</button><button id="export-catalog" type="button">Export title catalog</button><button id="clear-library" class="danger">Clear library</button></div>
         <p id="local-status" role="status"></p>
+                <details id="library-rejected-section" class="library-rejected-section">
+          <summary>Unimported / rejected purchase items (<span id="library-rejected-count">0</span>)</summary>
+          <div class="library-rejected-content">
+            <p class="library-rejected-description">These items were skipped during import because their media type could not be verified or they resembled promotional content. You can review and recover them into your library, or dismiss them.</p>
+            <div id="library-rejected-empty" class="library-rejected-empty">
+              <p>No unimported or rejected items. All confirmed purchase products from your Humble scans are in your library.</p>
+            </div>
+            <div id="library-rejected-actions" class="library-rejected-actions" hidden>
+              <button id="library-dismiss-all-rejected" type="button" class="secondary">Dismiss all</button>
+            </div>
+            <ul id="library-rejected-list" class="library-rejected-list"></ul>
+          </div>
+        </details>
         <div class="library-controls" role="search" aria-label="Library search and filters">
           <div class="library-search-row">
             <label for="library-search">Find titles</label>
@@ -119,11 +133,7 @@
           </div>
         </div>
         <ol id="library-preview"></ol>
-        <div id="library-rejected-section" class="library-rejected-section" hidden>
-          <h3>Unimported purchase items (<span id="library-rejected-count">0</span>)</h3>
-          <p>These items were skipped during import because their media type could not be verified or they resembled promotional content. You can review and recover them into your library.</p>
-          <ul id="library-rejected-list" class="library-rejected-list"></ul>
-        </div>
+
       </section>
       <section>
         <h2>Restore backup</h2>
