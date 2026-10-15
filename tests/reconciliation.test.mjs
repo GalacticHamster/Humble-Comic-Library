@@ -48,7 +48,7 @@ function initialState() {
   return {
     libraryItems: [item('Old Book'), item('Old Game', 'game'), item('Old Software', 'software'), item('Old Audio', 'audiobook'), { title: 'Manual book' }],
     purchaseSummaries: [{ purchaseKey: 'old', sourceBundle: 'Old Bundle', itemCount: 4, pricePaid: 8 }],
-    mediaImportVersion: 7,
+    mediaImportVersion: 8,
     keyReminders: [{ id: 'old-reminder', purchaseKey: 'old', title: 'Old Game', status: 'unrevealed' }],
     keyReminderScan: { complete: true, purchaseKeys: ['old'], baselinePurchaseKeys: ['old'] },
     customCollectionMappings: [{ id: 'keep-this-rule' }]
@@ -103,8 +103,8 @@ test('mixed incremental imports distinguish new purchases, failed retries and kn
 test('upgrade backfills and explicit full scans keep their separate status explanations', async () => {
   const scan=importer({...initialState(),mediaImportVersion:6,keyReminders:[]},[order('old')],{old:bookDetail('Old Book')});
   const backfill=await scan.scan(false);
-  assert.match(scan.summary(backfill), /^No new purchases; refreshed delivery and key ownership evidence in all 1 purchase \(one-time upgrade backfill\)$/);
-  assert.ok(scan.messages.some(message=>message.startsWith('Refreshing delivery and key ownership evidence (one-time upgrade backfill):')));
+  assert.match(scan.summary(backfill), /^No new purchases; upgraded metadata in 1 purchase \(file formats and media labels; one-time backfill\)$/);
+  assert.ok(scan.messages.some(message=>message.startsWith('Upgrading saved purchase metadata, file formats and media labels (one-time backfill):')));
   scan.messages.length=0;
   const full=await scan.scan();
   assert.match(scan.summary(full), /^Rescanned 1 purchase; current snapshot reconciled; historical evidence archived$/);
@@ -115,7 +115,7 @@ test('key evidence backfills once, then pending refresh updates purchase status 
   const details={old:{all_tpks:[{human_name:'Old Game',machine_name:'game',keyindex:0,key_type:'steam'}]}};
   const initial={...initialState(),mediaImportVersion:6,keyReminders:[],keyReminderScan:null};
   const scan=importer(initial,[order('old')],details);
-  await scan.scan(false);assert.equal(scan.stored.mediaImportVersion,7);
+  await scan.scan(false);assert.equal(scan.stored.mediaImportVersion,8);
   assert.deepEqual(scan.requests,['old']);assert.equal(scan.stored.libraryItems.find(item=>item.title==='Old Game').keyStatus,'unrevealed');
   details.old.all_tpks[0].is_expired=true;scan.requests.length=0;
   await scan.scan(false);

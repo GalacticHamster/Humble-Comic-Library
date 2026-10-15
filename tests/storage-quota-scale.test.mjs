@@ -251,7 +251,7 @@ test('incremental import adds new purchases without full rescan, preserving exis
   const harness = createScaleHarness({
     libraryItems: lib.items,
     purchaseSummaries: lib.purchases,
-    mediaImportVersion: 7, keyReminderScan: { complete: true, purchaseKeys: lib.purchases.map(p => p.purchaseKey), baselinePurchaseKeys: lib.purchases.map(p => p.purchaseKey) }
+    mediaImportVersion: 8, keyReminderScan: { complete: true, purchaseKeys: lib.purchases.map(p => p.purchaseKey), baselinePurchaseKeys: lib.purchases.map(p => p.purchaseKey) }
   });
 
   const newOrder = { gamekey: 'new-order-999', product: { human_name: 'New 2026 Comic Bundle' } };

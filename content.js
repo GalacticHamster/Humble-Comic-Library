@@ -1,6 +1,8 @@
 const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
+// Bump only when saved purchases need new extraction, not for every release.
+const CURRENT_IMPORT_VERSION = HumbleComicLibrary.CURRENT_IMPORT_VERSION;
 // Reading and validating a large private GL database, then matching a bounded
 // batch, can exceed a few seconds. Keep a finite deadline with room for that work.
 const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 30000;
@@ -2770,6 +2772,8 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     rejectedPurchaseItems = []
   } = scan.state;
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
+  const priorPurchases = new Map(existingPurchases.map(purchase=>[purchase.purchaseKey,purchase]));
+  const needsUpgrade = key => previouslyScanned.has(key) && (priorPurchases.get(key)?.importVersion ?? mediaImportVersion) < CURRENT_IMPORT_VERSION;
   // Version 4 recognizes Humble's audio download platform, generic audio
   // category, and audio download formats. One complete backfill lets established installations
   // discover audio from purchases previously marked
@@ -2789,7 +2793,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   const priorFailedPurchaseKeys = new Set(priorImport?.failedPurchaseKeys ?? []);
   const titlePurchaseKeys = new Set(orderList.filter((order) => {
     const key = purchaseKey(order);
-    return key && (fullRescan || audioBackfill || softwareBackfill || entitlementBackfill || priorFailedPurchaseKeys.has(key) || !previouslyScanned.has(key));
+    return key && (fullRescan || needsUpgrade(key) || priorFailedPurchaseKeys.has(key) || !previouslyScanned.has(key));
   }).map(purchaseKey));
   const allPurchaseKeys = new Set(orderList.map(purchaseKey).filter(Boolean));
   const newPurchaseKeys = new Set([...allPurchaseKeys].filter((key) => !previouslyScanned.has(key)));
@@ -2819,6 +2823,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   const refreshedKeyPurchases = [...reminderPurchaseKeys].filter((key) => allPurchaseKeys.has(key) && previouslyScanned.has(key) && !priorFailedPurchaseKeys.has(key)).length;
   const scope = {
     fullRescan, audioBackfill, softwareBackfill, entitlementBackfill,
+    metadataUpgrades: fullRescan ? 0 : [...allPurchaseKeys].filter(needsUpgrade).length,
     scannedPurchases: purchasesToInspect.length,
     newPurchases: newPurchaseKeys.size, retriedPurchases, refreshedKeyPurchases,
     skippedKnown: orderList.length - purchasesToInspect.length
@@ -2837,7 +2842,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     const importTitles = titlePurchaseKeys.has(key);
     const refreshReminders = reminderPurchaseKeys.has(key);
     const action = fullRescan ? 'Rescanning all purchases'
-      : audioBackfill || softwareBackfill || entitlementBackfill ? 'Refreshing delivery and key ownership evidence (one-time upgrade backfill)'
+      : needsUpgrade(key) ? 'Upgrading saved purchase metadata, file formats and media labels (one-time backfill)'
       : newPurchaseKeys.has(key) ? 'Importing new purchases'
       : priorFailedPurchaseKeys.has(key) ? 'Retrying previously failed purchases'
       : newPurchaseKeys.size ? 'Rechecking key status in existing purchases'
@@ -2853,17 +2858,16 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
         || ['all_tpks', 'all_tpkds'].some((field) => detail.tpkd_dict && Object.hasOwn(detail.tpkd_dict, field) && !Array.isArray(detail.tpkd_dict[field]))) {
         throw new Error('Unexpected purchase product list.');
       }
-      if (importTitles) {
-        const items = extractLibraryItems(detail, order, key, mediaTypeOverrides, rejected);
-        imported.push(...items);
-        purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
-      }
+      const items = importTitles ? extractLibraryItems(detail, order, key, mediaTypeOverrides, rejected) : [];
+      const summary = importTitles ? createPurchaseSummary(detail, order, key, items) : null;
       if (refreshReminders) {
+        const nextReminders = extractKeyReminderRecords(detail, order, key);
         for (const [id, record] of reminders) if (record.purchaseKey === key) reminders.delete(id);
-        extractKeyReminderRecords(detail, order, key).forEach((record) => reminders.set(record.id, record));
+        nextReminders.forEach((record) => reminders.set(record.id, record));
         successfullyChecked.add(key);
         failedReminderKeys.delete(key);
       }
+      if (summary) { imported.push(...items); purchaseSummaries.push(summary); }
     } catch {
       if (importTitles) failures.push(key);
       if (refreshReminders) {
@@ -2879,17 +2883,9 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   // Only a complete explicit rescan can prune the current Humble snapshot.
   // Media backfills continue to correct entitlement classification separately.
   const reconciled = fullRescan && failures.length === 0 && reminderFailures === 0;
-  const rebuildEntitlements = !fullRescan && (audioBackfill || softwareBackfill || entitlementBackfill);
-  const failedPurchaseKeys = new Set(failures);
   const retainedItems = reconciled
     ? libraryItems.filter((item) => item.source !== 'humble').map(retainManualLibraryItem)
-    : rebuildEntitlements
-    ? libraryItems.filter((item) => !['game', 'audiobook', 'software'].includes(item.kind)
-      || item.source !== 'humble'
-      // Never lose a previously imported entitlement merely because this
-      // retry could not fetch one of its purchase records.
-      || itemProvenance(item).some((record) => failedPurchaseKeys.has(record.purchaseKey)))
-    : libraryItems;
+    : fullRescan ? libraryItems : refreshImportedClassifications(libraryItems, imported);
   const merged = new Map(retainedItems.map((item) => {
     const overrideKey = HumbleComicLibrary.mediaOverrideKey?.(item);
     const override = mediaTypeOverrides[overrideKey] || (item.providerItemId && mediaTypeOverrides[item.providerItemId]);
@@ -2995,7 +2991,8 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     lastImport: importSummary,
     keyReminders: reminderRecords,
     keyReminderScan: keyReminders,
-    ...(failures.length ? {} : { mediaImportVersion: 7 })
+    ...(orderList.every(order=>(allPurchases.get(purchaseKey(order))?.importVersion??0)>=CURRENT_IMPORT_VERSION)
+      ? { mediaImportVersion: CURRENT_IMPORT_VERSION } : {})
   });
   return {
     ...scope,
@@ -3046,8 +3043,8 @@ function purchaseImportScope(result, inProgress = false) {
   const parts = [result.newPurchases
     ? `${inProgress ? 'Found' : 'Checked'} ${result.newPurchases} new purchase${result.newPurchases === 1 ? '' : 's'}`
     : 'No new purchases'];
-  if (result.audioBackfill || result.softwareBackfill || result.entitlementBackfill) {
-    parts.push(`${inProgress ? 'refreshing' : 'refreshed'} delivery and key ownership evidence in all ${purchases(result.scannedPurchases)} (one-time upgrade backfill)`);
+  if (result.metadataUpgrades) {
+    parts.push(`${inProgress ? 'upgrading metadata in' : result.failures ? 'attempted a metadata upgrade in' : 'upgraded metadata in'} ${purchases(result.metadataUpgrades)} (file formats and media labels; one-time backfill)${!inProgress&&result.failures?'; failed purchases remain retryable':''}`);
   } else {
     if (result.retriedPurchases) parts.push(`${inProgress ? 'retrying' : 'retried'} ${result.retriedPurchases} previously failed purchase${result.retriedPurchases === 1 ? '' : 's'}`);
     if (result.refreshedKeyPurchases) parts.push(`${inProgress ? 'rechecking' : 'rechecked'} key status in ${result.refreshedKeyPurchases} existing purchase${result.refreshedKeyPurchases === 1 ? '' : 's'}`);
@@ -3504,6 +3501,23 @@ function retainManualLibraryItem(item) {
 }
 
 
+function refreshImportedClassifications(priorItems, imported) {
+  // Only a stable product within the same purchase can update an automatic
+  // classification. Missing/failed observations and manual copies stay intact.
+  const byOrigin=new Map();
+  for(const item of imported)if(item.providerItemId&&item.purchaseKey)byOrigin.set(JSON.stringify([item.purchaseKey,item.providerItemId,item.entitlementId??'']),item);
+  return priorItems.flatMap(item=>{
+    if(item.manualKind||item.source!=='humble')return [item];
+    const groups=new Map();
+    for(const origin of itemProvenance(item)){
+      const updated=origin.providerItemId&&byOrigin.get(JSON.stringify([origin.purchaseKey,origin.providerItemId,origin.entitlementId??'']));
+      const kind=updated?.kind??item.kind,entry=groups.get(kind)??{...item,kind,automaticKind:updated?.automaticKind??item.automaticKind??kind,provenance:[]};
+      entry.provenance.push(origin);groups.set(kind,entry);
+    }
+    return [...groups.values()].map(entry=>({...entry,...(entry.provenance[0]?.purchaseKey?{purchaseKey:entry.provenance[0].purchaseKey,providerItemId:entry.provenance[0].providerItemId??entry.providerItemId}:{} )}));
+  });
+}
+
 function archivePrunedLibraryItems(history, priorItems, currentMerged) {
   const mergedByKey = currentMerged instanceof Map ? currentMerged : new Map((currentMerged || []).map(i => [libraryItemKey(i), i]));
   const cleanedHistory = [];
@@ -3511,15 +3525,12 @@ function archivePrunedLibraryItems(history, priorItems, currentMerged) {
     const key = libraryItemKey(item);
     const active = mergedByKey.get(key);
     if (!active) {
-      const { formats: _, ...cleanItem } = item;
-      const cleanProv = (cleanItem.provenance || []).map(({ formats: _f, ...p }) => p);
-      cleanedHistory.push({ ...cleanItem, provenance: cleanProv });
+      cleanedHistory.push(item);
     } else {
-      const activeOrigins = new Set(itemProvenance(active).map(p => (p.purchaseKey || '') + ':' + (p.entitlementId || '')));
-      const historicalOrigins = (item.provenance || []).filter(p => p.purchaseKey && !activeOrigins.has((p.purchaseKey || '') + ':' + (p.entitlementId || ''))).map(({ formats: _f, ...p }) => p);
+      const activeOrigins = itemProvenance(active);
+      const historicalOrigins = itemProvenance(item).filter(p => p.purchaseKey && !activeOrigins.some(a=>samePurchaseObservation(p,a)));
       if (historicalOrigins.length) {
-        const { formats: _, ...cleanItem } = item;
-        cleanedHistory.push({ ...cleanItem, provenance: historicalOrigins });
+        cleanedHistory.push({ ...item, provenance: historicalOrigins });
       }
     }
   }
@@ -3530,21 +3541,24 @@ function archivePrunedLibraryItems(history, priorItems, currentMerged) {
     const active = mergedByKey.get(key);
     if (!active) {
       if (item.source === 'humble' || itemProvenance(item).some(p => p.purchaseKey)) {
-        const { formats: _, ...cleanItem } = item;
-        const cleanProv = itemProvenance(cleanItem).map(({ formats: _f, ...p }) => p);
-        toArchive.push({ ...cleanItem, provenance: cleanProv });
+        toArchive.push({ ...item, provenance: itemProvenance(item) });
       }
     } else {
-      const activeOrigins = new Set(itemProvenance(active).map(p => (p.purchaseKey || '') + ':' + (p.entitlementId || '')));
-      const prunedOrigins = itemProvenance(item).filter(p => p.purchaseKey && !activeOrigins.has((p.purchaseKey || '') + ':' + (p.entitlementId || ''))).map(({ formats: _f, ...p }) => p);
+      const activeOrigins = itemProvenance(active);
+      const prunedOrigins = itemProvenance(item).filter(p => p.purchaseKey && !activeOrigins.some(a=>samePurchaseObservation(p,a)));
       if (prunedOrigins.length) {
-        const { formats: _, ...cleanItem } = item;
-        toArchive.push({ ...cleanItem, provenance: prunedOrigins });
+        toArchive.push({ ...item, provenance: prunedOrigins });
       }
     }
   }
 
   return mergeHistoricalLibraryItems(cleanedHistory, toArchive);
+}
+
+function samePurchaseObservation(left,right){
+  return left.purchaseKey===right.purchaseKey&&(left.entitlementId??'')===(right.entitlementId??'')
+    && (!left.providerItemId||!right.providerItemId||left.providerItemId===right.providerItemId)
+    && HumbleComicLibrary.normalizeTitle(left.title??'')===HumbleComicLibrary.normalizeTitle(right.title??'');
 }
 
 function mergeHistoricalLibraryItems(history, ...snapshots) {
@@ -3835,6 +3849,7 @@ function createPurchaseSummary(detail, order, purchaseKey, items) {
   const itemCount = items.length;
   return {
     purchaseKey,
+    importVersion: CURRENT_IMPORT_VERSION,
     sourceBundle: extractBundleName(order, detail),
     purchasedAt: extractPurchasedAt(order, detail),
     itemCount,
@@ -4004,13 +4019,19 @@ function hasBookDownload(product) {
   // product avoids treating a bundle name as a book, while accepting the PDF,
   // EPUB, CBZ, CBR, and MOBI variants used across Humble book bundles.
   const serialized = JSON.stringify(product);
-  return /\.(?:pdf|epub|cbz|cbr|mobi)(?:["?\\]|$)/iu.test(serialized)
+  return explicitDownloadMedia(product).has('book')
+    || /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:book|ebook|e-book)"/iu.test(serialized)
+    || /\.(?:pdf|epub|cbz|cbr|mobi)(?:["?\\]|$)/iu.test(serialized)
     || /"(?:format|filetype|extension)"\s*:\s*"(?:pdf|epub|cbz|cbr|mobi)"/iu.test(serialized);
 }
 
 function hasComicDownload(product, sourceBundle = '') {
   if (!product || typeof product !== 'object') return false;
   const serialized = JSON.stringify(product);
+  if (explicitDownloadMedia(product).has('comic')) return true;
+  if (/"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:comic|comics|manga|graphic novel)"/iu.test(serialized)) return true;
+  const title=String(product.human_name??product.product_name??product.title??product.name??'').trim();
+  if (/\bcomic book\s*$/iu.test(title)&&!/\b(?:how to|guide|manual|draw(?:ing)?|creat(?:e|ing)|mak(?:e|ing)|writ(?:e|ing))\b/iu.test(title)) return true;
   if (/\.(?:cbz|cbr)(?:["?\\]|$)/iu.test(serialized)) return true;
   if (/"(?:format|filetype|extension)"\s*:\s*"(?:cbz|cbr)"/iu.test(serialized)) return true;
   if (/\b(?:comics?\s+bundle|manga\s+bundle|graphic\s+novels?\s+bundle)\b/iu.test(sourceBundle)) return true;
@@ -4020,6 +4041,9 @@ function hasComicDownload(product, sourceBundle = '') {
 function hasVideoDownload(product, sourceBundle = '') {
   if (!product || typeof product !== 'object') return false;
   const serialized = JSON.stringify(product);
+  if (explicitDownloadMedia(product).has('video')) return true;
+  const title=String(product.human_name??product.product_name??product.title??product.name??'').trim();
+  if (/^(?:making[ -]of|behind[ -]the[ -]scenes)\s+videos?$/iu.test(title)) return true;
   if (/\.(?:mp4|mkv|mov|avi|webm|m4v|wmv|flv|ogv|m3u8|ts)(?:["?\\]|$)/iu.test(serialized)) return true;
   if (/"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:video|movie|film|mp4|mkv|mov|avi|webm|m4v|streaming|stream)"/iu.test(serialized)) return true;
   if (/"(?:streaming|video_streaming|is_video)"\s*:\s*true/iu.test(serialized)) return true;
@@ -4031,6 +4055,23 @@ function hasVideoDownload(product, sourceBundle = '') {
     }
   }
   return false;
+}
+
+function explicitDownloadMedia(product){
+  const kinds=new Set(),visit=download=>{
+    if(!download||typeof download!=='object')return;
+    for(const field of ['name','label']){
+      const label=String(download[field]??'').slice(0,250).trim().replace(/\s*\((?:zip|rar|7z)\)\s*$/iu,'').trim();
+      if(/^(?:comic(?: book)?|graphic novel|manga)$/iu.test(label))kinds.add('comic');
+      if(/^(?:e-?book|book)$/iu.test(label))kinds.add('book');
+      if(/^(?:videos?|video episodes|video course|video tutorials?|movie|film)$/iu.test(label))kinds.add('video');
+    }
+    for(const field of ['download_struct','files','items'])if(Array.isArray(download[field]))download[field].forEach(visit);
+  };
+  for(const field of ['downloads','download_struct','files'])if(Array.isArray(product?.[field]))product[field].forEach(visit);
+  if(product?.download)visit(product.download);
+  // Conflicting labels are not evidence for choosing a medium.
+  return kinds.size===1?kinds:new Set();
 }
 
 function hasAudiobookDownload(product) {

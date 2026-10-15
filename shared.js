@@ -469,6 +469,7 @@
   }
 
   const BACKUP_VERSION = 9;
+  const CURRENT_IMPORT_VERSION = 8;
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
     keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
@@ -570,7 +571,7 @@
     const libraryItems = backupArray(value.items, 'items', restoreBackupItem);
     const purchaseSummaries = backupArray(value.purchases === undefined ? [] : value.purchases, 'purchases', (record, path) => backupRecord(record, {
       purchaseKey: 'string', sourceBundle: 'string', purchasedAt: 'string?', itemCount: 'number',
-      pricePaid: 'number?', currency: 'string?', pricePerItem: 'number?'
+      pricePaid: 'number?', currency: 'string?', pricePerItem: 'number?', importVersion: 'number'
     }, path, ['purchaseKey']));
     const keyReminders = backupArray(value.keyReminders === undefined ? [] : value.keyReminders, 'keyReminders', (record, path) => {
       const reminder = backupRecord(record, {
@@ -606,15 +607,16 @@
       });
     }
     const mediaImportVersion = value.mediaImportVersion === undefined ? 1 : value.mediaImportVersion;
-    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > 8) {
+    if (!Number.isInteger(mediaImportVersion) || mediaImportVersion < 1 || mediaImportVersion > CURRENT_IMPORT_VERSION) {
       throw new Error('Unsupported media import scan version.');
     }
     const customCollectionMappings = global.HumbleCollectionMappings.validateCustomMappings(value.collectionMappings === undefined ? [] : value.collectionMappings);
     const historicalLibraryItems = backupArray(value.historicalItems === undefined ? [] : value.historicalItems, 'historicalItems', restoreBackupItem);
     const historicalPurchaseSummaries = backupArray(value.historicalPurchases === undefined ? [] : value.historicalPurchases, 'historicalPurchases', (record, path) => backupRecord(record, {
       purchaseKey: 'string', sourceBundle: 'string', purchasedAt: 'string?', itemCount: 'number',
-      pricePaid: 'number?', currency: 'string?', pricePerItem: 'number?'
+      pricePaid: 'number?', currency: 'string?', pricePerItem: 'number?', importVersion: 'number'
     }, path, ['purchaseKey']));
+    for(const purchase of [...purchaseSummaries,...historicalPurchaseSummaries])if(purchase.importVersion!==undefined&&(!Number.isInteger(purchase.importVersion)||purchase.importVersion<1||purchase.importVersion>CURRENT_IMPORT_VERSION))throw new Error('Unsupported purchase import version.');
     const humbleProfileLabel=value.profileLabel??'';
     if(typeof humbleProfileLabel!=='string'||humbleProfileLabel.length>100)throw new Error('Invalid profile label.');
     const profileArchives=backupArray(value.profileArchives??[], 'profileArchives', (entry,path)=>{
@@ -1030,6 +1032,7 @@
   const storageRemove=keys=>storageRequest('remove',Array.isArray(keys)?keys:[keys]);
 
   global.HumbleComicLibrary = {
+    CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, missingProductIdScope, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,

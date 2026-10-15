@@ -35,7 +35,7 @@
       }
       return realFetch(url,...args);
     };
-    Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey})),mediaImportVersion:7,
+    Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey})),mediaImportVersion:8,
       keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'}],keyReminderScan:{complete:true,purchaseKeys:['pending','unchanged'],baselinePurchaseKeys:['pending','unchanged']},lastImport:null});
     panel.querySelector('[data-profile-label]').value='fixture';panel.querySelector('[data-profile-confirm]').checked=true;
     quick.click();
@@ -47,6 +47,16 @@
     fixtureStored.keyReminders=[];detailRequests.length=0;
     quick.click();await wait(()=>!quick.disabled);
     check(detailRequests.length===0&&panel.querySelector('output').textContent.startsWith('No new purchases; no key-status refreshes or failed purchases to check'),'unchanged importer returns immediately without purchase-detail requests');
+    fixtureStored.mediaImportVersion=7;for(const purchase of fixtureStored.purchaseSummaries)delete purchase.importVersion;
+    window.fetch=async(url,...args)=>{
+      if(url==='/api/v1/user/order?all=true')return {ok:true,json:async()=>orders};
+      if(String(url).includes('/api/v1/order/')){detailRequests.push(url);return {ok:true,status:200,text:async()=>JSON.stringify({subproducts:[{human_name:'Sample Comic Book',machine_name:'comic',downloads:[{format:'zip'}]}]})};}
+      return realFetch(url,...args);
+    };
+    quick.click();await wait(()=>!quick.disabled);
+    check(detailRequests.length===2&&fixtureStored.mediaImportVersion===8&&fixtureStored.purchaseSummaries.every(p=>p.importVersion===8),'version 7 metadata upgrade fetches each old purchase and records successful version 8 results');
+    check(panel.querySelector('output').textContent.includes('upgraded metadata in 2 purchases')&&panel.querySelector('output').textContent.includes('file formats and media labels'),'completed metadata backfill is distinguished from a normal incremental import');
+    detailRequests.length=0;quick.click();await wait(()=>!quick.disabled);check(detailRequests.length===0,'completed upgrade returns the importer to skipping unchanged purchases');
     const metadata=panel.querySelector('[data-import-mode=metadata]'),cancel=panel.querySelector('[data-metadata-cancel]');
     check(metadata.textContent==='Refresh missing product IDs'&&cancel.hidden&&getComputedStyle(cancel).display==='none','metadata refresh is explicit and its cancel control starts hidden');
     const old={title:'Old book',kind:'book',source:'humble',purchaseKey:'saved-order',sourceBundle:'Historical bundle',purchasedAt:'2020-01-01T00:00:00Z'};

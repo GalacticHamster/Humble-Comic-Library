@@ -272,7 +272,7 @@ test('purchase import shares detail requests with key reminders and requires an 
   const storage = {
     libraryItems: [],
     purchaseSummaries: [{ purchaseKey: 'old-purchase', pricePaid: null }],
-    mediaImportVersion: 7,
+    mediaImportVersion: 8,
     keyReminders: [],
     keyReminderScan: null
   };
