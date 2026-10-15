@@ -2,9 +2,12 @@
 (function installLibraryMatchingPolicy(global) {
   'use strict';
   const roman = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+  // Comic is a presentation category for books, never an identity assertion.
+  const identityKind = kind => kind === 'comic' ? 'book' : kind;
   function presentationTitle(value, kind = 'book') {
+    kind = identityKind(kind);
     let title = String(value ?? '').normalize('NFKC').toLowerCase().trim();
-    if (kind === 'book' || kind === 'comic') {
+    if (kind === 'book') {
       const format = /\s+(?:\(digital\)|(?:[\[(]\s*)?(?:pdf|cbz|cbr|epub|mobi|kindle|tp|tpb|hc|hardcover|paperback|trade paperback|digital edition)(?:\s*[\])])?)\s*$/iu;
       while (format.test(title)) title = title.replace(format, '').trim();
       // A format token before a labeled volume is store presentation, not a subtitle.
@@ -17,7 +20,7 @@
       .replace(/\b(vol|issue)\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, (_match, unit, number) => unit + ' ' + roman[number])
       .replace(/\s+/gu, ' ').trim();
     // Limit zero padding to explicitly labeled whole book volumes.
-    if (kind === 'book' || kind === 'comic') {
+    if (kind === 'book') {
       title = title.replace(/\bvol\s+0+(\d+)(?=\s|$)/gu, 'vol $1');
       // Only a leading article in a distinctive, explicitly numbered series is
       // presentation-equivalent. Short/generic and unnumbered works stay literal.
@@ -31,8 +34,9 @@
     return title;
   }
   function ownershipTitleKeys(title, kind = 'book') {
+    kind = identityKind(kind);
     const keys = [presentationTitle(title, kind)];
-    if ((kind === 'book' || kind === 'comic') && /\s*\(plus extra content\)\s*$/iu.test(title)) {
+    if (kind === 'book' && /\s*\(plus extra content\)\s*$/iu.test(title)) {
       keys.push(presentationTitle(String(title).replace(/\s*\(plus extra content\)\s*$/iu, ''), kind));
     }
     return [...new Set(keys.filter(Boolean))];
@@ -66,9 +70,18 @@
   // Discovery only: these parts never supply exact-title or edition identity.
   // Prefer explicit structure/semantic markers to a list of accepted titles.
   function revisionTitleParts(value, kind = 'book') {
+    kind = identityKind(kind);
     const title = String(value ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
     const result = (base, qualifier = '') => ({base, qualifier});
     if (!['book', 'audiobook', 'software'].includes(kind)) return result(title);
+    if (kind === 'software') {
+      // Discovery only: retain all version/year/tier wording in exact titles.
+      // Strip only explicit suffix labels, not arbitrary numbers or title words.
+      const suffix = /\s+(?:[,;:\-\u2013\u2014]\s*)?((?:v(?:ersion)?\.?\s*\d+(?:\.\d+){0,3}|(?:19|20)\d{2}|(?:standard|pro(?:fessional)?|enterprise|community|studio|ultimate|personal|commercial|lite|elements|suite|premium|platinum|gold|deluxe)(?:\s+edition)?))\s*$/iu;
+      let base=title, qualifier='',found;
+      while ((found=suffix.exec(base)) && found.index>0) { qualifier=(found[1]+' '+qualifier).trim();base=base.slice(0,found.index).trim(); }
+      if (qualifier) return result(base,qualifier);
+    }
     const marker = /\b(?:edition|ed\.?|revision|rev\.?|revised|updated|expanded|annotated|abridged|unabridged|version|release|printing|print|reprint|format|paperback|hardcover|hardback|softcover|ebook|e-book|digital|pdf|epub|mobi|cbz|cbr)\b|\b\d+e\b|\bv\d+(?:\.\d+)*\b/iu;
     // Delimiters identify the base even when an edition description is new.
     const bracket = /^(.*?)\s*[([]([^()[\]]+)[)\]]\s*$/u.exec(title);
@@ -93,6 +106,7 @@
     return result(title);
   }
   function revisionWordingConflict(left, right, kind = 'book') {
+    kind = identityKind(kind);
     if (!['book', 'audiobook', 'software'].includes(kind)) return false;
     const a = revisionTitleParts(left, kind), b = revisionTitleParts(right, kind);
     const revision = /\b(?:edition|ed\.?|revision|rev\.?|revised|updated|expanded|annotated|abridged|unabridged|version|release|printing|reprint)\b|\b\d+e\b|\bv\d+(?:\.\d+)*\b/iu;
@@ -103,13 +117,14 @@
       if (base.replace(/\s/gu, '').length >= (kind === 'software' ? 8 : 4)
         && longer.startsWith(base+' ') && revision.test(longer.slice(base.length+1))) return true;
     }
-    return Boolean((revision.test(a.qualifier) || revision.test(b.qualifier))
+    return Boolean((revision.test(a.qualifier) || revision.test(b.qualifier) || kind === 'software' && (a.qualifier || b.qualifier))
       && presentationTitle(a.base, kind).replace(/\s/gu, '').length >= (kind === 'software' ? 8 : 4)
       && presentationTitle(a.base, kind) === presentationTitle(b.base, kind)
       && presentationTitle(a.qualifier, kind) !== presentationTitle(b.qualifier, kind));
   }
   // Review-only collection structure. Never used for full-title identity.
   function numberedCollectionRelation(left, right, kind = 'book') {
+    kind = identityKind(kind);
     if (!['book', 'audiobook'].includes(kind)) return null;
     const parts = value => {
       let title = String(value ?? '').normalize('NFKC').trim();

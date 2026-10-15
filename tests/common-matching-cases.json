@@ -1364,5 +1364,189 @@
       }
     ],
     "expected": "possible"
+  },
+  {
+    "label": "software identity same annual release",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro 2026"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro 2026"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "software identity different annual releases",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro 2026"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro 2025"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity explicit versions",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro v3"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro v2"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity missing version",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro v2"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity different minor versions",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro v2.1"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro v2.0"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity version label spelling",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro version 2"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro v2"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity explicit edition tiers",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro Enterprise Edition"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro Standard Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity bare edition tiers",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro Pro"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro Standard"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity year with edition tier",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder 2026 Pro"
+    },
+    "records": [
+      {
+        "title": "Forest Builder 2025 Pro"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "software identity same edition tier",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro Enterprise Edition"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro Enterprise Edition"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "software identity different products",
+    "media": "software",
+    "offer": {
+      "title": "City Builder Pro 2026"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro 2026"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "software identity short base stays unrelated",
+    "media": "software",
+    "offer": {
+      "title": "It v3"
+    },
+    "records": [
+      {
+        "title": "It v2"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "software identity generic number stays literal",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder 2"
+    },
+    "records": [
+      {
+        "title": "Forest Builder 1"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "software identity conflicting edition metadata",
+    "media": "software",
+    "offer": {
+      "title": "Forest Builder Pro",
+      "edition": "Standard"
+    },
+    "records": [
+      {
+        "title": "Forest Builder Pro",
+        "edition": "Enterprise"
+      }
+    ],
+    "expected": "possible"
   }
 ]
