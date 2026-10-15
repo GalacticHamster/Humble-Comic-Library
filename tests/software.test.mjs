@@ -82,7 +82,8 @@ test('mixed purchase records retain their distinct kinds and provenance', () => 
   assert.deepEqual(items.map((item) => [item.title, item.kind, item.source, item.sourceBundle]), [
     ['Ebook', 'book', 'humble', 'Mixed Humble Bundle'],
     ['Game', 'game', 'humble', 'Mixed Humble Bundle'],
-    ['Asset Pack', 'software', 'humble', 'Mixed Humble Bundle']
+    ['Asset Pack', 'software', 'humble', 'Mixed Humble Bundle'],
+    ['Unknown Archive', 'unclassified', 'humble', 'Mixed Humble Bundle']
   ]);
 });
 

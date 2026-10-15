@@ -24,6 +24,8 @@
     const normalized = H.normalizeTitle(title);
     const suffix = kind === 'game'
       ? /\s+(?:(?:base(?: game)?|standard|digital deluxe|deluxe|gold|platinum|ultimate|complete|definitive|collectors?|anniversary|remastered|enhanced|premium|super|game of the year|goty)(?:\s+edition)?|complete pack|ultimate collection|collection|trilogy|[\p{L}\p{N}]+ edition)$/iu
+      : kind === 'software'
+      ? /\s+(?:(?:standard|pro(?:fessional)?|plus|studio|ultimate|community|enterprise|commercial|personal|suite|elements|lite|platinum|gold|complete|deluxe|academic|developer|creator|perpetual)(?:\s+(?:edition|ed\.?|version|v\d+))?|v(?:ersion)?\.?\s*\d+(?:\.\d+)*|(?:19|20)\d{2}(?:\s+(?:pro|standard|plus|studio))?|\d+e)$/iu
       : /\s+(?:(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|revised|updated|expanded|annotated|new|deluxe|dlx)(?:\s+(?:revised|updated))?\s+(?:edition|ed)|deluxe|dlx)$/iu;
     const found = suffix.exec(normalized);
     return { base: found ? normalized.slice(0, found.index).trim() : normalized, edition: found ? found[0].trim() : '' };

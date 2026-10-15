@@ -205,7 +205,7 @@
 
   const FORMAT_WORDS = /\b(?:pdf|cbz|cbr|epub|mobi|kindle|digital\s+edition)\b/giu;
   const PRESENTATION_WORDS = /\b(?:preview|sample|read\s+now)\b/giu;
-  const LIBRARY_ITEM_KINDS = new Set(['book', 'game', 'software', 'audiobook']);
+  const LIBRARY_ITEM_KINDS = new Set(['book', 'comic', 'game', 'software', 'audiobook', 'video', 'unclassified', 'unknown']);
   const ROMAN_NUMERALS = new Map([
     ['i', '1'], ['ii', '2'], ['iii', '3'], ['iv', '4'], ['v', '5'],
     ['vi', '6'], ['vii', '7'], ['viii', '8'], ['ix', '9'], ['x', '10']
@@ -335,6 +335,19 @@
       .trim();
   }
 
+  function mediaOverrideKey(item) {
+    if (!item || typeof item !== 'object') return null;
+    const providerId = item.providerItemId || (item.provenance?.[0]?.providerItemId);
+    const purchaseKey = item.purchaseKey || (item.provenance?.[0]?.purchaseKey);
+    if (providerId) {
+      return purchaseKey ? `${purchaseKey}:${providerId}` : providerId;
+    }
+    if (purchaseKey && item.title) {
+      return `${purchaseKey}:${titleKey(item.title)}`;
+    }
+    return item.title ? `manual:${catalogItemKey(item)}` : null;
+  }
+
   function normalizeLibraryImportItem(value) {
     const row = typeof value === 'string' ? { title: value } : value;
     if (!row || typeof row.title !== 'string' || !row.title.trim()) return null;
@@ -348,6 +361,12 @@
     // Preserve only recognized kinds from an extension backup so malformed
     // input cannot create a category the comparison UI does not understand.
     if (LIBRARY_ITEM_KINDS.has(kind)) item.kind = kind;
+    if (row?.automaticKind && LIBRARY_ITEM_KINDS.has(String(row.automaticKind).trim().toLowerCase())) {
+      item.automaticKind = String(row.automaticKind).trim().toLowerCase();
+    }
+    if (row?.manualKind && LIBRARY_ITEM_KINDS.has(String(row.manualKind).trim().toLowerCase())) {
+      item.manualKind = String(row.manualKind).trim().toLowerCase();
+    }
     return item;
   }
 
@@ -426,7 +445,7 @@
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
     keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
-    historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: []
+    historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], mediaTypeOverrides: {}, rejectedPurchaseItems: []
   };
 
   function backupRecord(value, fields, label, required = []) {
@@ -473,8 +492,10 @@
       if (!item) throw new Error(`${label} needs a title.`);
       return item;
     }
-    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string' }, label, ['title']), ...bibliographicFields(value), ...entitlementFields(value) };
+    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string', automaticKind: 'string', manualKind: 'string' }, label, ['title']), ...bibliographicFields(value), ...entitlementFields(value) };
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
+    if (item.automaticKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.automaticKind)) throw new Error(`${label}.automaticKind is unsupported.`);
+    if (item.manualKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.manualKind)) throw new Error(`${label}.manualKind is unsupported.`);
     if (value.provenance !== undefined) {
       item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => ({...backupRecord(record, PROVENANCE_FIELDS, path), ...entitlementFields(record)}));
     }
@@ -551,7 +572,18 @@
       return {profileLabel:entry.profileLabel,backup:createLibraryBackup(restoreBackupState({...entry.backup,profileArchives:[]}))};
     });
     if(profileArchives.length>100)throw new Error('Too many archived profiles.');
-    return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives };
+    let mediaTypeOverrides = {};
+    if (value.mediaTypeOverrides && typeof value.mediaTypeOverrides === 'object' && !Array.isArray(value.mediaTypeOverrides)) {
+      for (const [key, kind] of Object.entries(value.mediaTypeOverrides)) {
+        if (typeof key === 'string' && key.trim() && typeof kind === 'string' && LIBRARY_ITEM_KINDS.has(kind.trim().toLowerCase())) {
+          mediaTypeOverrides[key.trim()] = kind.trim().toLowerCase();
+        }
+      }
+    }
+    const rejectedPurchaseItems = backupArray(value.rejectedPurchaseItems === undefined ? [] : value.rejectedPurchaseItems, 'rejectedPurchaseItems', (record, path) => backupRecord(record, {
+      title: 'string', purchaseKey: 'string', sourceBundle: 'string?', purchasedAt: 'string?', providerItemId: 'string?', reason: 'string?'
+    }, path, ['title', 'purchaseKey']));
+    return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems };
   }
 
   function createLibraryBackup(state, exportedAt = new Date().toISOString()) {
@@ -560,7 +592,8 @@
       version: BACKUP_VERSION, exportedAt, items: saved.libraryItems, purchases: saved.purchaseSummaries,
       collectionMappings: saved.customCollectionMappings, keyReminders: saved.keyReminders,
       keyReminderScan: saved.keyReminderScan, lastImport: saved.lastImport, mediaImportVersion: saved.mediaImportVersion,
-      historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries, profileLabel:saved.humbleProfileLabel, profileArchives:saved.profileArchives
+      historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries, profileLabel:saved.humbleProfileLabel, profileArchives:saved.profileArchives,
+      mediaTypeOverrides: saved.mediaTypeOverrides ?? {}, rejectedPurchaseItems: saved.rejectedPurchaseItems ?? []
     };
   }
 
@@ -673,7 +706,7 @@
   function createSyncStore(area) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
-    const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion'];
+    const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems'];
     async function operate(operation,args){
       if(operation==='metadataTabClosed'){const control=(await area.get({[controlKey]:null}))[controlKey];if(control?.mode==='metadata'&&control.tabId===args[0])await area.set({[controlKey]:null});return true;}
       if(['metadataPreview','metadataBegin','metadataCommit','metadataCancel'].includes(operation)){
@@ -798,8 +831,78 @@
         const [scope,targetId]=args,stored=await area.get({[shareScopeKey]:null,galacticLibraryExtensionId:''});const active=stored[shareScopeKey];
         if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||resolveGalacticId(stored.galacticLibraryExtensionId)!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
+      if (operation === 'setMediaOverride') {
+        const [targetItem, targetKind] = args;
+        if (!LIBRARY_ITEM_KINDS.has(targetKind)) throw new Error('Unsupported media type override.');
+        const state = await area.get(LIBRARY_STATE_DEFAULTS);
+        const overrideKey = mediaOverrideKey(targetItem);
+        if (!overrideKey) throw new Error('Cannot determine media override key.');
+        const overrides = { ...(state.mediaTypeOverrides ?? {}), [overrideKey]: targetKind };
+        const matchItem = it => (it.providerItemId && targetItem.providerItemId && it.providerItemId === targetItem.providerItemId)
+          || (it.purchaseKey === targetItem.purchaseKey && titleKey(it.title) === titleKey(targetItem.title))
+          || (titleKey(it.title) === titleKey(targetItem.title) && (!it.purchaseKey || it.purchaseKey === targetItem.purchaseKey));
+        const updateItem = it => {
+          if (!matchItem(it)) return it;
+          const automaticKind = it.automaticKind || it.kind || 'unclassified';
+          return { ...it, kind: targetKind, automaticKind, manualKind: targetKind };
+        };
+        const libraryItems = (state.libraryItems ?? []).map(updateItem);
+        const historicalLibraryItems = (state.historicalLibraryItems ?? []).map(updateItem);
+        await area.set({ mediaTypeOverrides: overrides, libraryItems, historicalLibraryItems });
+        return true;
+      }
+      if (operation === 'resetMediaOverride') {
+        const [targetItem] = args;
+        const state = await area.get(LIBRARY_STATE_DEFAULTS);
+        const overrideKey = mediaOverrideKey(targetItem);
+        const overrides = { ...(state.mediaTypeOverrides ?? {}) };
+        if (overrideKey) delete overrides[overrideKey];
+        if (targetItem.providerItemId) delete overrides[targetItem.providerItemId];
+        const matchItem = it => (it.providerItemId && targetItem.providerItemId && it.providerItemId === targetItem.providerItemId)
+          || (it.purchaseKey === targetItem.purchaseKey && titleKey(it.title) === titleKey(targetItem.title))
+          || (titleKey(it.title) === titleKey(targetItem.title) && (!it.purchaseKey || it.purchaseKey === targetItem.purchaseKey));
+        const resetItem = it => {
+          if (!matchItem(it)) return it;
+          const automaticKind = it.automaticKind || 'unclassified';
+          const { manualKind, ...rest } = it;
+          return { ...rest, kind: automaticKind, automaticKind };
+        };
+        const libraryItems = (state.libraryItems ?? []).map(resetItem);
+        const historicalLibraryItems = (state.historicalLibraryItems ?? []).map(resetItem);
+        await area.set({ mediaTypeOverrides: overrides, libraryItems, historicalLibraryItems });
+        return true;
+      }
+      if (operation === 'recoverRejectedItem') {
+        const [rejectedRecord, targetKind] = args;
+        if (!LIBRARY_ITEM_KINDS.has(targetKind)) throw new Error('Unsupported media type.');
+        const state = await area.get(LIBRARY_STATE_DEFAULTS);
+        const rejected = (state.rejectedPurchaseItems ?? []).filter(r => !(r.purchaseKey === rejectedRecord.purchaseKey && r.title === rejectedRecord.title));
+        const newItem = {
+          title: rejectedRecord.title,
+          kind: targetKind,
+          automaticKind: 'unclassified',
+          manualKind: targetKind,
+          source: 'humble',
+          sourceBundle: rejectedRecord.sourceBundle ?? '',
+          purchaseKey: rejectedRecord.purchaseKey,
+          purchasedAt: rejectedRecord.purchasedAt ?? null,
+          providerItemId: rejectedRecord.providerItemId ?? `${rejectedRecord.purchaseKey}:product:recovered`,
+          provenance: [{
+            title: rejectedRecord.title,
+            sourceBundle: rejectedRecord.sourceBundle ?? '',
+            purchaseKey: rejectedRecord.purchaseKey,
+            purchasedAt: rejectedRecord.purchasedAt ?? null,
+            providerItemId: rejectedRecord.providerItemId ?? `${rejectedRecord.purchaseKey}:product:recovered`
+          }]
+        };
+        const overrideKey = mediaOverrideKey(newItem);
+        const overrides = { ...(state.mediaTypeOverrides ?? {}), [overrideKey]: targetKind };
+        const libraryItems = [...(state.libraryItems ?? []), newItem];
+        await area.set({ rejectedPurchaseItems: rejected, libraryItems, mediaTypeOverrides: overrides });
+        return true;
+      }
       if(operation==='patch'){
-        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance'];
+        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance','mediaTypeOverrides','rejectedPurchaseItems'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
         if(Object.hasOwn(updates,'galacticHamsterAppearance'))globalThis.GalacticHamsterTheme.validatePreferences(updates.galacticHamsterAppearance);
         if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
@@ -831,7 +934,7 @@
   global.HumbleComicLibrary = {
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, missingProductIdScope, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
-    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState,
+    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS,
     text, names, validIsbn, bibliographicFields
   };
 }(globalThis));

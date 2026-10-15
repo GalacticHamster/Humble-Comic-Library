@@ -18,7 +18,8 @@
         const checkedAt=iso(origin.keyCheckedAt??item.keyCheckedAt);if(!checkedAt)continue;
         const identity=JSON.stringify([origin.purchaseKey??item.purchaseKey??'',origin.entitlementId??item.entitlementId??'',item.kind??'unknown',item.title]);
         purchaseTitles.add(JSON.stringify([origin.purchaseKey??item.purchaseKey??'',item.title]));
-        records.set(identity,{title:item.title,mediaType:item.kind??'unknown',keyStatus:origin.keyStatus??'unknown',expiresAt:iso(origin.expiresAt),checkedAt});
+        const shareKind = item.kind === 'comic' ? 'book' : ['game','software','book','audiobook'].includes(item.kind) ? item.kind : 'unknown';
+        records.set(identity,{title:item.title,mediaType:shareKind,keyStatus:origin.keyStatus??'unknown',expiresAt:iso(origin.expiresAt),checkedAt});
       }
     }
     for(const reminder of state.keyReminders??[]){

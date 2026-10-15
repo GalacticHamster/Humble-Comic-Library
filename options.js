@@ -360,8 +360,11 @@
     if (media) {
       const targetMedia = media.toLowerCase();
       result = result.filter((item) => {
-        const kind = typeof item === 'string' ? 'book' : (item.kind || item.mediaType || 'book');
-        return kind.toLowerCase() === targetMedia;
+        const kind = (typeof item === 'string' ? 'book' : (item.kind || item.mediaType || 'book')).toLowerCase();
+        if (targetMedia === 'book') {
+          return kind === 'book' || kind === 'comic';
+        }
+        return kind === targetMedia;
       });
     }
 
@@ -410,6 +413,19 @@
     });
 
     return result;
+  }
+
+  function mediaTypeLabel(kind) {
+    switch (kind) {
+      case 'book': return 'Book / eBook';
+      case 'comic': return 'Comic';
+      case 'game': return 'Game';
+      case 'software': return 'Software';
+      case 'audiobook': return 'Audiobook';
+      case 'video': return 'Video';
+      case 'unclassified': return 'Unclassified';
+      default: return kind || 'Unknown';
+    }
   }
 
   function renderLibraryRow(item) {
@@ -522,6 +538,79 @@
       empty.textContent = 'No bundle or purchase record stored.';
       details.append(empty);
     }
+
+    const classificationRow = document.createElement('div');
+    classificationRow.className = 'library-classification-row';
+
+    const itemKind = typeof item === 'string' ? 'book' : (item.kind || item.mediaType || 'unclassified');
+    const automaticKind = typeof item === 'string' ? 'book' : (item.automaticKind || item.kind || 'unclassified');
+    const isOverridden = Boolean(typeof item === 'object' && (item.manualKind || (item.automaticKind && item.kind !== item.automaticKind)));
+
+    const badge = document.createElement('span');
+    badge.className = 'library-media-badge';
+    badge.dataset.mediaType = itemKind;
+    badge.textContent = mediaTypeLabel(itemKind);
+
+    const note = document.createElement('span');
+    note.className = 'library-classification-note';
+    if (isOverridden) {
+      note.textContent = `User override (automatic: ${mediaTypeLabel(automaticKind)})`;
+    } else {
+      note.textContent = `Automatic: ${mediaTypeLabel(automaticKind)}`;
+    }
+
+    const select = document.createElement('select');
+    select.className = 'library-classification-select';
+    select.setAttribute('aria-label', `Change media type for ${title}`);
+    const options = [
+      { value: 'book', label: 'Book / eBook' },
+      { value: 'comic', label: 'Comic' },
+      { value: 'game', label: 'Game' },
+      { value: 'software', label: 'Software' },
+      { value: 'audiobook', label: 'Audiobook' },
+      { value: 'video', label: 'Video' },
+      { value: 'unclassified', label: 'Unclassified' }
+    ];
+    for (const opt of options) {
+      const optionEl = document.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      if (opt.value === itemKind) optionEl.selected = true;
+      select.append(optionEl);
+    }
+
+    select.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const newKind = select.value;
+      if (newKind === itemKind) return;
+      try {
+        await HumbleComicLibrary.storageRequest('setMediaOverride', item, newKind);
+        await render();
+      } catch (err) {
+        alert(`Failed to change media type: ${err.message}`);
+      }
+    });
+
+    classificationRow.append(badge, note, select);
+
+    if (isOverridden) {
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'library-reset-classification-btn secondary';
+      resetBtn.textContent = 'Reset to automatic';
+      resetBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await HumbleComicLibrary.storageRequest('resetMediaOverride', item);
+          await render();
+        } catch (err) {
+          alert(`Failed to reset media type: ${err.message}`);
+        }
+      });
+      classificationRow.append(resetBtn);
+    }
+
+    details.append(classificationRow);
 
     row.append(details);
 
@@ -644,7 +733,17 @@
     const games = items.filter((item) => item.kind === 'game').length;
     const software = items.filter((item) => item.kind === 'software').length;
     const audiobooks = items.filter((item) => item.kind === 'audiobook').length;
-    const mediaCounts = [games ? `${games} game${games === 1 ? '' : 's'}` : '', software ? `${software} software item${software === 1 ? '' : 's'}` : '', audiobooks ? `${audiobooks} audiobook${audiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
+    const comics = items.filter((item) => item.kind === 'comic').length;
+    const unclassified = items.filter((item) => item.kind === 'unclassified').length;
+    const videos = items.filter((item) => item.kind === 'video').length;
+    const mediaCounts = [
+      games ? `${games} game${games === 1 ? '' : 's'}` : '',
+      software ? `${software} software item${software === 1 ? '' : 's'}` : '',
+      audiobooks ? `${audiobooks} audiobook${audiobooks === 1 ? '' : 's'}` : '',
+      comics ? `${comics} comic${comics === 1 ? '' : 's'}` : '',
+      videos ? `${videos} video${videos === 1 ? '' : 's'}` : '',
+      unclassified ? `${unclassified} unclassified` : ''
+    ].filter(Boolean).join(', ');
     count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${mediaCounts ? ` (${mediaCounts})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
     lastImport.textContent = summary
       ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
@@ -653,6 +752,64 @@
       lastImport.textContent += summary.reconciled
         ? ' Current Humble snapshot reconciled; historical evidence archived.'
         : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
+    }
+    const rejectedSection = document.querySelector('#library-rejected-section');
+    const rejectedCount = document.querySelector('#library-rejected-count');
+    const rejectedList = document.querySelector('#library-rejected-list');
+    const { rejectedPurchaseItems = [] } = await chrome.storage.local.get({ rejectedPurchaseItems: [] });
+    if (rejectedSection && rejectedCount && rejectedList) {
+      if (rejectedPurchaseItems.length > 0) {
+        rejectedSection.hidden = false;
+        rejectedCount.textContent = String(rejectedPurchaseItems.length);
+        rejectedList.replaceChildren(...rejectedPurchaseItems.map((rec) => {
+          const li = document.createElement('li');
+          li.className = 'library-rejected-item';
+          const titleSpan = document.createElement('strong');
+          titleSpan.textContent = rec.title;
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'library-rejected-meta';
+          metaSpan.textContent = ` (${rec.sourceBundle ? `Bundle: ${rec.sourceBundle} · ` : ''}${rec.reason || 'Unverified content'})`;
+
+          const recoverSelect = document.createElement('select');
+          recoverSelect.className = 'library-recover-select';
+          recoverSelect.setAttribute('aria-label', `Recover category for ${rec.title}`);
+          const kinds = [
+            { value: 'unclassified', label: 'Unclassified' },
+            { value: 'software', label: 'Software' },
+            { value: 'book', label: 'Book' },
+            { value: 'comic', label: 'Comic' },
+            { value: 'game', label: 'Game' },
+            { value: 'audiobook', label: 'Audiobook' },
+            { value: 'video', label: 'Video' }
+          ];
+          for (const k of kinds) {
+            const opt = document.createElement('option');
+            opt.value = k.value;
+            opt.textContent = k.label;
+            recoverSelect.append(opt);
+          }
+
+          const recoverBtn = document.createElement('button');
+          recoverBtn.type = 'button';
+          recoverBtn.className = 'secondary library-recover-btn';
+          recoverBtn.textContent = 'Import to library';
+          recoverBtn.addEventListener('click', async () => {
+            try {
+              await HumbleComicLibrary.storageRequest('recoverRejectedItem', rec, recoverSelect.value);
+              await render();
+            } catch (err) {
+              alert(`Recovery failed: ${err.message}`);
+            }
+          });
+
+          li.append(titleSpan, metaSpan, ' ', recoverSelect, ' ', recoverBtn);
+          return li;
+        }));
+      } else {
+        rejectedSection.hidden = true;
+        rejectedCount.textContent = '0';
+        rejectedList.replaceChildren();
+      }
     }
     const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel:'', profileArchives:[] });
     document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'Not yet named';

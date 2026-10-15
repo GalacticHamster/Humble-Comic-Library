@@ -99,7 +99,7 @@ function finishGalacticRendering(diagnostic){
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
-  let libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook')));
+  let libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
@@ -145,7 +145,7 @@ function finishGalacticRendering(diagnostic){
     (async () => {
       const latest = await readCurrentStorage();
       if (revision !== libraryRevision) return;
-      libraryItems = latest.libraryItems.filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook'));
+      libraryItems = latest.libraryItems.filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
       currentBundlePurchases = findCurrentBundlePurchases(latest.purchaseSummaries);
       collectionMappings = [...HumbleCollectionMappings.builtIn, ...latest.customCollectionMappings];
@@ -1085,7 +1085,7 @@ function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   const missing = historicalItems.filter(item => !currentKeys.has(HumbleComicLibrary.catalogItemKey(item)));
   const history = missing.length ? createBundleLibraryMatcher(missing, baseKind) : null;
   const mediaMatchers = new Map();
-  for (const kind of baseKind === 'book' ? ['book', 'audiobook'] : [baseKind]) {
+  for (const kind of baseKind === 'book' ? ['book', 'audiobook', 'comic'] : [baseKind]) {
     const byKey = new Map();
     for (const item of items) {
       if ((item.kind ?? 'book') !== kind) continue;
@@ -1099,6 +1099,7 @@ function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   }
   const matcher = mediaMatchers.get(baseKind);
   mediaMatchers.set('unknown', createLibraryMatcher(new Map(), 'unknown'));
+  mediaMatchers.set('unclassified', createLibraryMatcher(new Map(), 'unclassified'));
   matcher.mediaMatchers = mediaMatchers;
   return matcher;
 }
@@ -2744,7 +2745,9 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     lastImport: priorImport = null,
     mediaImportVersion = 1,
     keyReminders: existingReminders = [],
-    keyReminderScan: priorReminderScan = null
+    keyReminderScan: priorReminderScan = null,
+    mediaTypeOverrides = {},
+    rejectedPurchaseItems = []
   } = scan.state;
   const previouslyScanned = new Set(existingPurchases.map((purchase) => purchase.purchaseKey).filter(Boolean));
   // Version 4 recognizes Humble's audio download platform, generic audio
@@ -2806,6 +2809,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   const failures = [];
   const reminders = new Map(existingReminders.map((record) => [record.id, record]));
   let reminderFailures = 0;
+  const rejected = [...rejectedPurchaseItems];
   for (let index = 0; index < purchasesToInspect.length; index += 1) {
     const order = purchasesToInspect[index];
     const key = purchaseKey(order);
@@ -2829,7 +2833,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
         throw new Error('Unexpected purchase product list.');
       }
       if (importTitles) {
-        const items = extractLibraryItems(detail, order, key);
+        const items = extractLibraryItems(detail, order, key, mediaTypeOverrides, rejected);
         imported.push(...items);
         purchaseSummaries.push(createPurchaseSummary(detail, order, key, items));
       }
@@ -2865,7 +2869,14 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
       // retry could not fetch one of its purchase records.
       || itemProvenance(item).some((record) => failedPurchaseKeys.has(record.purchaseKey)))
     : libraryItems;
-  const merged = new Map(retainedItems.map((item) => [libraryItemKey(item), item]));
+  const merged = new Map(retainedItems.map((item) => {
+    const overrideKey = HumbleComicLibrary.mediaOverrideKey?.(item);
+    const override = mediaTypeOverrides[overrideKey] || (item.providerItemId && mediaTypeOverrides[item.providerItemId]);
+    if (override && item.kind !== override) {
+      return [libraryItemKey(item), { ...item, kind: override, automaticKind: item.automaticKind || item.kind, manualKind: override }];
+    }
+    return [libraryItemKey(item), item];
+  }));
   let added = 0;
   let addedGames = 0;
   let addedSoftware = 0;
@@ -2939,7 +2950,17 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     baselinePurchaseKeys,
     failedPurchaseKeys: [...failedReminderKeys]
   };
+  const dedupedRejected = [];
+  const seenRejected = new Set();
+  for (const item of rejected) {
+    const rKey = `${item.purchaseKey}:${item.title}`;
+    if (!seenRejected.has(rKey)) {
+      seenRejected.add(rKey);
+      dedupedRejected.push(item);
+    }
+  }
   await HumbleComicLibrary.storageRequest('commit',scan.token,{
+    rejectedPurchaseItems: dedupedRejected,
     libraryItems: [...merged.values()],
     purchaseSummaries: [...allPurchases.values()],
     historicalLibraryItems: mergeHistoricalLibraryItems(historicalLibraryItems, libraryItems, imported),
@@ -3363,12 +3384,16 @@ function downloadJsonFile(filename, contents) {
 }
 
 function withProvenance(item) {
-  return { ...item, provenance: dedupeProvenance(itemProvenance(item)) };
+  const automaticKind = item.automaticKind || item.kind || 'unclassified';
+  return { ...item, automaticKind, ...(item.manualKind ? { manualKind: item.manualKind } : {}), provenance: dedupeProvenance(itemProvenance(item)) };
 }
 
 function mergeLibraryItem(existing, incoming) {
   return {
     ...existing,
+    kind: existing.manualKind || incoming.manualKind || existing.kind || incoming.kind,
+    automaticKind: incoming.automaticKind || incoming.kind || existing.automaticKind || existing.kind || 'unclassified',
+    ...(existing.manualKind || incoming.manualKind ? { manualKind: existing.manualKind || incoming.manualKind } : {}),
     ...HumbleComicLibrary.entitlementFields(incoming),
     purchasedAt: existing.purchasedAt || incoming.purchasedAt,
     purchaseKey: existing.purchaseKey || incoming.purchaseKey,
@@ -3453,37 +3478,111 @@ function mergeHistoricalPurchases(...snapshots) {
   });
 }
 
-function extractLibraryItems(detail, order, purchaseKey) {
+function isConfirmedPurchaseProduct(product, isSubproduct = true) {
+  if (!product || typeof product !== 'object') return false;
+  const title = String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim();
+  if (!title) return false;
+  const promotionalPattern = /^(?:how\s+to\s+redeem|redemption\s+instructions?|getting\s+started(?:\s+guide)?|about\s+this\s+bundle|terms\s+(?:and|&)\s+conditions|terms\s+of\s+service|please\s+read\s+first|instructions|readme|coupon|discount\s+voucher|\d+%\s+off\s+coupon)\b/iu;
+  if (promotionalPattern.test(title)) return false;
+  if (!isSubproduct) {
+    const hasDelivery = (Array.isArray(product.downloads) && product.downloads.length > 0)
+      || (Array.isArray(product.download_struct) && product.download_struct.length > 0)
+      || Boolean(product.machine_name || product.product_key || product.product_id);
+    if (!hasDelivery) return false;
+  }
+  return Boolean(
+    product.machine_name || product.product_key || product.product_id || product.id || product.uuid
+    || (Array.isArray(product.downloads) && product.downloads.length > 0)
+    || (Array.isArray(product.download_struct) && product.download_struct.length > 0)
+    || product.payee
+  );
+}
+
+function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}, rejectedList = null) {
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
-  const directItems = directOrderProducts(detail)
-    .map((product,index) => ({ product, index, kind: productKind(product) }))
-    .filter(({ kind }) => kind)
-    .map(({ product, index, kind }) => ({
-      providerItemId: `${purchaseKey}:product:${String(product.machine_name??product.product_key??product.product_id??product.id??product.uuid??'').trim()||`position-${index}`}`,
-      title: String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim(),
+  const products = directOrderProducts(detail);
+  const isSubproducts = Array.isArray(detail?.subproducts) || Array.isArray(detail?.products);
+  const directItems = products
+    .map((product, index) => {
+      const providerItemId = `${purchaseKey}:product:${String(product.machine_name ?? product.product_key ?? product.product_id ?? product.id ?? product.uuid ?? '').trim() || `position-${index}`}`;
+      const title = String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim();
+      if (!title) return null;
+      let detectedKind = productKind(product);
+      if (!detectedKind) {
+        if (isConfirmedPurchaseProduct(product, isSubproducts)) {
+          detectedKind = 'unclassified';
+        } else {
+          if (rejectedList) {
+            rejectedList.push({
+              providerItemId,
+              title,
+              purchaseKey,
+              sourceBundle,
+              purchasedAt,
+              reason: 'Unclassified promotional or non-product content'
+            });
+          }
+          return null;
+        }
+      }
+      const overrideKey = `${purchaseKey}:${providerItemId}`;
+      const override = mediaTypeOverrides[overrideKey]
+        || mediaTypeOverrides[providerItemId]
+        || mediaTypeOverrides[`${purchaseKey}:${HumbleComicLibrary.titleKey(title)}`];
+      const kind = override || detectedKind;
+      const automaticKind = detectedKind;
+      const manualKind = override || undefined;
+      return {
+        providerItemId,
+        title,
+        kind,
+        automaticKind,
+        ...(manualKind ? { manualKind } : {}),
+        source: 'humble',
+        sourceBundle,
+        purchaseKey,
+        purchasedAt,
+        ...HumbleComicLibrary.bibliographicFields(product)
+      };
+    })
+    .filter(Boolean);
+  const keys = extractThirdPartyKeyItems(detail, order, purchaseKey, mediaTypeOverrides);
+  const keyedTitles = new Set(keys.map(item => HumbleComicLibrary.normalizeTitle(item.title)));
+  return [...directItems.filter(item => !['game', 'software'].includes(item.kind) || !keyedTitles.has(HumbleComicLibrary.normalizeTitle(item.title))), ...keys];
+}
+
+function extractThirdPartyKeyItems(detail, order, purchaseKey, mediaTypeOverrides = {}) {
+  const keyRecords = thirdPartyKeyRecords(detail).map(({ record }) => record);
+  const sourceBundle = extractBundleName(order, detail);
+  const purchasedAt = extractPurchasedAt(order, detail);
+  return keyRecords.flatMap((record, index) => {
+    const title = String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim();
+    if (!title) return [];
+    const detectedKind = thirdPartyEntitlementKind(record, sourceBundle);
+    const entitlementId = `${String(record.machine_name ?? `position-${index}`).slice(0, 450)}:${Number.isInteger(record.keyindex) ? record.keyindex : 0}`;
+    const providerItemId = `${purchaseKey}:key:${entitlementId}`;
+    const override = mediaTypeOverrides[`${purchaseKey}:${providerItemId}`]
+      || mediaTypeOverrides[providerItemId]
+      || mediaTypeOverrides[`${purchaseKey}:${HumbleComicLibrary.titleKey(title)}`];
+    const kind = override || detectedKind;
+    const automaticKind = detectedKind;
+    const manualKind = override || undefined;
+    return [{
+      title,
       kind,
+      automaticKind,
+      ...(manualKind ? { manualKind } : {}),
       source: 'humble',
       sourceBundle,
       purchaseKey,
       purchasedAt,
-      ...HumbleComicLibrary.bibliographicFields(product)
-    }))
-    .filter(({ title }) => Boolean(title));
-  const keys=extractThirdPartyKeyItems(detail, order, purchaseKey);
-  const keyedTitles=new Set(keys.map(item=>HumbleComicLibrary.normalizeTitle(item.title)));
-  return [...directItems.filter(item=>!['game','software'].includes(item.kind)||!keyedTitles.has(HumbleComicLibrary.normalizeTitle(item.title))), ...keys];
-}
-
-function extractThirdPartyKeyItems(detail, order, purchaseKey) {
-  const keyRecords = thirdPartyKeyRecords(detail).map(({ record }) => record);
-  const sourceBundle = extractBundleName(order, detail);
-  const purchasedAt = extractPurchasedAt(order, detail);
-  return keyRecords.flatMap((record,index) => {
-    const title=String(record?.human_name ?? record?.product_name ?? record?.name ?? '').trim();
-    return title ? [{title,kind:thirdPartyEntitlementKind(record,sourceBundle),source:'humble',sourceBundle,purchaseKey,purchasedAt,
-      entitlement:'third-party-key',entitlementId:`${String(record.machine_name??`position-${index}`).slice(0,450)}:${Number.isInteger(record.keyindex)?record.keyindex:0}`,
-      keyType:String(record.key_type_human_name??record.key_type??'').trim().slice(0,500),...keyEvidence(record)}] : [];
+      providerItemId,
+      entitlement: 'third-party-key',
+      entitlementId,
+      keyType: String(record.key_type_human_name ?? record.key_type ?? '').trim().slice(0, 500),
+      ...keyEvidence(record)
+    }];
   });
 }
 
@@ -3498,7 +3597,13 @@ function thirdPartyEntitlementKind(record, sourceBundle) {
   // Humble's generic/external entitlement types are shared by games, courses,
   // and tools. Only an order explicitly labelled a Software Bundle provides
   // enough independent context to classify such an entitlement as Software.
-  return /\bsoftware\s+bundle\b/iu.test(String(sourceBundle ?? '')) ? 'software' : 'game';
+  const text = `${sourceBundle ?? ''} ${record?.key_type_human_name ?? ''} ${record?.key_type ?? ''} ${record?.human_name ?? ''} ${record?.product_name ?? ''}`;
+  if (/\b(?:software\s+bundle|utility\s+bundle|dev\s+tool|productivity\s+bundle)\b/iu.test(String(sourceBundle ?? ''))
+    || /\b(?:jetbrains|magix|vegas|sound\s*forge|corel|painter|ashampoo|stardock|bitdefender|malwarebytes|reallusion|cyberlink|avast|nordvpn)\b/iu.test(text)
+    || /\b(?:software|utility|utilities|developer\s+tools?|antivirus|license\s+key)\b/iu.test(String(record?.key_type_human_name ?? record?.key_type ?? ''))) {
+    return 'software';
+  }
+  return 'game';
 }
 
 function libraryItemKey(item) {
@@ -3635,14 +3740,15 @@ function productKind(product) {
   if (hasGameEntitlement(product)) return 'game';
   // Audiobook products can include a PDF booklet; identify their delivered
   // audio before the broader book-format check below.
+  if (hasVideoDownload(product)) return 'video';
   if (hasAudiobookDownload(product)) return 'audiobook';
   return hasBookDownload(product) ? 'book' : null;
 }
 
 function hasSoftwareAssetDelivery(product) {
   const serialized = JSON.stringify(product);
-  return /\.(?:gmz|gmx|yyz|yymp|yymps|gmez)(?:["?\\]|$)/iu.test(serialized)
-    || /"(?:format|filetype|extension)"\s*:\s*"(?:gmz|gmx|yyz|yymp|yymps|gmez)"/iu.test(serialized);
+  return /\.(?:gmz|gmx|yyz|yymp|yymps|gmez|unitypackage|uproject|uasset|blend)(?:["?\\]|$)/iu.test(serialized)
+    || /"(?:format|filetype|extension)"\s*:\s*"(?:gmz|gmx|yyz|yymp|yymps|gmez|unitypackage|uproject|uasset|blend)"/iu.test(serialized);
 }
 
 function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0, unchecked = 0 }) {
@@ -3654,7 +3760,7 @@ function hasSoftwareEntitlement(product) {
   // This deliberately relies on Humble's explicit content classification. A
   // ZIP, Unity package, or other generic asset file by itself is not enough
   // evidence to import an otherwise unknown item as Software.
-  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"software"/iu.test(serialized);
+  return /"(?:category|content_type|item_content_type|product_type)"\s*:\s*"(?:software|utility|utilities|tool|tools|application|dev_tool|development)"/iu.test(serialized);
 }
 
 function hasGameEntitlement(product) {
@@ -3675,6 +3781,12 @@ function hasBookDownload(product) {
   const serialized = JSON.stringify(product);
   return /\.(?:pdf|epub|cbz|cbr|mobi)(?:["?\\]|$)/iu.test(serialized)
     || /"(?:format|filetype|extension)"\s*:\s*"(?:pdf|epub|cbz|cbr|mobi)"/iu.test(serialized);
+}
+
+function hasVideoDownload(product) {
+  const serialized = JSON.stringify(product);
+  return /\.(?:mp4|mkv|mov|avi|webm|m4v)(?:["?\\]|$)/iu.test(serialized)
+    || /"(?:category|content_type|item_content_type|product_type|format|filetype|extension|platform|platform_name)"\s*:\s*"(?:video|movie|film|mp4|mkv|mov|avi|webm|m4v)"/iu.test(serialized);
 }
 
 function hasAudiobookDownload(product) {

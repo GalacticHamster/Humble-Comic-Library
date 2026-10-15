@@ -81,9 +81,12 @@
             <label>Media <select id="library-filter-media">
               <option value="">All media types</option>
               <option value="book">Books / Comics</option>
+              <option value="comic">Comics</option>
               <option value="game">Games</option>
               <option value="software">Software</option>
               <option value="audiobook">Audiobooks</option>
+              <option value="video">Video</option>
+              <option value="unclassified">Unclassified</option>
             </select></label>
             <label>Metadata <select id="library-filter-metadata">
               <option value="">All items</option>
@@ -116,6 +119,11 @@
           </div>
         </div>
         <ol id="library-preview"></ol>
+        <div id="library-rejected-section" class="library-rejected-section" hidden>
+          <h3>Unimported purchase items (<span id="library-rejected-count">0</span>)</h3>
+          <p>These items were skipped during import because their media type could not be verified or they resembled promotional content. You can review and recover them into your library.</p>
+          <ul id="library-rejected-list" class="library-rejected-list"></ul>
+        </div>
       </section>
       <section>
         <h2>Restore backup</h2>
