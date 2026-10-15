@@ -532,15 +532,20 @@
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
     if (item.automaticKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.automaticKind)) throw new Error(`${label}.automaticKind is unsupported.`);
     if (item.manualKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.manualKind)) throw new Error(`${label}.manualKind is unsupported.`);
-        if (Array.isArray(value.formats)) {
+    if (Array.isArray(value.formats)) {
       item.formats = [...new Set(value.formats.map(normalizeFormat).filter(Boolean))].sort();
     }
     if (value.provenance !== undefined) {
       item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => {
         const origin = { ...backupRecord(record, { ...PROVENANCE_FIELDS, delivery: 'string', streaming: 'boolean' }, path), ...entitlementFields(record) };
+        if (origin.title === undefined && item.title !== undefined) origin.title = item.title;
         if (Array.isArray(record.formats)) {
           origin.formats = [...new Set(record.formats.map(normalizeFormat).filter(Boolean))].sort();
+        } else if (Array.isArray(item.formats)) {
+          origin.formats = item.formats;
         }
+        if (origin.delivery === undefined && item.delivery !== undefined) origin.delivery = item.delivery;
+        if (origin.streaming === undefined && item.streaming) origin.streaming = true;
         return origin;
       });
     }
@@ -774,7 +779,16 @@
         const clean=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,libraryItems:evidence})),result=enrichMissingProductIds(state,clean.libraryItems);
         restoreBackupState(createLibraryBackup({...state,libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems}));
         const sharing=(await area.get({[shareScopeKey]:null}))[shareScopeKey];
-        await area.set({...(result.stats.recovered||result.stats.historicalRecovered?{libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems,[shareScopeKey]:sharing?{...sharing,revisionRef:global.crypto.randomUUID()}:null}:{}),[controlKey]:null});return {stats:result.stats,details:result.details};
+        try {
+          await area.set({...(result.stats.recovered||result.stats.historicalRecovered?{libraryItems:result.libraryItems,historicalLibraryItems:result.historicalLibraryItems,[shareScopeKey]:sharing?{...sharing,revisionRef:global.crypto.randomUUID()}:null}:{}),[controlKey]:null});
+          return {stats:result.stats,details:result.details};
+        } catch(error) {
+          try { await area.set({[controlKey]:null}); } catch (_) {}
+          if (/quota/iu.test(String(error?.message ?? '')) || /kQuotaBytes/iu.test(String(error?.message ?? ''))) {
+            throw new Error('Storage quota exceeded while saving metadata refresh. Your existing library was preserved.');
+          }
+          throw error;
+        }
       }
       if(operation==='syncAccounts'){
       const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state),saved=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;
@@ -866,7 +880,18 @@
         clean.humbleProfileLabel=control.profileLabel;
         const checked=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,...clean,profileArchives:[]}));for(const field of scanFields)if(Object.hasOwn(clean,field))clean[field]=checked[field];
         const sharing=await area.get({[shareScopeKey]:null});
-        await area.set({...(!current.humbleProfileLabel?await globalThis.GalacticPurchaseSync?.renamePatch(area,'',control.profileLabel):{}),...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});return true;
+        try {
+          await area.set({...(!current.humbleProfileLabel?await globalThis.GalacticPurchaseSync?.renamePatch(area,'',control.profileLabel):{}),...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});
+          return true;
+        } catch (error) {
+          try { await area.set({[controlKey]:null}); } catch (_) {}
+          if (/quota/iu.test(String(error?.message ?? '')) || /kQuotaBytes/iu.test(String(error?.message ?? ''))) {
+            const bytes = typeof Buffer !== 'undefined' ? Buffer.byteLength(JSON.stringify(clean)) : JSON.stringify(clean).length;
+            const mb = (bytes / 1024 / 1024).toFixed(2);
+            throw new Error(`Storage quota exceeded while saving library (${mb} MB). Your existing library and manual corrections were preserved. Try exporting a backup or clearing unused archived accounts.`);
+          }
+          throw error;
+        }
       }
       if(operation==='replace'){
         const replacement=restoreBackupState(createLibraryBackup(args[0]));

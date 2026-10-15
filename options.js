@@ -945,6 +945,16 @@
     document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
     document.querySelector('#confirm-reminder-sharing').checked=false;
     count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other saved accounts (selectable above; excluded from active matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
+    if (chrome.storage?.local?.getBytesInUse) {
+      try {
+        const bytes = await new Promise((resolve) => chrome.storage.local.getBytesInUse(null, resolve));
+        if (typeof bytes === 'number' && Number.isFinite(bytes)) {
+          const mb = (bytes / 1024 / 1024).toFixed(2);
+          const pct = ((bytes / (10 * 1024 * 1024)) * 100).toFixed(0);
+          count.textContent += ` Storage usage: ${mb} MB (${pct}% of 10 MB quota).`;
+        }
+      } catch (_) {}
+    }
     renderLibraryBrowser(items);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;

@@ -2736,7 +2736,11 @@ function addPurchaseImporter() {
         : `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; older purchases have not been checked yet—use Rescan all purchases for complete reminders`;
       status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
     } catch (error) {
-      status.textContent = `Import failed: ${error.message}`;
+      if (/kQuotaBytes/iu.test(error.message)) {
+        status.textContent = 'Import failed (Storage Quota Exceeded): Chrome storage quota exceeded. Your existing library and manual corrections were preserved. Try exporting a backup or clearing unused archived accounts.';
+      } else {
+        status.textContent = `Import failed: ${error.message}`;
+      }
     } finally {
       buttons.forEach((control) => { control.disabled = false; });
     }
@@ -2975,14 +2979,18 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     if (importedKeys.has(rKey) || importedKeys.has(`${item.purchaseKey}:${item.title}`)) continue;
     if (!seenRejected.has(rKey)) {
       seenRejected.add(rKey);
-      dedupedRejected.push(item);
+      const rec = { ...item };
+      if (Array.isArray(rec.formats) && !rec.formats.length) delete rec.formats;
+      if (!rec.delivery) delete rec.delivery;
+      if (!rec.streaming) delete rec.streaming;
+      dedupedRejected.push(rec);
     }
   }
   await HumbleComicLibrary.storageRequest('commit',scan.token,{
     rejectedPurchaseItems: dedupedRejected,
     libraryItems: [...merged.values()],
     purchaseSummaries: [...allPurchases.values()],
-    historicalLibraryItems: mergeHistoricalLibraryItems(historicalLibraryItems, libraryItems, imported),
+    historicalLibraryItems: reconciled ? archivePrunedLibraryItems(historicalLibraryItems, libraryItems, merged) : historicalLibraryItems,
     historicalPurchaseSummaries: mergeHistoricalPurchases(historicalPurchaseSummaries, existingPurchases, purchaseSummaries),
     lastImport: importSummary,
     keyReminders: reminderRecords,
@@ -3493,6 +3501,50 @@ function retainManualLibraryItem(item) {
   // the manual title, but rebuild its Humble evidence from the current scan.
   const { purchaseKey, purchasedAt, provenance, entitlement, entitlementId, keyType, keyStatus, expiresAt, keyCheckedAt, ...manual } = item;
   return { ...manual, provenance: itemProvenance(item).filter((record) => !record.purchaseKey) };
+}
+
+
+function archivePrunedLibraryItems(history, priorItems, currentMerged) {
+  const mergedByKey = currentMerged instanceof Map ? currentMerged : new Map((currentMerged || []).map(i => [libraryItemKey(i), i]));
+  const cleanedHistory = [];
+  for (const item of (history || [])) {
+    const key = libraryItemKey(item);
+    const active = mergedByKey.get(key);
+    if (!active) {
+      const { formats: _, ...cleanItem } = item;
+      const cleanProv = (cleanItem.provenance || []).map(({ formats: _f, ...p }) => p);
+      cleanedHistory.push({ ...cleanItem, provenance: cleanProv });
+    } else {
+      const activeOrigins = new Set(itemProvenance(active).map(p => (p.purchaseKey || '') + ':' + (p.entitlementId || '')));
+      const historicalOrigins = (item.provenance || []).filter(p => p.purchaseKey && !activeOrigins.has((p.purchaseKey || '') + ':' + (p.entitlementId || ''))).map(({ formats: _f, ...p }) => p);
+      if (historicalOrigins.length) {
+        const { formats: _, ...cleanItem } = item;
+        cleanedHistory.push({ ...cleanItem, provenance: historicalOrigins });
+      }
+    }
+  }
+
+  const toArchive = [];
+  for (const item of priorItems) {
+    const key = libraryItemKey(item);
+    const active = mergedByKey.get(key);
+    if (!active) {
+      if (item.source === 'humble' || itemProvenance(item).some(p => p.purchaseKey)) {
+        const { formats: _, ...cleanItem } = item;
+        const cleanProv = itemProvenance(cleanItem).map(({ formats: _f, ...p }) => p);
+        toArchive.push({ ...cleanItem, provenance: cleanProv });
+      }
+    } else {
+      const activeOrigins = new Set(itemProvenance(active).map(p => (p.purchaseKey || '') + ':' + (p.entitlementId || '')));
+      const prunedOrigins = itemProvenance(item).filter(p => p.purchaseKey && !activeOrigins.has((p.purchaseKey || '') + ':' + (p.entitlementId || ''))).map(({ formats: _f, ...p }) => p);
+      if (prunedOrigins.length) {
+        const { formats: _, ...cleanItem } = item;
+        toArchive.push({ ...cleanItem, provenance: prunedOrigins });
+      }
+    }
+  }
+
+  return mergeHistoricalLibraryItems(cleanedHistory, toArchive);
 }
 
 function mergeHistoricalLibraryItems(history, ...snapshots) {
