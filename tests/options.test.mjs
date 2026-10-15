@@ -450,3 +450,44 @@ test('ui.css configures library-preview with 4.25rem padding-left to prevent cli
   const css = fs.readFileSync(new URL('../ui.css', import.meta.url), 'utf8');
   assert.match(css, /#library-preview\s*\{[^}]*padding-left:\s*4\.25rem/);
 });
+
+test('expanded purchase history displays primary bundle title and secondary metadata line', async () => {
+  const ui = await optionsHarness({
+    libraryItems: [
+      item('Super Game', {
+        sourceBundle: 'Action Bundle 2026',
+        purchasedAt: '2026-04-10',
+        purchaseKey: 'hb-order-987',
+        entitlement: 'third-party-key',
+        keyType: 'Steam',
+        keyStatus: 'unrevealed'
+      })
+    ]
+  });
+
+  const preview = ui.get('#library-preview');
+  const row = preview.children[0];
+  const details = row.children[0];
+  const list = details.children[1];
+  assert.equal(list.children.length, 1);
+  const provItem = list.children[0];
+  assert.equal(provItem.className, 'library-provenance-item');
+
+  const primary = provItem.children.find((c) => c.className === 'library-provenance-primary');
+  assert(primary, 'should have primary line');
+  assert.equal(primary.textContent, 'Bundle: Action Bundle 2026');
+
+  const secondary = provItem.children.find((c) => c.className === 'library-provenance-secondary');
+  assert(secondary, 'should have secondary line');
+  assert.equal(secondary.textContent, 'Purchased: 2026-04-10 · Order: hb-order-987 · Key: Steam (unrevealed)');
+});
+
+test('ui.css configures tabular numbers and comfortable disclosure spacing', () => {
+  const css = fs.readFileSync(new URL('../ui.css', import.meta.url), 'utf8');
+  assert.match(css, /#library-preview\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+  assert.match(css, /#library-preview\s+li::marker\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+  assert.match(css, /\.library-item-summary\s*\{[^}]*margin-left:\s*0\.35rem/);
+  assert.match(css, /\.library-item-summary\s*\{[^}]*padding:\s*0\.15rem\s+0\s+0\.15rem\s+0\.35rem/);
+  assert.match(css, /\.library-provenance-primary\s*\{/);
+  assert.match(css, /\.library-provenance-secondary\s*\{/);
+});

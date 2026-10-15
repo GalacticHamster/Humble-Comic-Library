@@ -71,8 +71,9 @@ code { font-family: ui-monospace, monospace; }
 .library-filter-row select { width:100%; box-sizing:border-box; }
 .library-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin:.75rem 0 .25rem; }
 .library-navigation p { margin:0; font-size:.9rem; color:var(--gh-text-muted); }
-#library-preview { max-height:28rem; overflow:auto; padding-left:4.25rem; margin:.5rem 0; }
+#library-preview { max-height:28rem; overflow:auto; padding-left:4.25rem; margin:.5rem 0; font-variant-numeric:tabular-nums; }
 #library-preview li { margin:.3rem 0; overflow-wrap:anywhere; }
+#library-preview li::marker { font-variant-numeric:tabular-nums; }
 
 /* Compact expandable product rows in library browser */
 .library-item { margin: 0.25rem 0; }
@@ -85,7 +86,8 @@ code { font-family: ui-monospace, monospace; }
   font-size: 0.95rem;
   line-height: 1.45;
   color: var(--gh-text);
-  padding: 0.15rem 0;
+  padding: 0.15rem 0 0.15rem 0.35rem;
+  margin-left: 0.35rem;
 }
 .library-item-details[open] > .library-item-summary {
   list-style-type: disclosure-open;
@@ -106,17 +108,29 @@ code { font-family: ui-monospace, monospace; }
   font-weight: normal;
 }
 .library-provenance-list {
-  margin: 0.35rem 0 0.5rem 1.4rem;
+  margin: 0.4rem 0 0.6rem 1.6rem;
   padding: 0;
   list-style: disc;
-  font-size: 0.85rem;
   color: var(--gh-text-muted);
 }
 .library-provenance-list li {
-  margin: 0.25rem 0;
+  margin: 0.45rem 0;
+  line-height: 1.4;
+}
+.library-provenance-primary {
+  font-weight: 500;
+  color: var(--gh-text);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+.library-provenance-secondary {
+  font-size: 0.78rem;
+  color: var(--gh-text-muted);
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
 }
 .library-provenance-empty {
-  margin: 0.35rem 0 0.5rem 1.4rem;
+  margin: 0.35rem 0 0.5rem 1.6rem;
   font-style: italic;
   font-size: 0.85rem;
   color: var(--gh-text-muted);

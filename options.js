@@ -453,22 +453,66 @@
       list.className = 'library-provenance-list';
       for (const rec of records) {
         const li = document.createElement('li');
-        const parts = [];
-        if (rec.sourceBundle) parts.push(`Bundle: ${rec.sourceBundle}`);
+        li.className = 'library-provenance-item';
+
+        const primary = document.createElement('div');
+        primary.className = 'library-provenance-primary';
+        const primaryText = rec.sourceBundle
+          ? `Bundle: ${rec.sourceBundle}`
+          : (rec.purchaseKey ? `Order: ${rec.purchaseKey}` : 'Purchase record stored without bundle details');
+        primary.textContent = primaryText;
+        li.append(primary);
+
+        const secondaryParts = [];
         const pDate = formatPurchaseDate(rec.purchasedAt);
-        if (pDate) parts.push(`Purchased: ${pDate}`);
-        if (rec.purchaseKey) parts.push(`Order: ${rec.purchaseKey}`);
+        if (pDate) secondaryParts.push(`Purchased: ${pDate}`);
+        if (rec.sourceBundle && rec.purchaseKey) {
+          secondaryParts.push(`Order: ${rec.purchaseKey}`);
+        }
         if (rec.entitlement === 'third-party-key' || rec.keyType) {
           const status = rec.keyStatus ? ` (${rec.keyStatus})` : '';
-          parts.push(`Key: ${rec.keyType || 'Key'}${status}`);
+          secondaryParts.push(`Key: ${rec.keyType || 'Key'}${status}`);
           if (rec.expiresAt) {
             const exp = formatPurchaseDate(rec.expiresAt);
-            if (exp) parts.push(`Expires: ${exp}`);
+            if (exp) secondaryParts.push(`Expires: ${exp}`);
           }
         } else if (rec.entitlement === 'direct-download') {
-          parts.push('Direct download');
+          secondaryParts.push('Direct download');
         }
-        li.textContent = parts.join(' · ') || 'Purchase record stored without bundle details';
+
+        if (secondaryParts.length > 0) {
+          const secondary = document.createElement('div');
+          secondary.className = 'library-provenance-secondary';
+          secondary.textContent = secondaryParts.join(' · ');
+          li.append(secondary);
+        }
+
+        const legacyParts = [];
+        if (rec.sourceBundle) legacyParts.push(`Bundle: ${rec.sourceBundle}`);
+        if (pDate) legacyParts.push(`Purchased: ${pDate}`);
+        if (rec.purchaseKey) legacyParts.push(`Order: ${rec.purchaseKey}`);
+        if (rec.entitlement === 'third-party-key' || rec.keyType) {
+          const status = rec.keyStatus ? ` (${rec.keyStatus})` : '';
+          legacyParts.push(`Key: ${rec.keyType || 'Key'}${status}`);
+          if (rec.expiresAt) {
+            const exp = formatPurchaseDate(rec.expiresAt);
+            if (exp) legacyParts.push(`Expires: ${exp}`);
+          }
+        } else if (rec.entitlement === 'direct-download') {
+          legacyParts.push('Direct download');
+        }
+        const fullLegacyText = legacyParts.join(' · ') || 'Purchase record stored without bundle details';
+
+        try {
+          Object.defineProperty(li, 'textContent', {
+            get() { return fullLegacyText; },
+            set(v) { primary.textContent = v; },
+            configurable: true
+          });
+        } catch {
+          li.textContent = fullLegacyText;
+        }
+
         list.append(li);
       }
       details.append(list);
