@@ -239,7 +239,7 @@
     if (kind === 'comic') return true;
     if (kind !== 'book') return false;
     if (item.manualKind && item.manualKind !== 'comic') return false;
-    const bundles = [item.sourceBundle, ...(Array.isArray(item.provenance) ? item.provenance.map(p => p.sourceBundle) : [])].filter(Boolean);
+    const bundles = [item.sourceBundle, item.bundle?.title, ...(Array.isArray(item.provenance) ? item.provenance.map(p => p.sourceBundle || p.bundle?.title) : [])].filter(Boolean);
     if (bundles.some(b => /\b(?:comic|comics|manga|graphic\s+novel)s?\b/iu.test(b))) return true;
     const serialized = JSON.stringify(item);
     return /\b(?:cbz|cbr)\b/iu.test(serialized);
@@ -349,7 +349,7 @@
 
   function mediaOverrideKey(item) {
     if (!item || typeof item !== 'object') return null;
-    const providerId = item.providerItemId || (item.provenance?.[0]?.providerItemId);
+    const providerId = item.sourceItemId || item.providerItemId || (item.provenance?.[0]?.sourceItemId || item.provenance?.[0]?.providerItemId);
     const purchaseKey = item.purchaseKey || (item.provenance?.[0]?.purchaseKey);
     if (providerId) {
       return purchaseKey ? `${purchaseKey}:${providerId}` : providerId;
@@ -504,12 +504,21 @@
       if (!item) throw new Error(`${label} needs a title.`);
       return item;
     }
-    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string', automaticKind: 'string', manualKind: 'string' }, label, ['title']), ...bibliographicFields(value), ...entitlementFields(value) };
+    const item = { ...backupRecord(value, { ...PROVENANCE_FIELDS, kind: 'string', source: 'string', automaticKind: 'string', manualKind: 'string', delivery: 'string', streaming: 'boolean' }, label, ['title']), ...bibliographicFields(value), ...entitlementFields(value) };
     if (item.kind !== undefined && !LIBRARY_ITEM_KINDS.has(item.kind)) throw new Error(`${label}.kind is unsupported.`);
     if (item.automaticKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.automaticKind)) throw new Error(`${label}.automaticKind is unsupported.`);
     if (item.manualKind !== undefined && !LIBRARY_ITEM_KINDS.has(item.manualKind)) throw new Error(`${label}.manualKind is unsupported.`);
+    if (Array.isArray(value.formats)) {
+      item.formats = [...new Set(value.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+    }
     if (value.provenance !== undefined) {
-      item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => ({...backupRecord(record, PROVENANCE_FIELDS, path), ...entitlementFields(record)}));
+      item.provenance = backupArray(value.provenance, `${label}.provenance`, (record, path) => {
+        const origin = { ...backupRecord(record, { ...PROVENANCE_FIELDS, delivery: 'string', streaming: 'boolean' }, path), ...entitlementFields(record) };
+        if (Array.isArray(record.formats)) {
+          origin.formats = [...new Set(record.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+        }
+        return origin;
+      });
     }
     return item;
   }
@@ -592,9 +601,15 @@
         }
       }
     }
-    const rejectedPurchaseItems = backupArray(value.rejectedPurchaseItems === undefined ? [] : value.rejectedPurchaseItems, 'rejectedPurchaseItems', (record, path) => backupRecord(record, {
-      title: 'string', purchaseKey: 'string', sourceBundle: 'string?', purchasedAt: 'string?', providerItemId: 'string?', reason: 'string?'
-    }, path, ['title', 'purchaseKey']));
+    const rejectedPurchaseItems = backupArray(value.rejectedPurchaseItems === undefined ? [] : value.rejectedPurchaseItems, 'rejectedPurchaseItems', (record, path) => {
+      const rec = backupRecord(record, {
+        title: 'string', purchaseKey: 'string', sourceBundle: 'string?', purchasedAt: 'string?', providerItemId: 'string?', reason: 'string?', entitlement: 'string?', delivery: 'string?', streaming: 'boolean'
+      }, path, ['title', 'purchaseKey']);
+      if (Array.isArray(record.formats)) {
+        rec.formats = [...new Set(record.formats.map(f => typeof f === 'string' ? (f.startsWith('.') ? f.toLowerCase() : '.' + f.toLowerCase()) : '').filter(Boolean))].sort();
+      }
+      return rec;
+    });
     return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems };
   }
 
@@ -899,12 +914,20 @@
           purchaseKey: rejectedRecord.purchaseKey,
           purchasedAt: rejectedRecord.purchasedAt ?? null,
           providerItemId: rejectedRecord.providerItemId ?? `${rejectedRecord.purchaseKey}:product:recovered`,
+          entitlement: rejectedRecord.entitlement ?? 'direct-download',
+          ...(rejectedRecord.delivery ? { delivery: rejectedRecord.delivery } : {}),
+          ...(rejectedRecord.streaming ? { streaming: true } : {}),
+          ...(Array.isArray(rejectedRecord.formats) && rejectedRecord.formats.length ? { formats: rejectedRecord.formats } : {}),
           provenance: [{
             title: rejectedRecord.title,
             sourceBundle: rejectedRecord.sourceBundle ?? '',
             purchaseKey: rejectedRecord.purchaseKey,
             purchasedAt: rejectedRecord.purchasedAt ?? null,
-            providerItemId: rejectedRecord.providerItemId ?? `${rejectedRecord.purchaseKey}:product:recovered`
+            providerItemId: rejectedRecord.providerItemId ?? `${rejectedRecord.purchaseKey}:product:recovered`,
+            entitlement: rejectedRecord.entitlement ?? 'direct-download',
+            ...(rejectedRecord.delivery ? { delivery: rejectedRecord.delivery } : {}),
+            ...(rejectedRecord.streaming ? { streaming: true } : {}),
+            ...(Array.isArray(rejectedRecord.formats) && rejectedRecord.formats.length ? { formats: rejectedRecord.formats } : {})
           }]
         };
         const overrideKey = mediaOverrideKey(newItem);

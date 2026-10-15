@@ -1949,8 +1949,24 @@ function matchPurchaseCount(match) {
 function itemProvenance(item) {
   const records = Array.isArray(item.provenance) && item.provenance.length
     ? item.provenance
-    : [{ title: item.title, sourceBundle: item.sourceBundle, purchaseKey: item.purchaseKey, purchasedAt: item.purchasedAt, ...(item.providerItemId?{providerItemId:item.providerItemId}:{}), ...HumbleComicLibrary.entitlementFields(item) }];
-  return records.map((record) => ({ ...record, title: record.title ?? item.title }));
+    : [{
+        title: item.title,
+        sourceBundle: item.sourceBundle,
+        purchaseKey: item.purchaseKey,
+        purchasedAt: item.purchasedAt,
+        ...(item.providerItemId ? { providerItemId: item.providerItemId } : {}),
+        ...HumbleComicLibrary.entitlementFields(item),
+        ...(Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {}),
+        ...(item.delivery ? { delivery: item.delivery } : {}),
+        ...(item.streaming ? { streaming: item.streaming } : {})
+      }];
+  return records.map((record) => ({
+    ...record,
+    title: record.title ?? item.title,
+    ...(Array.isArray(record.formats) && record.formats.length ? { formats: record.formats } : (Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {})),
+    ...(record.delivery ? { delivery: record.delivery } : (item.delivery ? { delivery: item.delivery } : {})),
+    ...(record.streaming || item.streaming ? { streaming: true } : {})
+  }));
 }
 
 function formatPurchaseDate(value) {
@@ -3388,16 +3404,24 @@ function downloadJsonFile(filename, contents) {
 
 function withProvenance(item) {
   const automaticKind = item.automaticKind || item.kind || 'unclassified';
-  return { ...item, automaticKind, ...(item.manualKind ? { manualKind: item.manualKind } : {}), provenance: dedupeProvenance(itemProvenance(item)) };
+  return {
+    ...item,
+    automaticKind,
+    ...(item.manualKind ? { manualKind: item.manualKind } : {}),
+    ...(Array.isArray(item.formats) && item.formats.length ? { formats: item.formats } : {}),
+    provenance: dedupeProvenance(itemProvenance(item))
+  };
 }
 
 function mergeLibraryItem(existing, incoming) {
+  const formats = [...new Set([...(existing.formats || []), ...(incoming.formats || [])])].sort();
   return {
     ...existing,
     kind: existing.manualKind || incoming.manualKind || existing.kind || incoming.kind,
     automaticKind: incoming.automaticKind || incoming.kind || existing.automaticKind || existing.kind || 'unclassified',
     ...(existing.manualKind || incoming.manualKind ? { manualKind: existing.manualKind || incoming.manualKind } : {}),
     ...HumbleComicLibrary.entitlementFields(incoming),
+    ...(formats.length ? { formats } : {}),
     purchasedAt: existing.purchasedAt || incoming.purchasedAt,
     purchaseKey: existing.purchaseKey || incoming.purchaseKey,
     provenance: dedupeProvenance([...itemProvenance(existing), ...itemProvenance(incoming)])
@@ -3504,6 +3528,41 @@ function isConfirmedPurchaseProduct(product, isSubproduct = true) {
   );
 }
 
+function extractProductFormats(product) {
+  if (!product || typeof product !== 'object') return [];
+  const formats = new Set();
+  const addExt = (raw) => {
+    if (!raw || typeof raw !== 'string') return;
+    let ext = raw.trim().toLowerCase();
+    if (ext.startsWith('.')) ext = ext.slice(1);
+    const match = ext.match(/\.([a-z0-9]{2,16})(?:[?#]|$)/iu);
+    if (match) {
+      formats.add(`.${match[1].toLowerCase()}`);
+    } else if (/^[a-z0-9]{2,16}$/iu.test(ext)) {
+      formats.add(`.${ext.toLowerCase()}`);
+    }
+  };
+  const scanDownload = (d) => {
+    if (!d || typeof d !== 'object') return;
+    addExt(d.format);
+    addExt(d.filetype);
+    addExt(d.extension);
+    addExt(d.name);
+    if (typeof d.url === 'string') addExt(d.url);
+    else if (d.url && typeof d.url === 'object') {
+      for (const u of Object.values(d.url)) {
+        if (typeof u === 'string') addExt(u);
+      }
+    }
+    if (Array.isArray(d.download_struct)) {
+      d.download_struct.forEach(scanDownload);
+    }
+  };
+  if (Array.isArray(product.downloads)) product.downloads.forEach(scanDownload);
+  if (Array.isArray(product.download_struct)) product.download_struct.forEach(scanDownload);
+  return [...formats].sort();
+}
+
 function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}, rejectedList = null) {
   const sourceBundle = extractBundleName(order, detail);
   const purchasedAt = extractPurchasedAt(order, detail);
@@ -3514,19 +3573,26 @@ function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}
       const providerItemId = `${purchaseKey}:product:${String(product.machine_name ?? product.product_key ?? product.product_id ?? product.id ?? product.uuid ?? '').trim() || `position-${index}`}`;
       const title = String(product.human_name ?? product.product_name ?? product.title ?? product.name ?? '').trim();
       if (!title) return null;
+      const formats = extractProductFormats(product);
+      const hasStreaming = Boolean(product.streaming || product.video_streams || product.stream_url || product.video_id);
       let detectedKind = productKind(product, sourceBundle);
       if (!detectedKind) {
         if (isConfirmedPurchaseProduct(product, isSubproducts)) {
           detectedKind = 'unclassified';
         } else {
           if (rejectedList && !rejectedList.some(r => r.purchaseKey === purchaseKey && (r.providerItemId === providerItemId || r.title === title))) {
+            const hasDownloads = (Array.isArray(product.downloads) && product.downloads.length > 0)
+              || (Array.isArray(product.download_struct) && product.download_struct.length > 0);
             rejectedList.push({
               providerItemId,
               title,
               purchaseKey,
               sourceBundle,
               purchasedAt,
-              reason: 'Unclassified promotional or non-product content'
+              reason: 'Unclassified promotional or non-product content',
+              delivery: hasStreaming ? 'streaming' : (hasDownloads ? 'direct-download' : undefined),
+              ...(hasDownloads ? { entitlement: 'direct-download' } : {}),
+              ...(formats.length ? { formats } : {})
             });
           }
           return null;
@@ -3549,6 +3615,10 @@ function extractLibraryItems(detail, order, purchaseKey, mediaTypeOverrides = {}
         sourceBundle,
         purchaseKey,
         purchasedAt,
+        entitlement: 'direct-download',
+        delivery: hasStreaming ? 'streaming' : 'direct-download',
+        ...(hasStreaming ? { streaming: true } : {}),
+        ...(formats.length ? { formats } : {}),
         ...HumbleComicLibrary.bibliographicFields(product)
       };
     })

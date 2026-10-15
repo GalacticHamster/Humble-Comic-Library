@@ -75,3 +75,14 @@ test('advanced parity: technical freshness reminders never revoke ownership or e
  const result=O.centralReminders([match,match],Date.parse('2026-10-03'));
  assert.deepEqual(Array.from(result,entry=>entry.type),['freshness','contents']);assert(!JSON.stringify(result).includes('opaque'));assert.equal(match.state,hb?'elsewhere':'owned-elsewhere');
 });
+
+test('advanced parity: software editions and release versions remain distinct and avoid sequence invention', () => {
+  const v1 = { title: 'Creative Suite 2024', kind: 'software', mediaType: 'software', sourceItemId: 'soft-2024' };
+  const v2 = { title: 'Creative Suite 2025', kind: 'software', mediaType: 'software', sourceItemId: 'soft-2025' };
+  const deluxe = { title: 'Creative Suite 2025 Deluxe Edition', kind: 'software', mediaType: 'software', sourceItemId: 'soft-2025-deluxe' };
+  
+  assert.equal(targets([{ item: v1, target: { entries: [] } }]).length, 0);
+  assert.equal(targets([{ item: v2, target: { entries: [] } }]).length, 0);
+  assert.notEqual(v1.sourceItemId, v2.sourceItemId);
+  assert.notEqual(v2.sourceItemId, deluxe.sourceItemId);
+});

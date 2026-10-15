@@ -238,13 +238,16 @@
         entitlementId: p?.entitlementId || item.entitlementId || '',
         keyType: p?.keyType || item.keyType || '',
         keyStatus: p?.keyStatus || item.keyStatus || '',
-        expiresAt: p?.expiresAt || item.expiresAt || null
+        expiresAt: p?.expiresAt || item.expiresAt || null,
+        formats: Array.isArray(p?.formats) && p.formats.length ? p.formats : (Array.isArray(item.formats) ? item.formats : []),
+        delivery: p?.delivery || item.delivery || '',
+        streaming: Boolean(p?.streaming || item.streaming)
       })));
     }
     const sourceBundle = item.sourceBundle || (item.bundle?.title || '');
     const purchaseKey = item.purchaseKey || '';
     const purchasedAt = item.purchasedAt || null;
-    if (sourceBundle || purchaseKey || purchasedAt || item.entitlement || item.keyType || item.keyStatus) {
+    if (sourceBundle || purchaseKey || purchasedAt || item.entitlement || item.keyType || item.keyStatus || item.formats?.length) {
       return [{
         title: item.title || '',
         sourceBundle,
@@ -255,7 +258,10 @@
         entitlementId: item.entitlementId || '',
         keyType: item.keyType || '',
         keyStatus: item.keyStatus || '',
-        expiresAt: item.expiresAt || null
+        expiresAt: item.expiresAt || null,
+        formats: Array.isArray(item.formats) ? item.formats : [],
+        delivery: item.delivery || '',
+        streaming: Boolean(item.streaming)
       }];
     }
     return [];
@@ -296,6 +302,7 @@
     const targetProv = extractItemProvenance(targetObj);
     const incomingProv = extractItemProvenance(incomingObj);
     const allProv = mergeProvenanceRecords(targetProv, incomingProv);
+    const combinedFormats = [...new Set([...(targetObj.formats || []), ...(incomingObj.formats || [])])].sort();
 
     const latestProv = allProv[0];
     const targetDate = getItemPurchaseDate(targetObj);
@@ -304,6 +311,7 @@
 
     return {
       ...targetObj,
+      ...(combinedFormats.length ? { formats: combinedFormats } : {}),
       ...(useIncomingDate ? incomingObj : {}),
       providerItemId: targetObj.providerItemId || incomingObj.providerItemId,
       sourceBundle: latestProv?.sourceBundle || targetObj.sourceBundle || incomingObj.sourceBundle || '',
@@ -512,8 +520,17 @@
             const exp = formatPurchaseDate(rec.expiresAt);
             if (exp) secondaryParts.push(`Expires: ${exp}`);
           }
-        } else if (rec.entitlement === 'direct-download') {
-          secondaryParts.push('Direct download');
+        } else if (rec.entitlement === 'direct-download' || rec.streaming || rec.delivery) {
+          const deliveryLabel = rec.streaming || rec.delivery === 'streaming' ? 'Streaming' : 'Direct download';
+          secondaryParts.push(deliveryLabel);
+        }
+        const formats = Array.isArray(rec.formats) && rec.formats.length > 0
+          ? rec.formats
+          : (Array.isArray(item.formats) && item.formats.length > 0 ? item.formats : []);
+        if (formats.length > 0) {
+          secondaryParts.push(`Formats: ${formats.map(f => f.startsWith('.') ? f : '.' + f).join(', ')}`);
+        } else if (rec.entitlement === 'direct-download' || item.entitlement === 'direct-download' || rec.delivery === 'direct-download' || (!rec.keyType && rec.entitlement !== 'third-party-key' && (item.kind === 'unclassified' || item.kind === 'book' || item.kind === 'comic' || item.kind === 'software' || item.kind === 'video' || item.kind === 'audiobook'))) {
+          secondaryParts.push('File formats unavailable');
         }
 
         if (secondaryParts.length > 0) {
@@ -842,7 +859,17 @@
           titleSpan.textContent = rec.title;
           const metaSpan = document.createElement('span');
           metaSpan.className = 'library-rejected-meta';
-          metaSpan.textContent = ` (${rec.sourceBundle ? `Bundle: ${rec.sourceBundle} · ` : ''}${rec.reason || 'Unverified content'})`;
+          const formatsText = Array.isArray(rec.formats) && rec.formats.length > 0
+            ? `Formats: ${rec.formats.map(f => f.startsWith('.') ? f : '.' + f).join(', ')}`
+            : (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'File formats unavailable' : '');
+          const deliveryText = rec.delivery === 'streaming' ? 'Streaming' : (rec.entitlement === 'third-party-key' || rec.delivery === 'third-party-key' ? (rec.keyType ? `Key: ${rec.keyType}` : 'External key') : (rec.entitlement === 'direct-download' || rec.delivery === 'direct-download' ? 'Direct download' : ''));
+          const parts = [
+            rec.sourceBundle ? `Bundle: ${rec.sourceBundle}` : '',
+            deliveryText,
+            formatsText,
+            rec.reason || 'Unverified content'
+          ].filter(Boolean);
+          metaSpan.textContent = ` (${parts.join(' · ')})`;
 
           const recoverSelect = document.createElement('select');
           recoverSelect.className = 'library-recover-select';
