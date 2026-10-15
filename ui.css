@@ -74,11 +74,51 @@ code { font-family: ui-monospace, monospace; }
 #library-preview { max-height:28rem; overflow:auto; padding-left:4.25rem; margin:.5rem 0; }
 #library-preview li { margin:.3rem 0; overflow-wrap:anywhere; }
 
-/* Provenance details in library browser */
-.library-item-details { margin: 0.25rem 0 0.35rem; font-size: 0.85rem; }
-.library-item-summary { cursor: pointer; color: var(--gh-text-muted); font-size: 0.82rem; user-select: none; }
-.library-item-summary:hover { color: var(--gh-text); }
-.library-provenance-list { margin: 0.35rem 0 0.25rem 1.25rem; padding: 0; list-style: disc; font-size: 0.82rem; color: var(--gh-text-muted); }
-.library-provenance-list li { margin: 0.2rem 0; }
-.library-provenance-empty { margin: 0.25rem 0 0.25rem 0.5rem; font-style: italic; color: var(--gh-text-muted); font-size: 0.82rem; }
+/* Compact expandable product rows in library browser */
+.library-item { margin: 0.25rem 0; }
+.library-item-details { display: block; width: 100%; }
+.library-item-summary {
+  display: list-item;
+  list-style-type: disclosure-closed;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--gh-text);
+  padding: 0.15rem 0;
+}
+.library-item-details[open] > .library-item-summary {
+  list-style-type: disclosure-open;
+}
+.library-item-summary:hover {
+  color: var(--gh-link, #60a5fa);
+}
+.library-item-summary::marker {
+  color: var(--gh-text-muted);
+  font-size: 0.85em;
+}
+.library-item-summary:hover::marker {
+  color: var(--gh-link, #60a5fa);
+}
+.library-item-bundle-summary {
+  color: var(--gh-text-muted);
+  font-size: 0.88em;
+  font-weight: normal;
+}
+.library-provenance-list {
+  margin: 0.35rem 0 0.5rem 1.4rem;
+  padding: 0;
+  list-style: disc;
+  font-size: 0.85rem;
+  color: var(--gh-text-muted);
+}
+.library-provenance-list li {
+  margin: 0.25rem 0;
+}
+.library-provenance-empty {
+  margin: 0.35rem 0 0.5rem 1.4rem;
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--gh-text-muted);
+}
 

@@ -136,12 +136,23 @@
 
   function getItemPurchaseDate(item) {
     if (!item || typeof item !== 'object') return null;
-    const raw = item.purchasedAt || item.purchaseDate
-      || (Array.isArray(item.purchaseOrigins) && item.purchaseOrigins[0]?.purchaseDate)
-      || (Array.isArray(item.provenance) && (item.provenance[0]?.purchasedAt || item.provenance[0]?.purchaseDate));
-    if (!raw) return null;
-    const time = Date.parse(raw);
-    return Number.isFinite(time) ? time : null;
+    let latest = null;
+    const directRaw = item.purchasedAt || item.purchaseDate;
+    if (directRaw) {
+      const time = Date.parse(directRaw);
+      if (Number.isFinite(time)) latest = time;
+    }
+    const list = Array.isArray(item.provenance) ? item.provenance : (Array.isArray(item.purchaseOrigins) ? item.purchaseOrigins : []);
+    for (const rec of list) {
+      const raw = rec?.purchasedAt || rec?.purchaseDate;
+      if (raw) {
+        const time = Date.parse(raw);
+        if (Number.isFinite(time) && (latest === null || time > latest)) {
+          latest = time;
+        }
+      }
+    }
+    return latest;
   }
 
   function formatPurchaseDate(timestamp) {
@@ -188,10 +199,36 @@
     return true;
   }
 
+  function parseRecordTimestamp(record) {
+    if (!record || typeof record !== 'object') return null;
+    const raw = record.purchasedAt || record.purchaseDate;
+    if (!raw) return null;
+    const time = Date.parse(raw);
+    return Number.isFinite(time) ? time : null;
+  }
+
+  function sortProvenanceRecords(records) {
+    return [...records].sort((a, b) => {
+      const timeA = parseRecordTimestamp(a);
+      const timeB = parseRecordTimestamp(b);
+      if (timeA !== null && timeB !== null) {
+        if (timeB !== timeA) return timeB - timeA;
+        const bundleA = (a.sourceBundle || a.bundle?.title || '').trim();
+        const bundleB = (b.sourceBundle || b.bundle?.title || '').trim();
+        return bundleA.localeCompare(bundleB);
+      }
+      if (timeA !== null) return -1;
+      if (timeB !== null) return 1;
+      const bundleA = (a.sourceBundle || a.bundle?.title || '').trim();
+      const bundleB = (b.sourceBundle || b.bundle?.title || '').trim();
+      return bundleA.localeCompare(bundleB);
+    });
+  }
+
   function extractItemProvenance(item) {
     if (!item || typeof item !== 'object') return [];
     if (Array.isArray(item.provenance) && item.provenance.length > 0) {
-      return item.provenance.map((p) => ({
+      return sortProvenanceRecords(item.provenance.map((p) => ({
         title: p?.title || item.title || '',
         sourceBundle: p?.sourceBundle || item.sourceBundle || (item.bundle?.title || ''),
         purchaseKey: p?.purchaseKey || item.purchaseKey || '',
@@ -202,7 +239,7 @@
         keyType: p?.keyType || item.keyType || '',
         keyStatus: p?.keyStatus || item.keyStatus || '',
         expiresAt: p?.expiresAt || item.expiresAt || null
-      }));
+      })));
     }
     const sourceBundle = item.sourceBundle || (item.bundle?.title || '');
     const purchaseKey = item.purchaseKey || '';
@@ -249,14 +286,7 @@
         });
       }
     }
-    return [...merged.values()].sort((a, b) => {
-      const timeA = a.purchasedAt ? Date.parse(a.purchasedAt) : 0;
-      const timeB = b.purchasedAt ? Date.parse(b.purchasedAt) : 0;
-      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
-      if (timeA && !timeB) return -1;
-      if (!timeA && timeB) return 1;
-      return (a.sourceBundle || '').localeCompare(b.sourceBundle || '');
-    });
+    return sortProvenanceRecords([...merged.values()]);
   }
 
   function consolidateItemInto(target, incoming) {
@@ -384,30 +414,38 @@
 
   function renderLibraryRow(item) {
     const row = document.createElement('li');
-    const bundle = typeof item === 'object' ? (item.sourceBundle || item.bundle?.title || '') : '';
+    row.className = 'library-item';
+
     const title = typeof item === 'string' ? item : (item.title || '');
-    let text = bundle ? `${title} — ${bundle}` : title;
-    const records = extractItemProvenance(item);
-    if (records.length > 1) {
-      text += ` (${records.length} purchases)`;
+    const records = sortProvenanceRecords(extractItemProvenance(item));
+
+    const distinctBundles = new Set();
+    for (const rec of records) {
+      const bTitle = (rec.sourceBundle || rec.bundle?.title || '').trim();
+      if (bTitle) distinctBundles.add(bTitle);
     }
-    const date = getItemPurchaseDate(item);
-    const dateStr = formatPurchaseDate(date);
-    if (dateStr) text += ` · ${dateStr}`;
-    row.textContent = text;
+
+    let summarySuffix = '';
+    if (distinctBundles.size === 1) {
+      summarySuffix = ' — in 1 bundle';
+    } else if (distinctBundles.size > 1) {
+      summarySuffix = ` — in ${distinctBundles.size} bundles`;
+    } else if (records.length === 1) {
+      summarySuffix = ' — single purchase';
+    } else if (records.length > 1) {
+      summarySuffix = ` — ${records.length} purchases`;
+    } else {
+      summarySuffix = ' — manual entry';
+    }
+
+    const headerText = `${title}${summarySuffix}`;
 
     const details = document.createElement('details');
     details.className = 'library-item-details';
+
     const summary = document.createElement('summary');
     summary.className = 'library-item-summary';
-
-    if (records.length > 1) {
-      summary.textContent = `View all ${records.length} purchases`;
-    } else if (records.length === 1) {
-      summary.textContent = 'View purchase details';
-    } else {
-      summary.textContent = 'Provenance details';
-    }
+    summary.textContent = headerText;
     details.append(summary);
 
     if (records.length > 0) {
@@ -442,6 +480,17 @@
     }
 
     row.append(details);
+
+    try {
+      Object.defineProperty(row, 'textContent', {
+        get() { return summary.textContent; },
+        set(val) { summary.textContent = val; },
+        configurable: true
+      });
+    } catch {
+      row.textContent = headerText;
+    }
+
     return row;
   }
 
