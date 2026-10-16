@@ -1,4 +1,4 @@
-# Matching explanation UX audit ? 2026-10-08
+# Matching explanation UX audit — 2026-10-08
 
 Phase A recorded before runtime edits. Inspected HB content/ownership, FAN content/shared, the GL companion-response contract, and production dialogs rendered with synthetic responses in disposable browsers. Before screenshots are under ignored audit-artifacts/matching-explanations (Chrome three widths; Firefox desktop/medium; narrow capture uses an iframe because Firefox limits native window width).
 
