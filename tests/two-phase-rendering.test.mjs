@@ -519,6 +519,7 @@ test('two-phase rendering: stale GL response after job change is rejected withou
   const headline = summaryEl.querySelector('.hcl-summary-counts');
   assert.match(headline.textContent, /^Preliminary:/, 'Preliminary headline in Phase 1');
 
+  await new Promise(resolve=>setTimeout(resolve,0)); // Let the availability handshake reach MATCH_ITEMS.
   // User navigates or newer job starts:
   comparison.job = 2;
 

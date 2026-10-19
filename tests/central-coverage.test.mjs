@@ -9,6 +9,9 @@ context.globalThis = context;
 vm.createContext(context);
 for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
 vm.runInContext('showComparisonProgress = () => {};', context);
+// These media/coverage tests model an already participating GL connection.
+// Availability, including the real empty-setting path, is tested separately.
+vm.runInContext("originalGalacticLookup=createGalacticLookup;createGalacticLookup=id=>({...originalGalacticLookup(id),connectionState:'participating'})",context);
 const H = context.HumbleComicLibrary; const O = context.HumbleOwnership; const C = context.HumbleCollectionMappings;
 const plain = value => JSON.parse(JSON.stringify(value));
 const unit = (number, overrides = {}) => ({ series: '漫画', run: '2020', unitType: 'volume', number: String(number), language: 'ja', completeness: 'full', ...overrides });

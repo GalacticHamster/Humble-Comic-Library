@@ -15,3 +15,10 @@ chrome.storage.local.get=async defaults=>{
   if(window.lifecycleBlockRead){window.lifecycleBlockRead=false;await new Promise(resolve=>{window.lifecycleReleaseRead=resolve;});}
   return snapshot;
 };
+
+// No GL is installed until this fixture explicitly supplies a connection.
+const lifecycleOriginalSend=chrome.runtime.sendMessage;
+chrome.runtime.sendMessage=(target,message)=>{
+ if(typeof target==='string'&&!fixtureStored.galacticLibraryExtensionId)return Promise.reject(Error('Could not establish connection. Receiving end does not exist.'));
+ return lifecycleOriginalSend(target,message);
+};

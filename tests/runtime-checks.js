@@ -4,6 +4,10 @@ async function installedRuntimeChecks(){
   const wait=async predicate=>{for(let n=0;n<150;n++){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,20));}throw new Error('Installed options did not finish updating.');};
   await wait(()=>globalThis.HumbleComicLibrary&&document.querySelector('#library-count')?.textContent.includes('stored locally'));
   const H=HumbleComicLibrary;window.confirm=()=>true;
+  const missingTarget=H.companionBrowser(chrome.runtime)==='firefox'?'missing-gl-fixture@invalid.example':'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn';
+  const missing=await H.galacticAvailability(message=>chrome.runtime.sendMessage(missingTarget,message));
+  check(missing.state==='unavailable','real browser no-receiver result leaves missing GL outside the participating lookup');
+
   document.querySelector('#summary-position').value='top-left';document.querySelector('#summary-position').dispatchEvent(new Event('change'));document.querySelector('#summary-minimized').checked=true;document.querySelector('#summary-minimized').dispatchEvent(new Event('change'));await wait(async()=>{const stored=await chrome.storage.local.get('bundleSummaryPreferences');return stored.bundleSummaryPreferences?.minimized&&stored.bundleSummaryPreferences.position==='top-left';});check(true,'installed settings save validated summary size and corner through the real writer');
   const item={title:'Synthetic key game',kind:'game',source:'humble',purchaseKey:'PRIVATE SYNTHETIC ORDER',sourceBundle:'Synthetic bundle',entitlement:'third-party-key',entitlementId:'PRIVATE SYNTHETIC ENTITLEMENT',keyStatus:'unrevealed',expiresAt:'2026-11-01T00:00:00.000Z',keyCheckedAt:'2026-10-01T00:00:00.000Z'};
   const state={...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'synthetic-profile',libraryItems:[item],keyReminders:[{id:'PRIVATE SYNTHETIC REMINDER',purchaseKey:item.purchaseKey,title:item.title,status:'unrevealed',checkedAt:item.keyCheckedAt,expiresAt:item.expiresAt}],keyReminderScan:{complete:true,checkedAt:item.keyCheckedAt}};

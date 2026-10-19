@@ -130,6 +130,7 @@ if (!fanatical) {
     assert.equal((await f.classify()).match.state, 'unchecked');
     let calls = 0;
     f.context.chrome.runtime.sendMessage = async (_id, request) => {
+      if(request.type==='PING')return {ok:true,apiVersion:1};
       calls++;
       return { ok: true, apiVersion: 1, results: request.items.map(({ requestId }) => ({ requestId, matches: [] })) };
     };

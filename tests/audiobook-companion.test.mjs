@@ -20,6 +20,9 @@ function load({ pathname = '/books/example-books', heading = '', bundleData = {}
   for (const file of ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
+// These media/coverage tests model an already participating GL connection.
+  // Availability, including the real empty-setting path, is tested separately.
+  vm.runInContext("originalGalacticLookup=createGalacticLookup;createGalacticLookup=id=>({...originalGalacticLookup(id),connectionState:'participating'})",context);
   context.location.pathname = pathname;
   context.calls = [];context.capabilityCalls=[];context.mediaCapabilities=['book','game','audiobook'];
   context.chrome = { runtime: { sendMessage: async (id, request) => {

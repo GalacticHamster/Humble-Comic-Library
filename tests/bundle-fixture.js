@@ -21,6 +21,7 @@ window.chrome = { storage: { onChanged: { addListener: listener => fixtureStorag
     try{return {ok:true,result:await fixtureStore.execute(id.operation,id.args)};}catch(error){return {ok:false,error:error.message};}
   }
   if (typeof id === 'object') { fixtureReviewCalls.push(id); return { ok: true }; }
+  if(request.type==='PING')return {ok:true,apiVersion:1};
   fixtureCalls.push(request);
   if(window.fixtureCentralDelayMs)await new Promise(resolve=>setTimeout(resolve,window.fixtureCentralDelayMs));
   if(window.fixtureCentralFailure)throw Error('Synthetic delayed central failure');

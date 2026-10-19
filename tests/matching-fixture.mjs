@@ -11,13 +11,14 @@ export function fixture(records, media, offered, central = null, historical = []
   vm.createContext(context);
   for (const file of fanatical ? ['src/shared.js'] : ['shared.js', 'collection-mappings.js', 'ownership.js', 'content.js'])
     vm.runInContext(readSource(file), context, { filename: file });
-  context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
-  context.historical = historical.map(record => ({ ...record, ...(fanatical && record.sourceBundle ? {bundle:{title:record.sourceBundle}} : {}), [fanatical ? 'mediaType' : 'kind']: record.media ?? media }));
+  context.records = records.map(record => ({ ...record, [fanatical ? 'mediaType' : 'kind']: record.media ?? record[fanatical ? 'mediaType' : 'kind'] ?? media }));
+  context.historical = historical.map(record => ({ ...record, ...(fanatical && record.sourceBundle ? {bundle:{title:record.sourceBundle}} : {}), [fanatical ? 'mediaType' : 'kind']: record.media ?? record[fanatical ? 'mediaType' : 'kind'] ?? media }));
   context.offered = { ...offered, [fanatical ? 'mediaType' : 'kind']: media, lookupTitle: offered.title, tier: { label: '$5 tier', price: 5 } };
   context.centralResult = central instanceof Error ? { matches: [], lookupIncomplete: true } : central;
   if (!fanatical) {
     context.central = central;
     context.chrome = { runtime: { sendMessage: async (_id, message) => {
+      if (message.type === 'PING') return {ok:true,apiVersion:1};
       if (central instanceof Error) throw central;
       if (message.type === 'GET_STATUS') return {ok:true,apiVersion:1,capabilities:{mediaTypes:['game','book','audiobook','software']}};
       return { ok: true, apiVersion: 1, results: message.items.map(({ requestId }) => ({ requestId, matches: [], ...central })) };
@@ -52,7 +53,7 @@ export function bundleFixture(offers, records=[], responses={}, options={}) {
   if(!fanatical){
     const page={bundleData:{tier_item_data:Object.fromEntries(c.offers.map((item,index)=>['offer-'+index,{human_name:item.title,...item}])),tier_display_data:{all:{tier_item_machine_names:c.offers.map((_,index)=>'offer-'+index)}}}};
     c.document.querySelector=selector=>selector==='#webpack-bundle-page-data'&&!options.incomplete?{textContent:JSON.stringify(page)}:null;
-    c.chrome.runtime.sendMessage=async(_id,message)=>message.type==='GET_STATUS'?{ok:true,apiVersion:1,capabilities:{mediaTypes:['book','game','software','audiobook']}}:{ok:true,apiVersion:1,results:message.items.filter(item=>!(responses[item.title] instanceof Error)).map(item=>({matches:[],possibleMatches:[],partialMatches:[],...responses[item.title],requestId:item.requestId}))};
+    c.chrome.runtime.sendMessage=async(_id,message)=>message.type==='PING'?{ok:true,apiVersion:1}:message.type==='GET_STATUS'?{ok:true,apiVersion:1,capabilities:{mediaTypes:['book','game','software','audiobook']}}:{ok:true,apiVersion:1,results:message.items.filter(item=>!(responses[item.title] instanceof Error)).map(item=>({matches:[],possibleMatches:[],partialMatches:[],...responses[item.title],requestId:item.requestId}))};
     vm.runInContext("collectBundleItems=()=>offers;comparison={job:1,galactic:createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')};",c);
   }
   return {context:c,P:(fanatical?c.FanaticalLibrary:c.HumbleOwnership).presentation,async classify(){

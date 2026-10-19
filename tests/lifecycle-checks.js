@@ -3,7 +3,7 @@
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const until=async predicate=>{for(let n=0;n<300;n++){if(predicate())return;await pause(20);}throw Error('Lifecycle did not settle');};
   const panel=()=>document.querySelector('#hcl-summary');
-  const settled=()=>panel()&&!document.querySelector('#hcl-progress');
+  const settled=()=>panel()&&!document.querySelector('#hcl-progress')&&!panel().querySelector('.hcl-galactic-pending');
   const kind=lifecycleBook?'book':'game';
   try{
     await until(()=>window.lifecycleReleaseRead);
@@ -12,6 +12,7 @@
     lifecycleReleaseRead();
     await until(()=>settled()&&panel().textContent.includes('Owned 1'));
     check(lifecycleWarm||lifecycleReadCount>=2,lifecycleWarm?'Warm bootstrap uses the saved library snapshot':'Storage event during first read invalidates the stale snapshot');
+    check(!panel().querySelector('.hcl-summary-counts').textContent.includes('Check incomplete'),'Absent GL leaves local-only results final');
     check(panel().querySelector('#hcl-bundle-plan'),'First settled summary includes applicable purchase planning');
     check(!panel().querySelector('[data-section="series"]')&&!panel().querySelector('[data-section="contents"]'),'Cold summary omits unavailable contents and series analysis');
     panel().querySelector('.hcl-advanced').open=true;

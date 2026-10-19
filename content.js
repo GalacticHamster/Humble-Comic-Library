@@ -122,6 +122,7 @@ function finishGalacticRendering(diagnostic){
     refreshTimer = setTimeout(() => runWhenIdle(() => renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job), 500), reason === 'initial' ? 0 : 120);
   };
   comparison.retryGalactic = () => {
+    comparison.galactic.connectionState = 'pending'; // Recheck availability on an explicit retry.
     if (comparison.galactic.softwareCapabilityFailed) {
       comparison.galactic.softwareCapability = null;
       comparison.galactic.softwareCapabilityFailed = false;
@@ -499,6 +500,7 @@ function createGalacticLookup(extensionId) {
   const id = String(extensionId ?? '').trim();
   return {
     enabled: isExtensionId(id),
+    connectionState: isExtensionId(id) ? 'pending' : 'unlinked',
     extensionId: id,
     resultsByKey: new Map(),
     requestKeys: new Map(),
@@ -594,6 +596,17 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
     const waiting=galacticDiagnosticNow();
     if (previousFlight) await previousFlight.catch(() => {});
     if(diagnostic)diagnostic.previousFlightMs=previousFlight?Math.max(0,galacticDiagnosticNow()-waiting):0;
+    const availability = lookup.connectionState === 'participating' ? {state:'participating'}
+      : await HumbleComicLibrary.galacticAvailability(message => chrome.runtime.sendMessage(lookup.extensionId, message));
+    lookup.connectionState = availability.state;
+    if (availability.state === 'unavailable' || availability.state === 'unlinked') {
+      lookup.enabled = false;
+      lookup.resultsByKey.clear(); lookup.failuresByKey.clear();
+      lookup.error = null;
+      lookup.status = 'Not linked; local library only.';
+      return;
+    }
+    if (availability.state === 'failed') throw Error(availability.error);
     const batches = []; let batch = []; let units = 0;
     for (const fields of requested.values()) {
       const count = fields.contents?.length ?? 0;
@@ -605,6 +618,12 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
       const response = await waitForGalacticResponse(sendGalacticMatch(lookup.extensionId, {
         type: 'MATCH_ITEMS', apiVersion: GALACTIC_LIBRARY_API_VERSION, items: entries
       },diagnostic));
+      if (HumbleComicLibrary.galacticPermissionDenied(response)) {
+        lookup.enabled = false; lookup.connectionState = 'unlinked';
+        lookup.resultsByKey.clear(); lookup.failuresByKey.clear(); lookup.error = null;
+        lookup.status = 'Not linked; local library only.';
+        return;
+      }
       if (!response?.ok || response.apiVersion !== GALACTIC_LIBRARY_API_VERSION || !Array.isArray(response.results)) {
         throw new Error(response?.error ?? 'Galactic Library returned an incompatible response.');
       }
@@ -624,6 +643,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
   lookup.inFlight = responsePromise;
   try {
     await responsePromise;
+    if (!lookup.enabled) return;
     const matchCount = [...lookup.resultsByKey.values()].filter((result) => ownedOutsideHumble(result).length).length;
     lookup.status = `Available. ${matchCount} exact non-Humble title match${matchCount === 1 ? '' : 'es'}.`;
     lookup.error = lookup.failuresByKey.size ? `${lookup.failuresByKey.size} incomplete ownership checks. ${lookup.failuresByKey.values().next().value}` : null;
@@ -1082,11 +1102,17 @@ function completeBundleMatchContext(rows, media) {
 function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   // Storage supplies only the active profile's archive. Other profile archives
   // are never candidate inputs. History stays out of current contents evidence.
+  // Disposable identity projection only: comic is a book presentation category.
+  // Never change stored categories, purchase origins or the exported catalogue.
+  baseKind = baseKind === 'comic' ? 'book' : baseKind;
+  const project = item => item.kind === 'comic' ? {...item, kind:'book'} : item;
+  items = items.map(project);
+  historicalItems = historicalItems.map(project);
   const currentKeys = new Set(items.map(item => HumbleComicLibrary.catalogItemKey(item)));
   const missing = historicalItems.filter(item => !currentKeys.has(HumbleComicLibrary.catalogItemKey(item)));
   const history = missing.length ? createBundleLibraryMatcher(missing, baseKind) : null;
   const mediaMatchers = new Map();
-  for (const kind of baseKind === 'book' ? ['book', 'audiobook', 'comic'] : [baseKind]) {
+  for (const kind of baseKind === 'book' ? ['book', 'audiobook'] : [baseKind]) {
     const byKey = new Map();
     for (const item of items) {
       if ((item.kind ?? 'book') !== kind) continue;
@@ -1231,10 +1257,16 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     localTiers.set(resolved.item.tier.label, tier);
   }
 
+  // Replace badges only after the local result is ready, synchronously with
+  // its paint. Local-only checks have no Phase 2 cleanup to remove old badges.
+  clearBundleAnnotations();
   annotateAllCoverCopies(localMatchesByTitleKey, media);
   const isPendingGalactic = Boolean(comparison?.galactic?.enabled && (GALACTIC_LIBRARY_MEDIA_TYPES.has(itemKind) || itemKind === 'mixed-books'));
+  const seriesQueries = HumbleOwnership.readingTargets(resolvedItems);
   if (comparison) {
     comparison.resolvedItems = resolvedItems;
+    comparison.seriesLimited = seriesQueries.limited;
+    comparison.seriesCoverage = HumbleOwnership.seriesCoverage(seriesQueries, localContents, undefined, isPendingGalactic);
   }
   if (!hadExistingSummary) {
     renderComparisonSummary(localCounts, localTiers, localTitlesByState, summaryKind, currentBundlePurchases, comparison, { pendingGalactic: isPendingGalactic });
@@ -1266,7 +1298,6 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   // Query copies only for identity context. Keep the owned result/offer unchanged.
   const identityRows=completeContext ? resolvedItems.filter(row=>row.match.state==='owned'&&!row.target.entries.length)
     .map(row=>({...row,item:{...row.item},contextOnly:true})) : [];
-  const seriesQueries = HumbleOwnership.readingTargets(resolvedItems);
   await queryGalacticLibrary([...resolvedItems,...identityRows, ...seriesQueries.filter(query=>!query.unknownScope)], itemKind, comparison, job,diagnostic);
   if (comparison?.job !== job) return;
 
@@ -2239,7 +2270,7 @@ function renderComparisonSummary(counts, tiers, titlesByState, itemKind, current
       galactic.className = `hcl-galactic-status ${comparison.galactic.error ? 'library-ui-warning' : 'library-ui-muted'}`;
       galactic.textContent = comparison.galactic.error
         ? 'Galactic Library: check incomplete. Local results are retained.'
-        : comparison.galactic.resultsByKey.size ? 'Galactic Library: checked linked libraries.' : 'Galactic Library: linked; no central checks completed on this page.';
+        : comparison.galactic.resultsByKey.size ? 'Galactic Library: checked linked libraries.' : 'Galactic Library: no external checks were needed; local results are final.';
     }
     galactic.title = 'GL receives current bundle titles, media types, available catalog evidence, and explicit requested contents. Exact confirmed ownership and full reviewed contents are distinct from related editions or uncertain access.';
     summary.append(galactic);
@@ -2386,7 +2417,7 @@ function updateComparisonSummary(summary, counts, tiers, titlesByState, itemKind
         ? 'Galactic Library: check incomplete. Local results are retained.'
         : comparison.galactic.resultsByKey.size
           ? 'Galactic Library: checked linked libraries.'
-          : 'Galactic Library: linked; no central checks completed on this page.';
+          : 'Galactic Library: no external checks were needed; local results are final.';
       galactic.title = 'GL receives current bundle titles, media types, available catalog evidence, and explicit requested contents. Exact confirmed ownership and full reviewed contents are distinct from related editions or uncertain access.';
 
       const existingRetry = summary.querySelector('.hcl-retry-galactic');

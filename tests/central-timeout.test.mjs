@@ -10,7 +10,7 @@ test('central lookup has a finite large-library deadline, rejects late results, 
     chrome:{runtime:{sendMessage:()=>new Promise(resolve=>{finishLate=resolve;})}}};
   context.globalThis=context;vm.createContext(context);
   for(const file of ['shared.js','collection-mappings.js','ownership.js','content.js'])vm.runInContext(fs.readFileSync(new URL(`../${file}`,import.meta.url),'utf8'),context,{filename:file});
-  vm.runInContext("showComparisonProgress=()=>{};comparison={job:1,galactic:createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')};records=[{item:{title:'Slow book',kind:'book'},match:{state:'new'}}]",context);
+  vm.runInContext("showComparisonProgress=()=>{};comparison={job:1,galactic:{...createGalacticLookup('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),connectionState:'participating'}};records=[{item:{title:'Slow book',kind:'book'},match:{state:'new'}}]",context);
   const pending=vm.runInContext("queryGalacticLibrary(records,'book',comparison,1)",context);
   const deadline=[...timers.values()][0];
   assert.equal(deadline.ms,30000);
@@ -25,7 +25,7 @@ test('central lookup has a finite large-library deadline, rejects late results, 
   finishLate({ok:true,apiVersion:1,results:[{requestId:'book:slow book',matches:[]}]});
   await Promise.resolve();await Promise.resolve();
   assert.equal(lookup.resultsByKey.size,0,'A response from a timed-out request cannot overwrite the settled result');
-  context.chrome.runtime.sendMessage=async (_id,request)=>({ok:true,apiVersion:1,results:request.items.map(({requestId})=>({requestId,matches:[]}))});
+  context.chrome.runtime.sendMessage=async (_id,request)=>request.type==='PING'?{ok:true,apiVersion:1}:({ok:true,apiVersion:1,results:request.items.map(({requestId})=>({requestId,matches:[]}))});
   await vm.runInContext("queryGalacticLibrary(records,'book',comparison,1)",context);
   assert.equal(lookup.resultsByKey.size,1);
   assert.equal(lookup.failuresByKey.size,0);

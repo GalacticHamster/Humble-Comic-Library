@@ -680,6 +680,24 @@
   function companionBrowser(runtime=globalThis.chrome?.runtime){return runtime?.getURL?.('').startsWith('moz-extension:')||runtime?.getManifest?.().browser_specific_settings?.gecko?'firefox':'chrome';}
   function builtinGalacticId(runtime=globalThis.chrome?.runtime){return COMPANION_IDENTITIES.gl[companionBrowser(runtime)];}
   function resolveGalacticId(saved,runtime=globalThis.chrome?.runtime){return String(saved??'').trim()||builtinGalacticId(runtime);}
+  // A routing ID is not a participating connection. Only the browser's
+  // specific no-receiver result or GL's explicit permission denial opts out;
+  // timeouts, malformed replies and other transport errors remain failures.
+  function galacticPermissionDenied(response) { return response?.ok===false && response.error==='This extension is not allowed to use the Galactic Library API.'; }
+  async function galacticAvailability(send) {
+    let timer;
+    try {
+      const response = await Promise.race([send({type:'PING',apiVersion:1}), new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Error('Galactic Library did not respond within 30 seconds. It may be busy; retry the checks.')),30000);
+      })]);
+      if(galacticPermissionDenied(response))return {state:'unlinked'};
+      if(response?.ok!==true || response.apiVersion!==1)return {state:'failed',error:response?.error || 'Galactic Library returned an incompatible availability response.'};
+      return {state:'participating'};
+    } catch(error) {
+      if(/^Could not establish connection\. Receiving end does not exist\.?$/iu.test(error?.message??''))return {state:'unavailable'};
+      return {state:'failed',error:error?.message || 'Galactic Library availability could not be checked.'};
+    } finally { clearTimeout(timer); }
+  }
   function trustedGalacticSender(senderId,saved,runtime=globalThis.chrome?.runtime){return senderId===builtinGalacticId(runtime)||isExtensionId(saved)&&senderId===String(saved).trim();}
   function companionTargetProblem(id,runtime=globalThis.chrome?.runtime){
     const browser=companionBrowser(runtime);
@@ -1004,7 +1022,7 @@
   global.HumbleComicLibrary = {
     CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds,
-    COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
+    COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
   };
