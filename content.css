@@ -144,6 +144,15 @@
 .hcl-bundle-filter input { vertical-align: middle; }
 .hcl-bundle-filtered { display: none !important; }
 .hcl-summary p { margin: 0.45rem 0; color: var(--gh-text); }
+.hcl-galactic-status { margin: 0.45rem 0; }
+.hcl-galactic-pending { color: var(--gh-text-muted); }
+.hcl-pending-bullet {
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.65rem;
+  vertical-align: middle;
+  color: var(--gh-text-muted);
+}
 .hcl-summary .hcl-buy-recommendation { padding: 0.4rem 0.5rem; border-radius: 0.3rem; background: var(--gh-owned); color: var(--gh-on-status); font-weight: 700; }
 .hcl-summary .hcl-purchased-bundle { padding: 0.4rem 0.5rem; border-radius: 0.3rem; color: var(--gh-on-status); font-weight: 700; }
 .hcl-summary .hcl-purchased-full { background: var(--gh-owned); }

@@ -5,6 +5,8 @@
   const panel=()=>document.querySelector('#hcl-summary');
   try{
     await wait(()=>panel()&&!document.querySelector('#hcl-progress'));
+    check(Boolean(panel().querySelector('.hcl-galactic-pending')),'local summary renders immediately while Galactic Library is pending');
+    await wait(()=>panel()&&!panel().querySelector('.hcl-galactic-pending'));
     check(!document.querySelector('.hcl-status-button[data-state="unchecked"]'),'a valid 4.5-second lookup completes instead of turning every unmatched title into Not checked');
     check(document.querySelectorAll('.hcl-status-button[data-state="partial"]').length===2&&document.querySelectorAll('.hcl-status-button[data-state="possible"]').length===1,'slow responses preserve Partial contents and Possible editions');
     check(panel().classList.contains('hcl-summary-minimized')&&panel().dataset.position==='top-left','slow initial lookup preserves the saved summary size and corner');
@@ -17,7 +19,7 @@
     window.fixtureCentralFailure=false;window.fixtureCentralDelayMs=4500;
     retry.click();retry.click();await pause(150);
     check(panel()===failed&&retry.disabled&&failed.getAttribute('aria-busy')==='true','retry retains the settled panel and prevents duplicate clicks');
-    await wait(()=>panel()!==failed&&!document.querySelector('#hcl-progress'));
+    await wait(()=>panel()&&panel().getAttribute('aria-busy')!=='true'&&!panel().querySelector('.hcl-galactic-pending'));
     check(!document.querySelector('.hcl-status-button[data-state="unchecked"]')&&!panel().querySelector('.hcl-retry-galactic'),'a successful slow retry clears stale errors and Not checked results');
     const recovered=panel(),requests=fixtureCalls.length;await pause(500);
     check(panel()===recovered&&fixtureCalls.length===requests&&recovered.classList.contains('hcl-summary-minimized'),'recovery settles without another refresh loop or a size reset');
