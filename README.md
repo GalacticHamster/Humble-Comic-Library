@@ -242,3 +242,7 @@ Theme version 1 is authored in GalacticLibrary/shared/theme.js, theme.css, theme
 Automatic sync is enabled once for an explicitly selected store-account relationship, with one local confirmation and reverse-verified consent at the companion. Meaningful saved-purchase commits then synchronize both ways with GL. Manual sharing remains under Advanced. See [purchase sync](docs/purchase-sharing.md) for retries, account replacement, privacy and recovery. The alarms permission supports bounded durable retries.
 
 Galactic Library availability is checked before an external ownership lookup. When the browser reports no receiver, or GL explicitly denies the connection, local matches are final and unmatched items show **New**. This does not diagnose why the connection is unavailable. Timeouts, incompatible replies, and failures after a successful connection remain **Check incomplete**. Reload the bundle page or refresh central evidence after installing, enabling, or reconnecting GL. No purchase records are changed.
+
+## Support development
+
+Enjoying Galactic Hamster's free, open-source tools? If you'd like to support continued development, you can [buy us a coffee on Ko-fi](https://ko-fi.com/galactichamster). Donations are entirely optional.
