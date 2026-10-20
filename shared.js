@@ -90,6 +90,21 @@
       title.replace(/\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b/gu, word => roman[word])
     ].filter(Boolean))].map(key => 'presentation:' + key);
   }
+  // Peel a balanced trailing catalog qualifier without truncating nested runs.
+  // Discovery only; exact titles and original metadata remain untouched.
+  function trailingTitleQualifier(value) {
+    const title = String(value ?? '').trim();
+    if (!title.endsWith(')')) return {base:title, qualifier:''};
+    let depth = 0;
+    for (let i = title.length - 1; i >= 0; i--) {
+      if (title[i] === ')') depth++;
+      if (title[i] === '(' && --depth === 0) {
+        if (i > 0) return {base:title.slice(0,i).trim(), qualifier:title.slice(i+1,-1)};
+        break;
+      }
+    }
+    return {base:title, qualifier:''};
+  }
   // Discovery only: these parts never supply exact-title or edition identity.
   // Prefer explicit structure/semantic markers to a list of accepted titles.
   function revisionTitleParts(value, kind = 'book') {
@@ -105,12 +120,26 @@
       while ((found=suffix.exec(base)) && found.index>0) { qualifier=(found[1]+' '+qualifier).trim();base=base.slice(0,found.index).trim(); }
       if (qualifier) return result(base,qualifier);
     }
+    // A series/run qualifier may follow an edition qualifier. Retain the
+    // complete story title rather than treating everything after its colon as
+    // an edition label.
+    const catalog = trailingTitleQualifier(title);
+    if (kind !== 'software' && catalog.qualifier && !/\b(?:edition|revision|version|format)\b/iu.test(catalog.qualifier)) {
+      const inner = revisionTitleParts(catalog.base, kind);
+      if (inner.qualifier) return result(inner.base, inner.qualifier + ' (' + catalog.qualifier + ')');
+    }
     const marker = /\b(?:edition|ed\.?|revision|rev\.?|revised|updated|expanded|annotated|abridged|unabridged|version|release|printing|print|reprint|format|paperback|hardcover|hardback|softcover|ebook|e-book|digital|pdf|epub|mobi|cbz|cbr)\b|\b\d+e\b|\bv\d+(?:\.\d+)*\b/iu;
     // Delimiters identify the base even when an edition description is new.
     const bracket = /^(.*?)\s*[([]([^()[\]]+)[)\]]\s*$/u.exec(title);
     if (bracket?.[1]?.trim() && marker.test(bracket[2])) return result(bracket[1].trim(), bracket[2]);
-    const structured = /^(.*?)\s*(?:[,;:]\s*|\s+[\-\u2013\u2014]\s+)(.+)$/u.exec(title);
-    if (structured?.[1]?.trim() && marker.test(structured[2])) return result(structured[1].trim(), structured[2]);
+    const structured = (kind === 'software'
+      ? /^(.*?)\s*(?:[,;:]\s*|\s+[\-\u2013\u2014]\s+)(.+)$/u
+      : /^(.*)\s*(?:[,;:]\s*|\s+[\-\u2013\u2014]\s+)(.+)$/u).exec(title);
+    if (kind === 'software' && structured?.[1]?.trim() && marker.test(structured[2])) return result(structured[1].trim(), structured[2]);
+    // Recognize undelimited edition suffixes before treating a story subtitle
+    // as an arbitrary revision descriptor. Never consume unlabeled numbers.
+    const editionTail = /\s+((?:(?:new|deluxe|revised|updated|expanded|annotated|anniversary|\d+(?:st|nd|rd|th))\s+)+(?:edition|ed\.?))\s*$/iu.exec(title);
+    if (kind !== 'software' && editionTail) return result(title.slice(0,editionTail.index).trim().replace(/(?:[,;:]|\s+[-\u2013\u2014])$/u,'').trim(),editionTail[1]);
     // Numeric shorthand and bare revision/access/format labels.
     const tail = /\s+((?:(?:edition|ed\.?|revision|rev\.?|version|release|printing)\s+\d+(?:\.\d+)*|\d+e|v(?:ersion)?\.?\s*\d+(?:\.\d+)*|(?:revised|updated|expanded|annotated)(?:\s*(?:and|&)\s*(?:revised|updated|expanded|annotated))*(?:\s+(?:edition|ed\.?|version))?|(?:abridged|unabridged|paperback|hardcover|hardback|softcover|ebook|e-book|digital|pdf|epub|mobi|cbz|cbr)))\s*$/iu.exec(title);
     if (tail) return result(title.slice(0, tail.index).trim(), tail[1]);
@@ -126,6 +155,7 @@
       const number = ordinalTail.exec(prefix);
       if (number) return result(prefix.slice(0, number.index).trim(), title.slice(number.index).trim());
     }
+    if (kind !== 'software' && structured?.[1]?.trim() && marker.test(structured[2])) return result(structured[1].trim(), structured[2]);
     return result(title);
   }
   function revisionWordingConflict(left, right, kind = 'book') {
@@ -144,6 +174,28 @@
       && presentationTitle(a.base, kind).replace(/\s/gu, '').length >= (kind === 'software' ? 8 : 4)
       && presentationTitle(a.base, kind) === presentationTitle(b.base, kind)
       && presentationTitle(a.qualifier, kind) !== presentationTitle(b.qualifier, kind));
+  }
+  // Review-only packaging relationship: retain the complete story and its
+  // franchise/scope; strip a bounded leading collection label only here.
+  // These keys must never be used for Exact identity or ownership.
+  function collectionTitleParts(value, kind = 'book') {
+    kind = identityKind(kind);
+    if (!['book', 'audiobook'].includes(kind)) return null;
+    let title = revisionTitleParts(value,kind).base;
+    const catalog = trailingTitleQualifier(title);
+    if (catalog.qualifier) title = catalog.base;
+    const colon = title.indexOf(':');
+    const scope = colon < 0 ? '' : presentationTitle(title.slice(0,colon),kind);
+    const story = colon < 0 ? title : title.slice(colon+1).trim();
+    const label = /^(?:the\s+)?(?:complete|collected|expanded|deluxe|omnibus)(?:\s+edition(?:\s+of)?)?\s+/iu.exec(story);
+    return {scope,story:presentationTitle(label ? story.slice(label[0].length) : story,kind),collection:label?.[0].trim()??''};
+  }
+  function collectionTitleRelation(left, right, kind = 'book') {
+    const a=collectionTitleParts(left,kind),b=collectionTitleParts(right,kind);
+    if (!a || !b || !(a.collection || b.collection) || a.scope!==b.scope || a.story!==b.story) return '';
+    const generic=new Set(['the','a','an','and','of','in','to','for','with','book','books','guide','complete','collection','collected','introduction','manual','edition','deluxe','omnibus','expanded']);
+    if (!a.story.split(' ').some(word=>word.length>=4 && /\p{L}/u.test(word) && !generic.has(word))) return '';
+    return 'Related collection title; edition and included contents need review.';
   }
   // Review-only collection structure. Never used for full-title identity.
   function numberedCollectionRelation(left, right, kind = 'book') {
@@ -234,7 +286,7 @@
     return /^\d+(?:\.\d+)?$/u.test(text) ? String(Number(text)) : presentationTitle(text, 'unit');
   }
   global.LibraryMatchingPolicy = Object.freeze({ presentationTitle, ownershipTitleKeys, fullTitleMatches,
-    gameInstallmentConflict, relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, numberedCollectionRelation, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
+    gameInstallmentConflict, relatedPresentationReason, relatedTitleKeys, trailingTitleQualifier, revisionTitleParts, collectionTitleParts, collectionTitleRelation, revisionWordingConflict, numberedCollectionRelation, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
 }(globalThis));
 // END SHARED MATCHING POLICY
 /* Global helpers shared by the options page and Humble page overlay. */
@@ -298,14 +350,15 @@
       if (found && found.index > 0) { title = title.slice(0, found.index).trim(); hasEdition = true; }
     };
     stripEdition();
-    const qualifier = /^(.*?)\s*\(([^()]*)\)\s*$/u.exec(title);
-    if (qualifier?.[1]?.trim()) {
-      hasEdition ||= edition.test(' ' + qualifier[2]);
-      title = qualifier[1].trim(); stripEdition();
+    const catalog = global.LibraryMatchingPolicy.trailingTitleQualifier(title);
+    const qualifier = catalog.qualifier;
+    if (qualifier && catalog.base) {
+      hasEdition ||= edition.test(' ' + qualifier);
+      title = catalog.base; stripEdition();
     }
     const subtitle = /^(.*?)\s*:\s+(.+)$/u.exec(title);
     return { primary: (kind === 'book' || kind === 'comic') ? presentationTitle(subtitle?.[1]?.trim() || title, kind) : normalizeTitle(subtitle?.[1]?.trim() || title), subtitle: Boolean(subtitle),
-      qualifier: Boolean(qualifier), hasEdition, hasVersion: false };
+      complete: presentationTitle(title, kind), qualifier: Boolean(qualifier), hasEdition, hasVersion: false };
   }
 
   const CANDIDATE_STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'of', 'to', 'in', 'for', 'with', 'by', 'vol', 'volume', 'edition', 'book', 'game', 'software']);
@@ -341,6 +394,8 @@
     if (!a || !b) return '';
     const numbered = global.LibraryMatchingPolicy.numberedCollectionRelation(left, right, kind);
     if (numbered !== null) return numbered;
+    const collection = global.LibraryMatchingPolicy.collectionTitleRelation(left, right, kind);
+    if (collection) return collection;
     const presentation = global.LibraryMatchingPolicy.relatedPresentationReason(left, right, kind);
     if (presentation) return presentation;
     if (a === b) return 'Related title presentation; identity needs review.';
@@ -349,10 +404,11 @@
     if (access(a) === access(b)) return 'Related title, but preview/sample access does not establish the full product.';
     const numbers = value => (value.match(/\d+(?:\.\d+|\/\d+)?/gu) ?? []).join('|');
     const l = relationTitleParts(left, kind); const r = relationTitleParts(right, kind);
+    if (['book', 'audiobook'].includes(kind) && l.complete && l.complete === r.complete && (l.qualifier || r.qualifier || l.hasEdition || r.hasEdition)) return 'One title is a shortened or qualified presentation of the other.';
     if (l.primary && l.primary === r.primary) {
       if (kind === 'software' && (l.hasVersion || r.hasVersion) && l.primary.replace(/\s/gu, '').length >= 8) return 'Related software title with different version labels.';
       if (kind === 'book' || kind === 'audiobook') {
-        if (l.hasEdition || r.hasEdition) return 'Related main title with different edition or subtitle wording.';
+        if (!(l.subtitle && r.subtitle) && (l.hasEdition || r.hasEdition)) return 'Related main title with different edition or subtitle wording.';
         // A bare title may have a longer store presentation, even if short.
         // Independently subtitled works are not inferred from a shared prefix.
         if (!(l.subtitle && r.subtitle) && (l.subtitle || r.subtitle || l.qualifier || r.qualifier)

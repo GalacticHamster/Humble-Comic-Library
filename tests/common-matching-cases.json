@@ -1769,5 +1769,629 @@
       }
     ],
     "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: The Long Halloween",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: The Long Halloween"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: R.I.P. (Batman by Grant Morrison series Book 4)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: R.I.P. (Batman by Grant Morrison series Book 4)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Dark Patterns (Batman: Dark Patterns (2024-)) / Batman: No Man's Land Vol. 1: New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Dark Patterns (Batman: Dark Patterns (2024-))"
+    },
+    "records": [
+      {
+        "title": "Batman: No Man's Land Vol. 1: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Dark Patterns (Batman: Dark Patterns (2024-)) / Batman: No Man's Land Vol. 2: New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Dark Patterns (Batman: Dark Patterns (2024-))"
+    },
+    "records": [
+      {
+        "title": "Batman: No Man's Land Vol. 2: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: No Man's Land Vol. 1: New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: No Man's Land Vol. 1: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: Gotham by Gaslight: New Edition (DC Elseworlds)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Gotham by Gaslight: New Edition (DC Elseworlds)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: Detective Comics Vol. 2: Gotham Nocturne: Act I (Detective Comics (2016-))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Detective Comics Vol. 2: Gotham Nocturne: Act I (Detective Comics (2016-))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman Vol. 4: Dark Prisons (Batman (2016-)) / Batman: No Man's Land Vol. 1: New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman Vol. 4: Dark Prisons (Batman (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: No Man's Land Vol. 1: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman Vol. 4: Dark Prisons (Batman (2016-)) / Batman: The Long Halloween",
+    "media": "book",
+    "offer": {
+      "title": "Batman Vol. 4: Dark Prisons (Batman (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: The Long Halloween"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman Vol. 5: The Dying City (Batman (2016-)) / Batman: No Man's Land Vol. 1: New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman Vol. 5: The Dying City (Batman (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: No Man's Land Vol. 1: New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman Vol. 5: The Dying City (Batman (2016-)) / Batman: The Long Halloween",
+    "media": "book",
+    "offer": {
+      "title": "Batman Vol. 5: The Dying City (Batman (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: The Long Halloween"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Superman: Birthright (New Edition) / Superman: Red Son",
+    "media": "book",
+    "offer": {
+      "title": "Superman: Birthright (New Edition)"
+    },
+    "records": [
+      {
+        "title": "Superman: Red Son"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Star Wars: Dark Empire (New Edition) / Star Wars: Crimson Empire",
+    "media": "book",
+    "offer": {
+      "title": "Star Wars: Dark Empire (New Edition)"
+    },
+    "records": [
+      {
+        "title": "Star Wars: Crimson Empire"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Star Trek: The Mirror War (Revised Edition) / Star Trek: Year Five",
+    "media": "book",
+    "offer": {
+      "title": "Star Trek: The Mirror War (Revised Edition)"
+    },
+    "records": [
+      {
+        "title": "Star Trek: Year Five"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Long Descriptive Franchise: First Voyage (New Edition) / Long Descriptive Franchise: Silent Forest",
+    "media": "book",
+    "offer": {
+      "title": "Long Descriptive Franchise: First Voyage (New Edition)"
+    },
+    "records": [
+      {
+        "title": "Long Descriptive Franchise: Silent Forest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Hush (New Edition) / Batman: Long Halloween (New Edition)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition)"
+    },
+    "records": [
+      {
+        "title": "Batman: Long Halloween (New Edition)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "story identity: Batman: Hush / Batman: Hush (New Edition)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: Hush (New Edition)"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "story identity: Batman: Hush / Batman: Hush (New Edition) (Batman (1940-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "story identity: Batman: Hush (Batman (1940-2011)) / Batman: Hush (DC Comics)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: Hush (DC Comics)"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "story identity: Batman: Hush (New Edition) / Batman: Hush (New Edition)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition)"
+    },
+    "records": [
+      {
+        "title": "Batman: Hush (New Edition)"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "story identity: Think Like a Programmer / Think Like a Programmer: An Introduction to Creative Problem Solving",
+    "media": "book",
+    "offer": {
+      "title": "Think Like a Programmer"
+    },
+    "records": [
+      {
+        "title": "Think Like a Programmer: An Introduction to Creative Problem Solving"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "story identity: Batman: Hush, Library Binding Edition / Batman: Hush",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush, Library Binding Edition"
+    },
+    "records": [
+      {
+        "title": "Batman: Hush"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: Arkham Asylum New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: Arkham Asylum New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Dark Patterns (Batman: Dark Patterns (2024-)) / Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Dark Patterns (Batman: Dark Patterns (2024-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Dark Patterns (Batman: Dark Patterns (2024-)) / Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Dark Patterns (Batman: Dark Patterns (2024-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Dark Patterns (Batman: Dark Patterns (2024-)) / Batman: Arkham Asylum New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Dark Patterns (Batman: Dark Patterns (2024-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Arkham Asylum New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-)) / Batman: Arkham Asylum New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 1: Gotham Nocturne: Overture (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Arkham Asylum New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-)) / Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-)) / Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-)) / Batman: Arkham Asylum New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Detective Comics Vol. 4: Gotham Nocturne: Intermezzo (Detective Comics (2016-))"
+    },
+    "records": [
+      {
+        "title": "Batman: Arkham Asylum New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush / Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush / Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush / Batman: Arkham Asylum New Edition",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: Arkham Asylum New Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Moon Harbor / The Complete Silent Forest",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor"
+    },
+    "records": [
+      {
+        "title": "The Complete Silent Forest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Moon Harbor: First Voyage / Moon Harbor: The Complete Silent Forest",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor: First Voyage"
+    },
+    "records": [
+      {
+        "title": "Moon Harbor: The Complete Silent Forest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Silver Harbor Vol. 1 / The Complete Silver Harbor Vol. 2",
+    "media": "book",
+    "offer": {
+      "title": "Silver Harbor Vol. 1"
+    },
+    "records": [
+      {
+        "title": "The Complete Silver Harbor Vol. 2"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Guide / The Complete Guide",
+    "media": "book",
+    "offer": {
+      "title": "Guide"
+    },
+    "records": [
+      {
+        "title": "The Complete Guide"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush / Superman: The Complete Hush",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Superman: The Complete Hush"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "collection story: Batman: Hush (New Edition) (Batman (1940-2011)) / Batman: The Complete Hush (Batman (1940-2011))",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush (New Edition) (Batman (1940-2011))"
+    },
+    "records": [
+      {
+        "title": "Batman: The Complete Hush (Batman (1940-2011))"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Batman: Hush / Batman: The Complete Hush",
+    "media": "book",
+    "offer": {
+      "title": "Batman: Hush"
+    },
+    "records": [
+      {
+        "title": "Batman: The Complete Hush"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Moon Harbor / The Complete Moon Harbor",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor"
+    },
+    "records": [
+      {
+        "title": "The Complete Moon Harbor"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Moon Harbor / Collected Moon Harbor",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor"
+    },
+    "records": [
+      {
+        "title": "Collected Moon Harbor"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Moon Harbor / Expanded Edition of Moon Harbor",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor"
+    },
+    "records": [
+      {
+        "title": "Expanded Edition of Moon Harbor"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "collection story: Moon Harbor / Omnibus Moon Harbor",
+    "media": "book",
+    "offer": {
+      "title": "Moon Harbor"
+    },
+    "records": [
+      {
+        "title": "Omnibus Moon Harbor"
+      }
+    ],
+    "expected": "possible"
   }
 ]

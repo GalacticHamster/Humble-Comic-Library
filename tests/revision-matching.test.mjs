@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 import {fixture} from './matching-fixture.mjs';
 
 const fanatical=fs.existsSync(new URL('../src/shared.js',import.meta.url));
@@ -23,6 +24,7 @@ for(const row of rows)test('revision contract: '+row.label,async()=>{
       const records=Array.from({length:duplicates},()=>({...owned}));
       const localFixture=fixture(records,row.media,offered),local=await localFixture.classify();
       assert.equal(local.match.state,row.expected,JSON.stringify({owned,offered,duplicates}));
+      if((row.label.startsWith('story identity:')||row.label.startsWith('collection story:'))&&row.expected==='new')assert.equal(local.candidates.length,0,'Unrelated candidates must not appear in explanations');
       if(row.expected==='possible')assert.ok(local.candidates.some(item=>item.title===owned.title),'Actual library title must be retained');
       if(!gl)continue;
       const items=records.map((record,index)=>gl.normalizeProviderItem({provider:'kindle',providerItemId:'revision-'+index,
@@ -35,6 +37,7 @@ for(const row of rows)test('revision contract: '+row.label,async()=>{
       assert.equal(central.owned?'owned':central.matches.length||central.possibleMatches.length?'possible':'new',row.expected,'GL classification');
       const linked=await fixture([],row.media,offered,central).classify();
       assert.equal(linked.match.state,row.expected==='owned'?(fanatical?'owned-elsewhere':'elsewhere'):row.expected,'Companion consuming real GL results');
+      if((row.label.startsWith('story identity:')||row.label.startsWith('collection story:'))&&row.expected==='new')assert.equal(linked.candidates.length,0,'Transport must not reintroduce unrelated candidates');
       if(row.expected==='possible')assert.ok(linked.candidates.some(item=>item.title===owned.title),'GL candidate title must survive translation');
     }
   }
@@ -132,4 +135,60 @@ test('format-equivalent GL records still require permanent ownership', async t =
     const result = await fixture([], 'book', {title:offeredTitle}, central).classify();
     assert.equal(result.match.state,'possible');
   }
+});
+
+
+test('story identity: real GL results retain the valid edition but omit unrelated explanations', async t => {
+  if (!gl) return t.skip('Adjacent Galactic Library checkout is not available');
+  const offer={title:'Batman: Hush (New Edition) (Batman (1940-2011))'};
+  const records=['Batman: Hush', 'Batman: The Long Halloween', "Batman: No Man's Land Vol. 1: New Edition"].map(title=>({title}));
+  const items=records.map((record,index)=>gl.normalizeProviderItem({provider:'kindle',providerItemId:'story-'+index,title:record.title,mediaType:'book',ownership:'owned'}));
+  const db={...gl.createEmptyDatabase(),providerItems:Object.fromEntries(items.map(item=>[item.id,item]))};
+  const {requestId,...central}=gl.handleExternalApiRequest(db,{type:'MATCH_ITEMS',apiVersion:1,items:[{...offer,mediaType:'book'}]}).results[0];
+  assert.deepEqual(central.possibleMatches.map(item=>item.title),['Batman: Hush']);
+  for(const result of [await fixture(records,'book',offer).classify(),await fixture([],'book',offer,central).classify()]) {
+    assert.equal(result.match.state,'possible');
+    assert.ok(result.candidates.length>0);
+    assert.ok(result.candidates.every(item=>item.title==='Batman: Hush'));
+  }
+});
+
+
+test('collection story: mixed catalog retains all Hush relationships and no unrelated editions',async t=>{
+ if(!gl)return t.skip('Adjacent Galactic Library checkout is not available');
+ const offer={title:'Batman: Hush (New Edition) (Batman (1940-2011))'};
+ const relevant=['Batman: Hush','Batman: Hush (New Edition)','Batman: The Complete Hush (Batman (1940-2011))'];
+ const records=[...relevant,'Batman: Year Two 30th Anniversary Deluxe Edition (Detective Comics (1937-2011))','Batman: Haunted Knight New Edition (Batman: Legends of the Dark Knight)','Batman: Arkham Asylum New Edition'].map(title=>({title}));
+ const items=records.map((record,index)=>gl.normalizeProviderItem({provider:'kindle',providerItemId:'complete-'+index,title:record.title,mediaType:'book',ownership:'owned'}));
+ const db={...gl.createEmptyDatabase(),providerItems:Object.fromEntries(items.map(item=>[item.id,item]))};
+ const {requestId,...central}=gl.handleExternalApiRequest(db,{type:'MATCH_ITEMS',apiVersion:1,items:[{...offer,mediaType:'book'}]}).results[0];
+ assert.equal(central.owned,false);assert.equal(central.partialMatches.length,0);
+ assert.deepEqual(new Set(central.possibleMatches.map(x=>x.title)),new Set(relevant));
+ for(const f of [fixture(records,'book',offer),fixture([],'book',offer,central)]){
+  const result=await f.classify();
+  const P=(fanatical?f.context.FanaticalLibrary:f.context.HumbleOwnership).presentation;
+  const views=P.candidateViews(f.context.offered,result.match);
+  assert.equal(result.match.state,'possible');assert.deepEqual(new Set(Array.from(views,x=>x.title)),new Set(relevant));
+ }
+});
+
+
+test('collection story: old GL replies cannot replace a newer classification and warm caches remain scoped',async()=>{
+ const offer={title:'Batman: Hush (New Edition) (Batman (1940-2011))'};
+ const f=fixture([],'book',offer,{matches:[]}),c=f.context;
+ let calls=0,releaseOld,entered;
+ const started=new Promise(resolve=>{entered=resolve;});
+ const held=new Promise(resolve=>{releaseOld=resolve;});
+ c.chrome.runtime.sendMessage=async(_id,message)=>{
+  if(message.type==='PING')return {ok:true,apiVersion:1};
+  if(message.type==='GET_STATUS')return {ok:true,apiVersion:1,capabilities:{mediaTypes:['book']}};
+  const generation=++calls;if(generation===1){entered();await held;}
+  return {ok:true,apiVersion:1,results:message.items.map(q=>({requestId:q.requestId,matches:[],possibleMatches:generation===1?[{provider:'kindle',title:'Batman: The Complete Hush',ownership:'owned',relationship:'same-work',reason:'Related collection title; edition and included contents need review.'}]:[],partialMatches:[]}))};
+ };
+ const old=f.classify();await started;
+ vm.runInContext("comparison.job=2;comparison.galactic=createGalacticLookup('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');",c);
+ const render=()=>vm.runInContext("renderBundleComparison(createBundleLibraryMatcher(records,offered.kind),offered.kind,[],[],comparison,2)",c);
+ await render();assert.equal(c.comparison.resolvedItems[0].match.state,'new');
+ releaseOld();await old;assert.equal(c.comparison.resolvedItems[0].match.state,'new');assert.equal(c.summary.counts.new,1);
+ await render();assert.equal(calls,2,'Warm render must reuse only its current lookup cache');assert.equal(c.comparison.resolvedItems[0].match.state,'new');
 });

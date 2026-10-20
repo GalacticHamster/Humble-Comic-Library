@@ -1756,9 +1756,8 @@ function findPossibleBookTitleRelation(title, libraryByKey) {
     const candidate = bookTitleParts(item.title);
     if (candidate.primaryKey !== target.primaryKey || candidate.key === target.key) continue;
     // Two independently subtitled books often share a franchise or a generic
-    // main title. Do not infer a relationship unless an edition marker makes
-    // that relationship explicit.
-    if (target.hasSubtitle && candidate.hasSubtitle && !target.hasEdition && !candidate.hasEdition) continue;
+    // main title. Edition wording alone does not relate different stories.
+    if (target.hasSubtitle && candidate.hasSubtitle) continue;
     const hasStructuredDifference = target.hasSubtitle || candidate.hasSubtitle
       || target.hasEdition || candidate.hasEdition || target.hasQualifier || candidate.hasQualifier;
     if (!hasStructuredDifference) continue;
