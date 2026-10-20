@@ -4,12 +4,13 @@ import {spawn,execFileSync} from 'node:child_process';import {setTimeout as paus
 import {chromePipe,firefoxMarionette,freePort} from './native-protocol.mjs';
 const root=path.resolve(import.meta.dirname,'..'),hb=fs.existsSync(path.join(root,'ownership.js')),firefox=process.argv.includes('--firefox');
 const title='Synthetic Space Adventure',external='Independent External Game',fresh='Unpurchased New Game';
-const products=[title,external,fresh].map((name,i)=>({_id:'ownership-product-'+i+'-123456',name,type:'game'}));
+const products=[title,external,fresh,'Cat Quest III','Portal 2'].map((name,i)=>({_id:'ownership-product-'+i+'-123456',name,type:'game'}));
 const bundle={_id:'ownership-bundle-123456',name:'Synthetic Games Bundle',slug:'ownership',bundles:[{price:{USD:500},games:products}]};
 const page={bundleData:{tier_order:['all'],tier_pricing_data:{all:{'price|money':{amount:5}}},tier_item_data:Object.fromEntries(products.map(p=>[p._id,{human_name:p.name}])),tier_display_data:{all:{tier_item_machine_names:products.map(p=>p._id)}}}};
 const local={title,kind:'game',mediaType:'game',source:hb?'humble':'fanatical',sourceItemId:products[0]._id,purchaseKey:'synthetic-order',entitlement:'third-party-key',keyStatus:'unrevealed'};
+const saved=[local,{...local,title:'Cat Quest II',sourceItemId:'older-cat'},{...local,title:'Portal',sourceItemId:'original-portal'}];
 const mock=`globalThis.badgeRequests=[];globalThis.badgeWrites=0;globalThis.badgeMode='marketplace';globalThis.badgeHold=true;
-const listeners=[];const values={libraryItems:[${JSON.stringify(local)}],fanaticalLibraryItems:[${JSON.stringify(local)}],purchaseSummaries:[],customCollectionMappings:[],fanaticalScannedOrderFingerprints:[],galacticLibraryExtensionId:'b'.repeat(32)};
+const listeners=[];const values={libraryItems:${JSON.stringify(saved)},fanaticalLibraryItems:${JSON.stringify(saved)},purchaseSummaries:[],customCollectionMappings:[],fanaticalScannedOrderFingerprints:[],galacticLibraryExtensionId:'b'.repeat(32)};
 globalThis.badgeInitial=JSON.stringify([values.libraryItems,values.fanaticalLibraryItems]);
 const platform=title=>({provider:'steam',title,ownership:'owned',relationship:'same-edition',confidence:1,itemRef:'opaque-item',evidence:{}});
 globalThis.chrome={runtime:{id:'a'.repeat(32),getManifest:()=>({}),onMessage:{addListener(){}},sendMessage:async(first,second)=>{
@@ -22,6 +23,7 @@ globalThis.chrome={runtime:{id:'a'.repeat(32),getManifest:()=>({}),onMessage:{ad
   if(badgeMode==='failed')throw Error('Synthetic established lookup failure');
   return {ok:true,apiVersion:1,results:m.items.map(q=>{let matches=[],possibleMatches=[],partialMatches=[];
    if(q.title===${JSON.stringify(external)})matches=[platform(q.title)];
+   if(q.title==='Cat Quest III'){matches=[platform('Cat Quest II')];possibleMatches=[platform('Cat Quest II')];}
    if(q.title===${JSON.stringify(title)}){
     const copy=platform(q.title),market={...copy,provider:${JSON.stringify(hb?'fanatical':'humble')},evidence:{purchaseEvidence:'confirmed',activationStatus:'unknown'}};
     matches=[market,{...market,provider:${JSON.stringify(hb?'humble':'fanatical')}}];
@@ -58,6 +60,8 @@ try{
  const label=i=>'document.querySelector('+JSON.stringify(selector(i))+')?.textContent';const check=(condition,message)=>{assert(condition,message);checks++;};
  await wait('Boolean(globalThis.badgeRelease)');check(await evaluate(label(0))==='Purchased','Local-first key purchase badge');await evaluate('badgeRelease()');
  await wait(label(1)+'.startsWith("Owned elsewhere")');check(await evaluate(label(0))==='Purchased','Marketplace copies do not establish ownership');check(await evaluate(label(2))==='New','No purchase and no ownership remains New');
+ check(await evaluate(label(3))==='New','Cat Quest III rejects local and central Cat Quest II evidence');
+ check(await evaluate(label(4))==='New','Portal 2 does not match the original Portal');
  const advanced=hb?'.hcl-advanced':'.fanatical-library-advanced';await evaluate('(()=>{document.querySelector('+JSON.stringify(advanced)+').open=true;return true;})()');
  for(const [mode,expected]of [['platform','Owned'],['possible','Purchased'],['partial','Purchased'],['subscription','Purchased'],['failed','Purchased'],['platform','Owned']]){
   await evaluate('badgeRecheck('+JSON.stringify(mode)+')');await pause(450);await wait(label(0)+'==='+JSON.stringify(expected));

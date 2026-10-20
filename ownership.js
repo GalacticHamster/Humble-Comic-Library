@@ -34,6 +34,7 @@
   function conflicts(offered, owned, exact = false) {
     const left = H.bibliographicFields(offered); const right = H.bibliographicFields(owned);
     const reasons = [];
+    if (policy.gameInstallmentConflict(offered.title, owned.title, offered.kind ?? offered.mediaType)) reasons.push('Different game installment');
     const authors = policy.authorRelation(left.authors, right.authors);
     if (authors === 'different') reasons.push('Different known authors');
     const sharedEdition = left.isbn?.length && right.isbn?.length && intersect(left.isbn, right.isbn)

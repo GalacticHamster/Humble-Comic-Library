@@ -189,3 +189,63 @@ test('incomplete lookup explanations distinguish checked local evidence from an 
   assert.equal(match.state,'unchecked');
   if(fanatical)assert.equal(f.context.FanaticalLibrary.overlayLabel(match),'Check incomplete');
 });
+
+
+test('game installment conflicts cannot return through central exact, uncertain or fallback responses', async () => {
+  const offer = {title:'Cat Quest III'};
+  const wrong = {provider:'steam',title:'Cat Quest II',ownership:'owned',relationship:'same-edition',confidence:1};
+  for (const field of ['matches','possibleMatches','partialMatches']) for (const ownership of ['owned','unknown']) {
+    const central = {[field]:[{...wrong,ownership}]};
+    const before = JSON.stringify(central);
+    const {match} = await fixture([], 'game', offer, central).classify();
+    assert.equal(match.state,'new',field+' '+ownership);
+    assert.equal(JSON.stringify(central),before,'Incoming evidence must remain untouched');
+  }
+  const valid = {...wrong,title:'Cat Quest III',itemRef:'right-game'};
+  const {match} = await fixture([], 'game', offer, {matches:[wrong,valid],possibleMatches:[wrong]}).classify();
+  assert.equal(match.state,fanatical?'owned-elsewhere':'elsewhere');
+  const candidates = match.externalMatches ?? [match.item];
+  assert(candidates.some(record=>record.title===offer.title));
+  assert(!candidates.some(record=>record.title===wrong.title));
+  const related = await fixture([], 'game', offer, {possibleMatches:[wrong,{...valid,title:'Cat Quest III Deluxe Edition'}]}).classify();
+  assert.equal(related.match.state,'possible','Keep other legitimate review candidates');
+  assert.equal((related.match.externalPossibleMatches??[related.match.item])[0].title,'Cat Quest III Deluxe Edition');
+});
+
+test('installment barrier leaves labeled units, model numbers, years, revisions and other media alone', async () => {
+  const f = fixture([], 'game', {title:'Cat Quest III'}), policy=f.context.LibraryMatchingPolicy;
+  for (const [a,b,kind] of [
+    ['Series Vol. 2','Series Vol. 3','book'],['Series #2','Series #3','book'],
+    ['Forest Builder Pro v2','Forest Builder Pro v3','software'],
+    ['Forest Builder Pro 2025','Forest Builder Pro 2026','software'],
+    ['Synthetic Model 2','Synthetic Model 3','game'],['Synthetic X200','Synthetic X300','game'],
+    ['Synthetic Series 2025','Synthetic Series 2026','game'],
+    ['Synthetic Series Version 2','Synthetic Series Version 3','game'],
+    ['Synthetic Series II: Chapter 2','Synthetic Series II: Chapter 3','game'],
+    ['Synthetic Series 1.2','Synthetic Series 1.3','game']
+  ]) assert.equal(policy.gameInstallmentConflict(a,b,kind),false,a+' / '+b);
+  const remake=await fixture([{title:'Final Fantasy VII Remake'}],'game',{title:'Final Fantasy VII'}).classify();
+  assert.equal(remake.match.state,fanatical?'new':'possible','Preserve the existing storefront remake policy');
+  for (const [a,b] of [['Cat Quest III','Cat Quest II'],['Portal 2','Portal'],['Final Fantasy XV','Final Fantasy XVI']]) {
+    for (const [title,owned] of [[a,b],[b,a]]) assert.equal((await fixture([{title:owned}],'game',{title}).classify()).match.state,'new');
+  }
+});
+
+
+test('actual GL API and companion reconciliation keep different sequels New and retain the right game', {skip:!fs.existsSync(new URL('../../GalacticLibrary/src/lib/external-api.js',import.meta.url))}, async()=>{
+  const {createEmptyDatabase,normalizeProviderItem}=await import('../../GalacticLibrary/src/lib/models.js');
+  const {handleExternalApiRequest}=await import('../../GalacticLibrary/src/lib/external-api.js');
+  const database=createEmptyDatabase();
+  const add=(title,id)=>{const item=normalizeProviderItem({provider:'steam',providerItemId:id,title,mediaType:'game',ownership:'owned'});database.providerItems[item.id]=item;};
+  add('Cat Quest II','older-cat');
+  const response=()=>{const result=handleExternalApiRequest(database,{type:'MATCH_ITEMS',apiVersion:1,items:[{title:'Cat Quest III',mediaType:'game'}]}).results[0];const {requestId,...payload}=result;return payload;};
+  const before=JSON.stringify(database),result=response();
+  assert.equal(result.matches.length,0);assert.equal(result.possibleMatches.length,0);
+  const f=fixture([], 'game', {title:'Cat Quest III'},result),{match}=await f.classify();
+  assert.equal(match.state,'new');
+  const presentation=fanatical?f.context.FanaticalLibrary.presentation:f.context.HumbleOwnership.presentation;
+  assert.equal(presentation.status(f.context.offered,match),'New');
+  assert.equal(JSON.stringify(database),before);
+  add('Cat Quest III','right-cat');
+  assert.equal((await fixture([], 'game', {title:'Cat Quest III'},response()).classify()).match.state,fanatical?'owned-elsewhere':'elsewhere');
+});

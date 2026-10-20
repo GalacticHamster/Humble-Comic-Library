@@ -1548,5 +1548,226 @@
       }
     ],
     "expected": "possible"
+  },
+  {
+    "label": "Game installment: Cat Quest III vs Cat Quest II",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III vs Cat Quest 3",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III"
+    },
+    "records": [
+      {
+        "title": "Cat Quest 3"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "Game installment: Cat Quest III vs Cat Quest",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III"
+    },
+    "records": [
+      {
+        "title": "Cat Quest"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Civilization V vs Civilization VI",
+    "media": "game",
+    "offer": {
+      "title": "Civilization V"
+    },
+    "records": [
+      {
+        "title": "Civilization VI"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Civilization VI vs Civilization 6",
+    "media": "game",
+    "offer": {
+      "title": "Civilization VI"
+    },
+    "records": [
+      {
+        "title": "Civilization 6"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "Game installment: Final Fantasy VII vs Final Fantasy VIII",
+    "media": "game",
+    "offer": {
+      "title": "Final Fantasy VII"
+    },
+    "records": [
+      {
+        "title": "Final Fantasy VIII"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Final Fantasy XV vs Final Fantasy XVI",
+    "media": "game",
+    "offer": {
+      "title": "Final Fantasy XV"
+    },
+    "records": [
+      {
+        "title": "Final Fantasy XVI"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Borderlands 2 vs Borderlands 3",
+    "media": "game",
+    "offer": {
+      "title": "Borderlands 2"
+    },
+    "records": [
+      {
+        "title": "Borderlands 3"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Portal 2 vs Portal",
+    "media": "game",
+    "offer": {
+      "title": "Portal 2"
+    },
+    "records": [
+      {
+        "title": "Portal"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III vs Cat Quest III",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III"
+    },
+    "records": [
+      {
+        "title": "Cat Quest III"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "Game installment: Portal 2 vs Portal 2",
+    "media": "game",
+    "offer": {
+      "title": "Portal 2"
+    },
+    "records": [
+      {
+        "title": "Portal 2"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "Game installment: Cat Quest III Deluxe Edition vs Cat Quest II Deluxe Edition",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III Deluxe Edition"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II Deluxe Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III: A New Journey vs Cat Quest II: A New Journey",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III: A New Journey"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II: A New Journey"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III Deluxe Edition vs Cat Quest III Standard Edition",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III Deluxe Edition"
+    },
+    "records": [
+      {
+        "title": "Cat Quest III Standard Edition"
+      }
+    ],
+    "expected": "possible"
+  },
+  {
+    "label": "Game installment: Cat Quest III Demo vs Cat Quest II Demo",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III Demo"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II Demo"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III Complete Edition vs Cat Quest II Complete Edition",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III Complete Edition"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II Complete Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "Game installment: Cat Quest III Deluxe Edition Demo vs Cat Quest II Deluxe Edition Demo",
+    "media": "game",
+    "offer": {
+      "title": "Cat Quest III Deluxe Edition Demo"
+    },
+    "records": [
+      {
+        "title": "Cat Quest II Deluxe Edition Demo"
+      }
+    ],
+    "expected": "new"
   }
 ]

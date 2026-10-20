@@ -1313,8 +1313,9 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     const { kind, lookupTitle } = resolved.item;
     // A context-only probe must not leak into this item's ownership/explanation.
     const gamePurchase=HumbleOwnership.presentation.gamePurchase(resolved.item,resolved.localMatch);
-    const result = resolved.localMatch.state === 'owned' && !resolved.target.entries.length && !gamePurchase ? undefined
+    const incoming = resolved.localMatch.state === 'owned' && !resolved.target.entries.length && !gamePurchase ? undefined
       : comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
+    const result = kind === 'game' && incoming ? {...incoming, ...Object.fromEntries(['matches','possibleMatches','partialMatches'].map(key => [key, (incoming[key] ?? []).filter(record => !LibraryMatchingPolicy.gameInstallmentConflict(resolved.item.title, record.title, kind))]))} : incoming;
     const coverage = HumbleOwnership.coverageFor(resolved.target, localContents, result);
     const acceptedExact = ownedOutsideHumble(result, resolved.item)
       .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);

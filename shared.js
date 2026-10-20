@@ -45,6 +45,29 @@
     const key = presentationTitle(offered, kind);
     return Boolean(key && ownershipTitleKeys(stored, kind).includes(key));
   }
+  // A bounded game-only barrier, not numeral normalization or identity proof.
+  function gameInstallmentConflict(left, right, kind = 'book') {
+    if (kind !== 'game') return false;
+    const parts = value => {
+      // A subtitle/known edition can qualify an installment, but never erase it.
+      let title = presentationTitle(String(value ?? '').split(/:\s+/u)[0], 'game');
+      const qualifier = /\s+(?:(?:digital deluxe|deluxe|gold|platinum|ultimate|standard|premium|definitive|legendary|anniversary|collectors?|enhanced|game of the year)(?: edition)?|complete edition|remastered|remake|goty|demo|trial|preview|sample|excerpt)$/u;
+      while (qualifier.test(title)) title = title.replace(qualifier, '');
+      const match = /^(.*?) ([1-9]\d?|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))$/u.exec(title);
+      const base = match ? match[1] : title;
+      // Leave years, decimals, model identifiers and explicitly labeled units
+      // to their existing rules. Do not reinterpret arbitrary title numbers.
+      if (!/^\p{L}+(?: \p{L}+)*$/u.test(base)
+        || /\b(?:vol|volume|book|issue|part|chapter|episode|edition|version|revision|model|type|mark|mk|season)\b/u.test(base)
+        || (base.split(' ').length < 2 && base.length < 5)) return null;
+      const token = match?.[2];
+      const number = !token ? null : /^\d+$/u.test(token) ? Number(token)
+        : [...token].reduce((total, digit, index) => total + (roman[digit] < (roman[token[index + 1]] ?? 0) ? -roman[digit] : roman[digit]), 0);
+      return {base, number};
+    };
+    const a = parts(left), b = parts(right);
+    return Boolean(a && b && a.base === b.base && a.number !== b.number);
+  }
   function relatedPresentationReason(left, right, kind = 'book') {
     const a = presentationTitle(left, kind), b = presentationTitle(right, kind);
     if (!a || !b || a === b) return '';
@@ -211,7 +234,7 @@
     return /^\d+(?:\.\d+)?$/u.test(text) ? String(Number(text)) : presentationTitle(text, 'unit');
   }
   global.LibraryMatchingPolicy = Object.freeze({ presentationTitle, ownershipTitleKeys, fullTitleMatches,
-    relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, numberedCollectionRelation, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
+    gameInstallmentConflict, relatedPresentationReason, relatedTitleKeys, revisionTitleParts, revisionWordingConflict, numberedCollectionRelation, personKey, authorRelation, authorNames, unitKey, ambiguousWorks });
 }(globalThis));
 // END SHARED MATCHING POLICY
 /* Global helpers shared by the options page and Humble page overlay. */
@@ -313,6 +336,7 @@
   // Candidate rules never prove ownership. Callers must still check media,
   // known authors, runs and numbered units before presenting these warnings.
   function possibleTitleRelation(left, right, kind = 'book') {
+    if (global.LibraryMatchingPolicy.gameInstallmentConflict(left, right, kind)) return '';
     const a = normalizeTitle(left); const b = normalizeTitle(right);
     if (!a || !b) return '';
     const numbered = global.LibraryMatchingPolicy.numberedCollectionRelation(left, right, kind);
