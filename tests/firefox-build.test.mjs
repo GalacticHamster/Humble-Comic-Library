@@ -117,6 +117,7 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
     const firefoxManifest = JSON.parse(firefox.manifest);
     assert.deepEqual(firefoxManifest.browser_specific_settings, firefoxOverlay.browser_specific_settings);
     assert.equal(firefoxManifest.browser_specific_settings.gecko.id, 'humble-comic-library@galactichamster.com');
+    assert.equal(firefoxManifest.browser_specific_settings.gecko.strict_min_version, '140.0');
     assert.deepEqual(firefoxManifest.browser_specific_settings.gecko.data_collection_permissions.required, ['none']);
     const expectedFirefoxManifest = { ...chromeManifest, ...firefoxOverlay };
     assert.deepEqual(firefoxManifest, expectedFirefoxManifest);

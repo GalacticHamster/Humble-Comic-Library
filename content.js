@@ -562,7 +562,7 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
   }
   const requested = new Map();
   for (const { item, match, target, contextOnly } of items) {
-    if (match.state === 'owned' && !target?.entries.length && !contextOnly) continue;
+    if (match.state === 'owned' && !target?.entries.length && !contextOnly && !HumbleOwnership.presentation.gamePurchase(item,match)) continue;
     const mediaType = item.kind ?? itemKind;
     if (!GALACTIC_LIBRARY_MEDIA_TYPES.has(mediaType)||mediaType==='software'&&!lookup.softwareSupported) continue;
     const fields = HumbleOwnership.request({ ...item, kind: mediaType }, comparison.collectionMappings ?? [], target);
@@ -1312,13 +1312,16 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   for (const resolved of resolvedItems) {
     const { kind, lookupTitle } = resolved.item;
     // A context-only probe must not leak into this item's ownership/explanation.
-    const result = resolved.localMatch.state === 'owned' && !resolved.target.entries.length ? undefined
+    const gamePurchase=HumbleOwnership.presentation.gamePurchase(resolved.item,resolved.localMatch);
+    const result = resolved.localMatch.state === 'owned' && !resolved.target.entries.length && !gamePurchase ? undefined
       : comparison?.galactic?.resultsByKey.get(resolved.item.galacticKey ?? galacticRequestKey(kind, lookupTitle));
     const coverage = HumbleOwnership.coverageFor(resolved.target, localContents, result);
-    const externalMatches = resolved.localMatch.state === 'owned' ? [] : ownedOutsideHumble(result, resolved.item)
+    const acceptedExact = ownedOutsideHumble(result, resolved.item)
       .filter(record => record.relationship !== 'contains' || coverage.complete && resolved.target.complete);
+    const externalMatches = resolved.localMatch.state === 'owned' ? [] : acceptedExact;
+    const independentOwnershipMatches=gamePurchase?acceptedExact.filter(HumbleOwnership.presentation.independentGameOwnership):[];
     const externalReviewMatches = needsOwnershipReviewOutsideHumble(result);
-    const rejectedExact = ownedOutsideHumble(result).filter(record => record.relationship !== 'contains' && !externalMatches.includes(record));
+    const rejectedExact = ownedOutsideHumble(result).filter(record => record.relationship !== 'contains' && !acceptedExact.includes(record));
     const externalPossibleMatches = [...possibleOutsideHumble(result), ...externalReviewMatches, ...rejectedExact];
     const uncertainOwnership = externalPossibleMatches.some(record => !HumbleOwnership.permanent(record));
     let match = externalMatches.length
@@ -1348,7 +1351,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     if (lookupIncomplete && match.state === 'new') match = { state: 'unchecked',
       possibleReason: 'No local match found. Galactic Library could not complete the ownership check; this item may already be owned.' };
     match = { ...match, coverage, offered: resolved.item, localMatch: resolved.localMatch, externalResult: result,
-      externalPossibleMatches, lookupIncomplete, contentsLookupIncomplete, mappingConflicts: resolved.target.reason || '' };
+      externalPossibleMatches, ...(independentOwnershipMatches.length?{independentOwnershipMatches}:{}), lookupIncomplete, contentsLookupIncomplete, mappingConflicts: resolved.target.reason || '' };
     resolved.match = match;
     matchesByTitleKey.set(bundleItemKey(resolved.item), match);
     counts[match.state] += 1;
@@ -1951,13 +1954,11 @@ function annotateBundleItem(bundleItem, match) {
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
   const provenance = matchProvenance(match);
   const purchaseCount = matchPurchaseCount(match);
-  const localRecords=[match.item].flat(Infinity).filter(Boolean);
-  const purchasedKey=isOwned&&localRecords.some(record=>(record.provenance?.length?record.provenance:[record])
-    .some(origin=>origin.entitlement==='third-party-key')||record.kind==='game'&&record.source==='humble');
+  const ownedLabel=HumbleOwnership.presentation.status(bundleItem,match);
   badgeHost?.classList.add('hcl-badge-host');
   if (badgeHost) {
     badgeHost.dataset.hclBadge = isOwned
-      ? purchasedKey ? `Purchased${purchaseCount>1?` ×${purchaseCount}`:''}` : purchaseCount > 1 ? `Owned ×${purchaseCount}` : 'Owned'
+      ? purchaseCount > 1 ? `${ownedLabel} \u00d7${purchaseCount}` : ownedLabel
       : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Check incomplete' : 'New';
     if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');

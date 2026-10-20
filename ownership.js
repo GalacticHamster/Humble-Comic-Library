@@ -192,7 +192,7 @@
 
   function explanationLines(match) {
     const offered = match.offered ?? {};
-    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${match.ownershipReview?'Check ownership':({owned:'Owned',elsewhere:'Owned elsewhere',possible:'Possible',partial:'Partial',unchecked:'Check incomplete',new:'New'}[match.state]??match.state)}`, `Media: ${offered.kind || 'book'}`];
+    const lines = [`Offered: ${offered.title || 'Unknown title'}`, `Status: ${global.HumbleOwnership.presentation.status(offered,match)}`, `Media: ${offered.kind || 'book'}`];
     const describe = (label, value) => {
       const data = H.bibliographicFields(value);
       const fields = Object.entries(data).map(([name, entry]) => `${name}: ${Array.isArray(entry) ? entry.join(', ') : entry}`);
@@ -536,13 +536,32 @@
   // Display adapters only. No result objects, ownership decisions or storage are modified.
   const localProvider = "humble";
   const permanentRecord = record => ['owned','claimed'].includes(record.ownership);
+  function gamePurchase(item, match) {
+    if (match.state !== 'owned' || (item.kind || item.mediaType || match.offered?.kind || match.offered?.mediaType) !== 'game') return false;
+    return [match.localMatch?.item || match.item].flat(Infinity).filter(Boolean).some(record =>
+      !record.historical && (record.source === localProvider || record.provider === localProvider
+        || (record.provenance?.length ? record.provenance : [record]).some(origin => origin.source === localProvider || origin.entitlement === 'third-party-key')));
+  }
+  // Consume only exact candidates already accepted by the existing identity checks.
+  // Another reseller purchase (including a synchronized copy) cannot prove platform ownership.
+  function independentGameOwnership(record) {
+    const evidence = record.evidence || {};
+    return ['steam','gog','epic','amazon-games','nintendo','playstation','xbox'].includes(record.provider)
+      && permanentRecord(record) && record.relationship === 'same-edition' && record.confidence === 1
+      && (evidence.ownershipBasis !== 'user-assumed-owned' || ['owned','claimed'].includes(evidence.observedOwnership))
+      && !['humble','fanatical','humble-purchase-library','fanatical-order-history'].includes(evidence.source)
+      && !evidence.accessExpiresAt && !evidence.expiresAt && !record.expiresAt;
+  }
   function status(item, match) {
     const state=match.state==='elsewhere'?'owned-elsewhere':match.state;
     if(state==='possible')return match.ownershipReview?'Check ownership':'Possible';
     if(state==='partial')return 'Partial';
     if(state==='unchecked')return 'Check incomplete';
     if(state==='owned-elsewhere')return 'Owned elsewhere';
-    if(state==='owned')return localProvider==='humble' && [match.item].flat(Infinity).filter(Boolean).some(r=>(r.provenance?.length?r.provenance:[r]).some(p=>p.entitlement==='third-party-key')||r.kind==='game'&&r.source==='humble')?'Purchased':'Owned';
+    if(state==='owned'){
+      if(gamePurchase(item,match))return match.independentOwnershipMatches?.some(independentGameOwnership)?'Owned':'Purchased';
+      return localProvider==='humble' && [match.item].flat(Infinity).filter(Boolean).some(r=>(r.provenance?.length?r.provenance:[r]).some(p=>p.entitlement==='third-party-key')||r.kind==='game'&&r.source==='humble')?'Purchased':'Owned';
+    }
     return 'New';
   }
   function access(record, local=false) {
@@ -634,6 +653,7 @@
       }
     };
     add(match.externalMatches,false,match.state==='elsewhere'||match.state==='owned-elsewhere','',true);
+    add(match.independentOwnershipMatches,false,true,'',true);
     add(match.externalPossibleMatches);add(match.externalResult?.matches,false,false,'',true);add(match.externalResult?.possibleMatches);add(match.externalResult?.partialMatches);
     add(match.item,true,match.state==='owned');add(match.localMatch?.item,true,match.localMatch?.state==='owned');
     add(match.candidates,true);add(match.localMatch?.candidates,true);add(match.historicalItems,true);add(match.localMatch?.historicalItems,true);add(match.range?.items,true);add(match.localMatch?.range?.items,true);
@@ -691,7 +711,11 @@
       return match.ownershipReview?'A library item needs an ownership check. Review its access and any related editions before buying.':'A related library item was found. Check the edition or included contents before buying.';
     }
     if(view.state==='owned-elsewhere')return 'A linked library records a matching item as owned.';
-    if(view.state==='owned')return status(item,match)==='Purchased'?'This item is in your local purchases. A purchased key does not confirm activation.':'This item is marked as owned in your local library.';
+    if(view.state==='owned'){
+      const independent=(match.independentOwnershipMatches||[]).filter(independentGameOwnership);
+      if(gamePurchase(item,match)&&independent.length)return 'Purchased from '+providerName(localProvider)+'; '+[...new Set(independent.map(record=>providerName(record.provider)))].join(', ')+' independently confirms ownership of the same game.';
+      return status(item,match)==='Purchased'?'This item is in your local purchases. A purchased key does not confirm activation.':'This item is marked as owned in your local library.';
+    }
     return 'No match was found in the available library data.';
   }
   function tooltip(item,match) {
@@ -714,5 +738,5 @@
     if(match.coverage?.scopeUncertain){const note=doc.createElement('p');note.textContent='The contents comparison needs series/run or language confirmation.';host.append(note);}
   }
 
-  global.HumbleOwnership.presentation={providerName,records,row,summary,explanation:conclusion,status,access,candidateViews,tooltip,relatedCaption,renderCandidates,primaryCandidateViews,reconcileBundle,renderDeferred};
+  global.HumbleOwnership.presentation={gamePurchase,independentGameOwnership,providerName,records,row,summary,explanation:conclusion,status,access,candidateViews,tooltip,relatedCaption,renderCandidates,primaryCandidateViews,reconcileBundle,renderDeferred};
 }(globalThis));

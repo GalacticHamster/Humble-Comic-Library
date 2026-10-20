@@ -1,0 +1,12 @@
+{
+  "name": "humble-comic-library",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests",
+    "browser-check": "node tests/browser.mjs",
+    "package": "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1 -Target Chrome",
+    "package:firefox": "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1 -Target Firefox"
+  }
+}

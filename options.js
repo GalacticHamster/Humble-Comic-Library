@@ -1158,9 +1158,25 @@
   document.querySelector('#test-galactic-library-link').addEventListener('click', async () => {
     try {
       const response = await testGalacticLibraryLink();
-      galacticLibraryLinkStatus.textContent = `Connected to Galactic Library ${response.appVersion}. ${response.advertised?'Supported media: '+response.mediaTypes.join(', ')+'.':'Capabilities not advertised; newer features remain unconfirmed.'}`;
+      galacticLibraryLinkStatus.textContent = 'Connected to Galactic Library. You can now check bundle items against your other saved libraries.';
+      const details = document.createElement('details');
+      details.className = 'settings-help';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Show technical details';
+      const info = document.createElement('p');
+      info.textContent = `Galactic Library ${response.appVersion || 'connected'}. ${response.advertised ? 'Supported media: ' + response.mediaTypes.join(', ') + '.' : 'Capabilities not advertised; newer features remain unconfirmed.'}`;
+      details.append(summary, info);
+      galacticLibraryLinkStatus.append(details);
     } catch (error) {
-      galacticLibraryLinkStatus.textContent = `Could not connect: ${error.message}`;
+      galacticLibraryLinkStatus.textContent = "Could not connect to Galactic Library. Make sure it's installed and enabled, then try Check connection again.";
+      const details = document.createElement('details');
+      details.className = 'settings-help';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Show technical details';
+      const err = document.createElement('p');
+      err.textContent = `Error: ${error.message}. If using an unpacked build, check that this extension's ID is authorized in Galactic Library Advanced settings.`;
+      details.append(summary, err);
+      galacticLibraryLinkStatus.append(details);
     }
   });
 
