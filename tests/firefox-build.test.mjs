@@ -73,7 +73,13 @@ function inspectZip(zipPath) {
       $reader = [System.IO.StreamReader]::new($entry.Open())
       try {
         $sharedReader = [System.IO.StreamReader]::new($archive.GetEntry('shared.js').Open())
-        try { [ordered]@{ entries = @($archive.Entries | ForEach-Object { $_.FullName }); manifest = $reader.ReadToEnd(); shared = $sharedReader.ReadToEnd() } | ConvertTo-Json -Compress } finally { $sharedReader.Dispose() }
+        try {
+          $pages = [ordered]@{}
+          foreach ($page in @('options.html','popup.html')) {
+            $htmlReader = [System.IO.StreamReader]::new($archive.GetEntry($page).Open())
+            try { $pages[$page] = $htmlReader.ReadToEnd() } finally { $htmlReader.Dispose() }
+          }
+          [ordered]@{ pages = $pages; entries = @($archive.Entries | ForEach-Object { $_.FullName }); manifest = $reader.ReadToEnd(); shared = $sharedReader.ReadToEnd() } | ConvertTo-Json -Compress } finally { $sharedReader.Dispose() }
       } finally { $reader.Dispose() }
     } finally { $archive.Dispose(); $stream.Dispose() }
   `;
@@ -124,4 +130,16 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
   } finally {
     fs.rmSync(outputDirectory, { recursive: true, force: true });
   }
+});
+
+test('both packaged pages explicitly use the existing approved manifest tab icon',()=>{
+ const outputDirectory=fs.mkdtempSync(path.join(os.tmpdir(),'hcl-package-test-'));
+ try{for(const target of ['Chrome','Firefox']){
+  const artifact=inspectZip(packageExtension(target,outputDirectory)),manifest=JSON.parse(artifact.manifest);
+  for(const page of [manifest.options_page,manifest.action.default_popup]){
+   const links=[...artifact.pages[page].matchAll(/<link\b[^>]*rel="icon"[^>]*>/gu)];assert.equal(links.length,1);
+   const link=links[0][0],href=link.match(/href="([^"]+)"/u)[1],asset=new URL(href,'https://package.invalid/'+page).pathname.slice(1);
+   assert.equal(asset,manifest.icons['16']);assert(artifact.entries.includes(asset));assert(link.includes('image/png')&&link.includes('16x16'));
+  }
+ }}finally{fs.rmSync(outputDirectory,{recursive:true,force:true});}
 });

@@ -52,15 +52,19 @@ test('revision contract: failed GL checks retain a local Possible',async()=>{
 });
 
 test('revision contract: exact GL identity and original access stay separate from effective ownership',{skip:!gl},async()=>{
-  for(const ownership of ['owned','claimed','unknown','subscription','borrowed','rental'])for(const allOwned of [false,true]){
+  for(const ownership of ['owned','claimed','permanently_claimed','unknown','subscription','borrowed','rental'])for(const allOwned of [false,true]){
     const item=gl.normalizeProviderItem({provider:'kindle',providerItemId:'identity-access',title:'The Hobbit',mediaType:'book',ownership,metadata:{authors:['J. R. R. Tolkien']}});
     const db={...gl.createEmptyDatabase(),providerItems:{[item.id]:item},ownershipPolicy:{allOwned,providers:{}}};
     const before=JSON.stringify(db);
     const {requestId,...central}=gl.handleExternalApiRequest(db,{type:'MATCH_ITEMS',apiVersion:1,items:[{title:item.title,mediaType:'book'}]}).results[0];
     assert.equal(central.matches.length,1);assert.equal(central.matches[0].relationship,'same-edition');assert.equal(central.confidence,1);
-    const treatedOwned=allOwned||['owned','claimed'].includes(ownership);
-    assert.equal(central.owned,treatedOwned);assert.equal(central.matches[0].ownership,allOwned?'owned':ownership);
-    if(allOwned)assert.equal(central.matches[0].evidence.observedOwnership,ownership);
+    // GL normalizes legacy permanent-claim spellings before matching (5ab94e4).
+    const normalizedOwnership=['claimed','permanently_claimed'].includes(ownership)?'owned':ownership;
+    assert.equal(item.ownership,normalizedOwnership);
+    if(normalizedOwnership!==ownership)assert.equal(item.metadata.acquisitionMethod,'permanent-claim');
+    const treatedOwned=allOwned||normalizedOwnership==='owned';
+    assert.equal(central.owned,treatedOwned);assert.equal(central.matches[0].ownership,allOwned?'owned':normalizedOwnership);
+    if(allOwned)assert.equal(central.matches[0].evidence.observedOwnership,normalizedOwnership);
     assert.equal(JSON.stringify(db),before,'Lookup must preserve original ownership and provenance');
     const linked=await fixture([],'book',{title:item.title},central).classify();
     assert.equal(linked.match.state,treatedOwned?(fanatical?'owned-elsewhere':'elsewhere'):'possible');
