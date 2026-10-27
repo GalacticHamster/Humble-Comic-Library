@@ -11,6 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageScript = path.join(root, 'scripts', 'package-release.ps1');
 const runtimeFiles = [
   'manifest.json',
+  'LICENSE',
+  'NOTICE',
   'shared.js',
 
   'background.js',

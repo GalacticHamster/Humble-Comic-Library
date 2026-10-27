@@ -2,13 +2,17 @@
 param(
   [ValidateSet('Chrome', 'Firefox')]
   [string]$Target = 'Chrome',
-  [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist')
+  [string]$OutputDirectory = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$projectRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+  $OutputDirectory = Join-Path $projectRoot 'dist'
+}
 $chromeManifestPath = Join-Path $projectRoot 'manifest.json'
 $chromeManifestText = Get-Content -LiteralPath $chromeManifestPath -Raw
 $manifest = $chromeManifestText | ConvertFrom-Json
@@ -27,6 +31,8 @@ if ($Target -eq 'Firefox') {
 }
 $releaseFiles = @(
   'manifest.json',
+  'LICENSE',
+  'NOTICE',
   'shared.js',
   'background.js',
   'entitlement-share.js',

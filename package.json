@@ -7,8 +7,8 @@
   "scripts": {
     "test": "node --test tests",
     "browser-check": "node tests/browser.mjs",
-    "package": "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1 -Target Chrome",
-    "package:firefox": "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1 -Target Firefox",
+    "package": "powershell -ExecutionPolicy Bypass -Command \"& ./scripts/package-release.ps1 -Target Chrome\"",
+    "package:firefox": "powershell -ExecutionPolicy Bypass -Command \"& ./scripts/package-release.ps1 -Target Firefox\"",
     "test:tab-icons": "node tests/tab-icons.mjs",
     "test:tab-icons:firefox": "node tests/tab-icons.mjs --firefox"
   }
