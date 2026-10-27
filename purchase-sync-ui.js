@@ -2,7 +2,7 @@
 (function(){'use strict';if(typeof document==='undefined')return;
  const el=(tag,text)=>{const node=document.createElement(tag);if(text)node.textContent=text;return node;};
  for(const host of document.querySelectorAll('[data-purchase-handoff]')){
-  const provider=host.dataset.provider,gl=host.dataset.purchaseHandoff==='gl',store=provider==='humble'?'Humble':'Fanatical',other=gl?(provider==='humble'?'Humble Comic Library':'Fanatical Library'):'Galactic Library';
+  const provider=host.dataset.provider,gl=host.dataset.purchaseHandoff==='gl',store=provider==='humble'?'Humble':'Fanatical',other=gl?(provider==='humble'?'Humble Library':'Fanatical Library'):'Galactic Library';
   const panel=el('section');panel.dataset.purchaseSync='';panel.append(el('h4',gl?store+' connection':'Galactic Library connection'),el('p','Connect once to keep saved '+store+' purchases in sync. No store scan is needed.'));
   const status=el('p','Loading connection...');status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.dataset.syncStatus='';const facts=el('p'),setup=el('div');setup.hidden=true;
   const ours=el('select'),theirs=el('select');ours.dataset.syncLocal='';theirs.dataset.syncRemote='';const labeled=(text,node)=>{const l=el('label');l.className='stacked-label';l.append(el('span',text),node);return l;};

@@ -6,7 +6,7 @@ Compatible official installations connect automatically. In Settings, check the 
 
 | Product | Chrome Web Store listing ID | Existing Firefox Gecko ID |
 | --- | --- | --- |
-| Humble Comic Library | bjjpfofmcmiipeghcbhdfjedpldmkcii | humble-comic-library@galactichamster.com |
+| Humble Library | bjjpfofmcmiipeghcbhdfjedpldmkcii | humble-comic-library@galactichamster.com |
 | Galactic Library | pdknncacndkicpogbebdfanniibnnpic | galactic-library@galactichamster.com |
 | Fanatical Library | ieoobffekgbfjfoiheejkfihneooiadb | fanatical-library@galactichamster.com |
 

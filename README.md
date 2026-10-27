@@ -1,4 +1,4 @@
-# Humble Comic Library
+# Humble Library
 
 An unofficial browser extension that marks books, comics, games, or software you already own while viewing a Humble Bundle listing. It is not affiliated with or endorsed by Humble Bundle.
 
@@ -250,3 +250,5 @@ Enjoying Galactic Hamster's free, open-source tools? If you'd like to support co
 Game-key badges distinguish a saved purchase from platform ownership. A local marketplace purchase shows **Purchased** until Galactic Library returns a compatible exact, permanent ownership record from Steam, GOG, Epic Games, Amazon Games, Nintendo, PlayStation or Xbox. Then it shows **Owned**, with both sources in the explanation. Another marketplace purchase, a synchronized copy, a Possible match or temporary access cannot provide that confirmation. Independently owned games without a local purchase retain **Owned elsewhere**. Book badges are unchanged.
 
 Run `node --test tests/purchased-owned.test.mjs` for the evidence matrix, and `node tests/purchased-owned-browser.mjs` (also with `--firefox`) for disposable storefront checks of badges, explanations and two-phase updates. The optional integration case uses the adjacent GL checkout and never imports personal data.
+
+The release ZIP filenames retain `Humble-Comic-Library` for compatibility with existing packaging automation. The displayed product name is **Humble Library** in both browsers. The Firefox add-on ID, internal identifiers, and existing backup format are unchanged.

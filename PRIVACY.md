@@ -1,8 +1,8 @@
-# Privacy Policy for Humble Comic Library
+# Privacy Policy for Humble Library
 
 Last updated: October 19, 2026
 
-Humble Comic Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
+Humble Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
 
 ## Data the extension handles
 
@@ -36,7 +36,7 @@ This data supports library import, matching, purchase history, reminders, planni
 
 The extension does not send library data to a Galactic Hamster-operated server and has no analytics or advertising service. Imports request data from Humble Bundle using the signed-in browser session. Opening a provider, help, or optional support link visits that destination under its own privacy policy; this is separate from sending a library backup.
 
-When a compatible official Galactic Library extension is also installed, or the user configures an Advanced companion override, Humble Comic Library sends current bundle titles/media types and available bibliographic identifiers, authors, edition/run/language and requested contents evidence to that other locally installed extension. Ebooks and audiobooks are checked separately; Software lookup is sent only when GL advertises support. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. These matching queries use a bounded comparison response, not a library backup. They exclude session credentials and redemption keys. Purchase synchronization is a separate data flow described below. Removing a custom override restores official automatic pairing; disable or uninstall Galactic Library or HB to stop this exchange. Built-in IDs are separate from stored overrides.
+When a compatible official Galactic Library extension is also installed, or the user configures an Advanced companion override, Humble Library sends current bundle titles/media types and available bibliographic identifiers, authors, edition/run/language and requested contents evidence to that other locally installed extension. Ebooks and audiobooks are checked separately; Software lookup is sent only when GL advertises support. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. These matching queries use a bounded comparison response, not a library backup. They exclude session credentials and redemption keys. Purchase synchronization is a separate data flow described below. Removing a custom override restores official automatic pairing; disable or uninstall Galactic Library or HB to stop this exchange. Built-in IDs are separate from stored overrides.
 
 After the user confirms a specific Humble account relationship, **Connect and sync** authorizes bidirectional exchange of saved Humble purchase records with the installed Galactic Library extension. Transfers include account references and labels, item and bundle identifiers, titles, available dates, formats, and purchase provenance supported by the transfer format. Subsequent saved-purchase changes synchronize automatically, with background retries. Manual purchase transfers are also available. Sender identity, provider, account scope, and authorization are checked; merely recognizing an official companion does not authorize purchase writes. Disconnecting stops ongoing synchronization but does not erase copies already imported into either extension. No developer server is used for these local extension messages.
 

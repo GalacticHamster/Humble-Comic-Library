@@ -26,7 +26,7 @@ Canonical companion typography is Arial 14px/21px regular body, 16px/24px bold h
 ## Library Classification Parity, File-Type Visibility & Rejected Review
 
 ### 1. Parity Architecture & Interface Alignment
-Both Humble Comic Library (HB) and Fanatical Library (FAN) provide equivalent library-management capabilities:
+Both Humble Library (HB) and Fanatical Library (FAN) provide equivalent library-management capabilities:
 - **Media Categories & Filter Semantics:**
   - `All`: All purchases regardless of media type.
   - `Books`: Matches both standard books and comics (`book` or `comic`).

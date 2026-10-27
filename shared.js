@@ -637,7 +637,7 @@
     if (!value || typeof value !== 'object' || Array.isArray(value)
       || value.format !== undefined && value.format !== 'humble-comic-library-backup'
       || !Number.isInteger(value.version) || value.version < 1 || value.version > BACKUP_VERSION) {
-      throw new Error('Choose a supported Humble Comic Library backup, not a manual title list.');
+      throw new Error('Choose a supported Humble Library backup, not a manual title list.');
     }
     if(value.version>=9&&(!Object.hasOwn(value,'profileLabel')||!Object.hasOwn(value,'profileArchives')))throw new Error('Backup is missing account/profile evidence.');
     if (value.version >= 6) {
@@ -753,7 +753,7 @@
 
   // Store identities stay separate from user-saved pairing configuration.
   const COMPANION_IDENTITIES=Object.freeze({
-    hb:Object.freeze({name:'Humble Comic Library',chrome:'bjjpfofmcmiipeghcbhdfjedpldmkcii',firefox:'humble-comic-library@galactichamster.com'}),
+    hb:Object.freeze({name:'Humble Library',chrome:'bjjpfofmcmiipeghcbhdfjedpldmkcii',firefox:'humble-comic-library@galactichamster.com'}),
     gl:Object.freeze({name:'Galactic Library',chrome:'pdknncacndkicpogbebdfanniibnnpic',firefox:'galactic-library@galactichamster.com'}),
     fan:Object.freeze({name:'Fanatical Library',chrome:'ieoobffekgbfjfoiheejkfihneooiadb',firefox:'fanatical-library@galactichamster.com'})
   });

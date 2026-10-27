@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en" class="gh-app" data-gh-app="hb" data-gh-theme="light">
-  <head><script src="theme.js"></script><link rel="stylesheet" href="theme.css"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Humble Comic Library settings</title><link rel="icon" type="image/png" sizes="16x16" href="icons/icon16.png"><link rel="stylesheet" href="ui.css"><link rel="stylesheet" href="theme-app.css"></head>
+  <head><script src="theme.js"></script><link rel="stylesheet" href="theme.css"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Humble Library settings</title><link rel="icon" type="image/png" sizes="16x16" href="icons/icon16.png"><link rel="stylesheet" href="ui.css"><link rel="stylesheet" href="theme-app.css"></head>
   <body>
     <main class="settings">
-      <h1>Humble Comic Library</h1>
+      <h1>Humble Library</h1>
       <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or restore a JSON backup.</p>
       <section class="appearance-panel" aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the same GalacticHamster colors across your extensions.</p><div class="appearance-controls"><label>Appearance <select id="appearance-mode" disabled><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label><input id="appearance-follow-gl" type="checkbox" disabled> Follow Galactic Library appearance</label><button id="appearance-sync" type="button" class="secondary">Refresh linked appearance</button></div><p id="appearance-status" role="status">Loading appearance settings...</p><p>Use GL's theme when connected.</p><details class="settings-help"><summary>Theme following help</summary><p>Updates when a page opens or you select Refresh linked appearance. If GL is unavailable, the last linked theme or your local choice is used. The local selector is disabled while following.</p></details></section>
       <section>
@@ -52,7 +52,7 @@
       <section>
         <h2>Share reminders with Galactic Library</h2>
         <p>Send key and access reminders to Galactic Library. This shares item titles, media types, reminder status, and relevant dates—but <strong>never</strong> your keys, order numbers, purchase links, or prices. Reminders do not prove that you own an item or that it was activated in Steam or another destination. Nothing is sent until you choose <strong>Send reminders to Galactic Library</strong>.</p>
-        <details class="settings-help"><summary>Exactly what is shared</summary><p>Humble Comic Library sends batches of up to 200 items containing titles, media types, opaque references, reminder status, and reported expiry/check dates. It never sends redemption keys, purchase IDs, URLs, prices, or destination account details. Sharing is entirely manual and does not run in the background.</p></details>
+        <details class="settings-help"><summary>Exactly what is shared</summary><p>Humble Library sends batches of up to 200 items containing titles, media types, opaque references, reminder status, and reported expiry/check dates. It never sends redemption keys, purchase IDs, URLs, prices, or destination account details. Sharing is entirely manual and does not run in the background.</p></details>
         <p>Active Humble account nickname: <strong id="share-hb-profile">Not yet named</strong>. Confirm that Galactic Library is using the same website account. The nickname there may differ.</p>
         <label>Humble account nickname in Galactic Library <input id="share-gl-profile" maxlength="100" autocomplete="off"></label>
         <label><input id="confirm-reminder-sharing" type="checkbox"> I checked that both extensions refer to the same Humble account.</label>
@@ -138,7 +138,7 @@
       </section>
       <section>
         <h2>Restore backup</h2>
-        <p>Choose a backup exported by this Humble Comic Library extension. HB and FAN ownership backups are not interchangeable. Restore replaces all saved accounts, items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
+        <p>Choose a backup exported by this Humble Library extension. HB and FAN ownership backups are not interchangeable. Restore replaces all saved accounts, items, purchase records, provenance, key reminders, scan history, the history archive, and custom mappings. Your wishlist, browser preferences and Galactic Library connection stay as they are. Older backups clear data they do not contain.</p>
         <input id="restore-file" type="file" accept="application/json,.json">
         <p id="restore-status" role="status"></p>
       </section>

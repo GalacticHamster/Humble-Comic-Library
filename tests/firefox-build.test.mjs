@@ -121,6 +121,17 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
     assert.equal(JSON.parse(chrome.manifest).browser_specific_settings, undefined);
 
     const firefoxManifest = JSON.parse(firefox.manifest);
+    for (const artifact of [chrome,firefox]) {
+      const manifest=JSON.parse(artifact.manifest);
+      assert.equal(manifest.name,'Humble Library');
+      assert.equal(manifest.action.default_title,'Humble Library');
+      assert.equal(manifest.short_name,undefined);
+      for(const page of ['options.html','popup.html']) {
+        assert(artifact.pages[page].includes('<h1>Humble Library</h1>'));
+        assert(artifact.pages[page].includes('<title>Humble Library'+(page==='options.html'?' settings':'')+'</title>'));
+        assert(!artifact.pages[page].includes('Humble Comic Library'));
+      }
+    }
     assert.deepEqual(firefoxManifest.browser_specific_settings, firefoxOverlay.browser_specific_settings);
     assert.equal(firefoxManifest.browser_specific_settings.gecko.id, 'humble-comic-library@galactichamster.com');
     assert.equal(firefoxManifest.browser_specific_settings.gecko.strict_min_version, '140.0');

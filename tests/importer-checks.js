@@ -4,6 +4,7 @@
   try{
     await wait(()=>document.querySelector('#hcl-importer output')?.textContent);
     const panel=document.querySelector('#hcl-importer'),profile=panel.querySelector('.library-import-profile'),footer=panel.querySelector('.library-import-footer'),quick=panel.querySelector('[data-import-mode="new"]'),full=panel.querySelector('[data-import-mode="all"]');
+    check(panel.querySelector('.library-import-description strong').textContent==='Humble Library','purchase importer displays the approved Humble Library name');
     check(panel.children.length===3&&profile.children.length===3,'importer groups description, three account controls and footer into three rows');
     check(getComputedStyle(profile).display==='grid'&&footer.contains(panel.querySelector('output'))&&footer.contains(quick),'account controls and scan status have dedicated layout containers');
     check(quick.textContent==='Import new purchases'&&full.textContent==='Rescan all purchases','import buttons use the shared labels');

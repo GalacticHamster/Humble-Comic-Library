@@ -9,8 +9,9 @@ Chrome Web Store listing:
   and buy recommendation.
 - `02-catalogue-filters.jpg` — catalogue sorting, purchase labels, and
   catalogue filters.
-- `03-purchases-importer.png` — on-demand purchase importer; purchase rows
-  are privacy-blurred.
+- `03-purchases-importer.png` — current on-demand purchase importer with
+  synthetic purchase rows and the approved Humble Library branding; no personal
+  purchase or account information is shown.
 - `04-options.jpg` — local-library settings, collection mappings, and
   diagnostics.
 

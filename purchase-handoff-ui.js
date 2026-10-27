@@ -49,7 +49,7 @@
  const onlyChoice=(accounts,source)=>{const eligible=accounts.filter(a=>!source||a.eligibleCount!==0);return eligible.length===1?eligible[0].accountRef:'';};
  for(const host of document.querySelectorAll('[data-purchase-handoff]')){
  const manual=el('details');manual.dataset.purchaseManual='';manual.append(el('summary','Advanced: manual purchase sharing and recovery'));host.append(manual);
- const provider=host.dataset.provider,gl=host.dataset.purchaseHandoff==='gl',store=provider==='humble'?'Humble':'Fanatical',companion=provider==='humble'?'Humble Comic Library':'Fanatical Library',here=gl?'Galactic Library':companion,there=gl?companion:'Galactic Library';
+ const provider=host.dataset.provider,gl=host.dataset.purchaseHandoff==='gl',store=provider==='humble'?'Humble':'Fanatical',companion=provider==='humble'?'Humble Library':'Fanatical Library',here=gl?'Galactic Library':companion,there=gl?companion:'Galactic Library';
  let local=[],remote=[],offer=null,busy=false,loaded=false,loading=false,localReady=false,remoteReady=false,revision=0,diagnostic=null,review=null,phase='choose',previewFailed=false;
  const direction=el('select');direction.dataset.purchaseControl='direction';for(const [value,text]of [['import','Import purchases from '+there],['send','Send purchases to '+there]]){const option=el('option',text);option.value=value;direction.append(option);}
  const source=el('select'),target=el('select'),newName=el('input'),peer=el('input');source.dataset.purchaseControl='source';target.dataset.purchaseControl='target';newName.dataset.purchaseControl='new-name';newName.maxLength=100;peer.maxLength=255;peer.placeholder='Already allowed companion ID (optional)';

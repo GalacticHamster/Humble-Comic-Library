@@ -2952,7 +2952,7 @@ function addPurchaseImporter() {
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer';
   panel.innerHTML = `
-    <div class="library-import-description"><strong>Humble Comic Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Only the active account is checked for ownership. Use Saved accounts below to switch back to a saved snapshot, then Import new purchases to refresh it. Rename account keeps its purchases and scan history. For a new account, sign in on the website, enter a new nickname, select Save a new account, and rescan all purchases once.</p></details></div>
+    <div class="library-import-description"><strong>Humble Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Only the active account is checked for ownership. Use Saved accounts below to switch back to a saved snapshot, then Import new purchases to refresh it. Rename account keeps its purchases and scan history. For a new account, sign in on the website, enter a new nickname, select Save a new account, and rescan all purchases once.</p></details></div>
     <div class="library-import-profile">
       <label>Account nickname <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
       <label><input type="checkbox" data-profile-confirm> The signed-in account matches this nickname</label>
