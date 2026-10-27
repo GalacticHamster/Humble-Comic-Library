@@ -1,0 +1,73 @@
+Humble Library
+Copyright (C) 2026 Galactic Hamster / Galactic Hamster LLC
+
+========================================================================
+1. Software License
+========================================================================
+
+The software in this repository (source code, build automation, test suites,
+and shared companion modules) is licensed under the GNU General Public
+License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version (GPL-3.0-or-later).
+
+See the LICENSE file for the complete terms of the GNU General Public
+License version 3.
+
+========================================================================
+2. Trademarks, Branding, and Project Identity
+========================================================================
+
+Pursuant to Section 7(e) of the GNU General Public License version 3, the
+license granted for the software does not grant rights under trademark law
+for use of trade names, trademarks, or service marks.
+
+The names "Humble Library", "Galactic Hamster", the Galactic Hamster logo,
+the original extension icons (icons/icon*.png), and promotional artwork are
+proprietary branding assets of Galactic Hamster and Galactic Hamster LLC. All
+rights in these marks and visual identities are reserved.
+
+Redistributors of the software under the GPLv3 must not use the project's
+original trademarks or branding in a manner that falsely implies endorsement,
+sponsorship, or official affiliation with Galactic Hamster LLC. Ordinary
+redistribution of the unaltered packaged extension containing these assets
+is permitted solely for software functionality.
+
+========================================================================
+3. Third-Party Trademarks and Non-Affiliation Disclaimer
+========================================================================
+
+"Humble Bundle", "Humble", and the Humble Bundle logo are trademarks or
+registered trademarks of Humble Bundle, Inc. (Ziff Davis / IGN).
+
+Humble Library is an independent, unofficial browser extension developed
+by Galactic Hamster LLC. It is not affiliated with, endorsed by, sponsored
+by, or in any way associated with Humble Bundle, Inc. or its parent companies.
+
+Any use of the "Humble Bundle" or "Humble" name, marks, or service names
+within this extension, its documentation, or its user interface is strictly
+for nominative identification of the commercial storefront and user
+account services supported by this software.
+
+========================================================================
+4. Extension Icons and Graphic Assets
+========================================================================
+
+The extension icons (icons/icon16.png through icons/icon128.png) were
+designed for Galactic Hamster to visually identify the extension when
+browsing Humble Bundle web pages.
+
+To the extent these icons incorporate stylistic references to Humble
+Bundle brand colorways or visual motifs for user recognition, such elements
+are distinguished from original software code and do not imply ownership of
+underlying third-party trademarks. The graphic icons are reserved branding
+assets and are not licensed as original GPLv3 code.
+
+========================================================================
+5. Interoperability with Galactic Library
+========================================================================
+
+Humble Library includes companion integration modules that communicate
+with the Galactic Library extension via standard, documented browser
+messaging protocols. Communication between independently developed
+extensions across browser runtime boundaries does not make either extension
+a derivative work of the other under copyright law.

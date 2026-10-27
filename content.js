@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Galactic Hamster / Galactic Hamster LLC
 const catalogueExpiryByOffer = new Map();
 const REDACTED_REDEMPTION_KEY_VALUE = '__HCL_REDACTED_REDEMPTION_KEY_VALUE__';
 const GALACTIC_LIBRARY_API_VERSION = 1;
