@@ -1,5 +1,6 @@
 Humble Library
-Copyright (C) 2026 Galactic Hamster / Galactic Hamster LLC
+Copyright (C) 2026 Galactic Hamster
+Published and distributed by Galactic Hamster LLC.
 
 ========================================================================
 1. Software License
@@ -22,15 +23,22 @@ license granted for the software does not grant rights under trademark law
 for use of trade names, trademarks, or service marks.
 
 The names "Humble Library", "Galactic Hamster", the Galactic Hamster logo,
-the original extension icons (icons/icon*.png), and promotional artwork are
-proprietary branding assets of Galactic Hamster and Galactic Hamster LLC. All
-rights in these marks and visual identities are reserved.
+and project visual identities are trademarks and branding assets of Galactic
+Hamster and Galactic Hamster LLC. All rights in these marks and visual
+identities are reserved.
 
-Redistributors of the software under the GPLv3 must not use the project's
-original trademarks or branding in a manner that falsely implies endorsement,
-sponsorship, or official affiliation with Galactic Hamster LLC. Ordinary
-redistribution of the unaltered packaged extension containing these assets
-is permitted solely for software functionality.
+Original runtime icons (icons/icon*.png) designed by Galactic Hamster are
+licensed under the GNU General Public License version 3 or later (GPL-3.0-or-later).
+However, trademark rights in the project name, logos, and trade dress remain
+reserved pursuant to Section 7(e). Redistributors of the software under the
+GPLv3 must not use the project's trademarks or branding in a manner that
+falsely implies endorsement, sponsorship, or official affiliation with
+Galactic Hamster LLC.
+
+Original promotional artwork and screenshots in store-assets/ are published
+for project promotion. To the extent promotional graphics depict third-party web
+storefronts, provider logos, or cover art, neither Galactic Hamster nor Galactic
+Hamster LLC claims any ownership over those embedded third-party materials.
 
 ========================================================================
 3. Third-Party Trademarks and Non-Affiliation Disclaimer
@@ -39,14 +47,14 @@ is permitted solely for software functionality.
 "Humble Bundle", "Humble", and the Humble Bundle logo are trademarks or
 registered trademarks of Humble Bundle, Inc. (Ziff Davis / IGN).
 
-Humble Library is an independent, unofficial browser extension developed
-by Galactic Hamster LLC. It is not affiliated with, endorsed by, sponsored
-by, or in any way associated with Humble Bundle, Inc. or its parent companies.
+Humble Library is an independent browser extension developed by Galactic Hamster
+and published by Galactic Hamster LLC. It is not affiliated with, endorsed by,
+sponsored by, or in any way associated with Humble Bundle, Inc. or its parent companies.
 
 Any use of the "Humble Bundle" or "Humble" name, marks, or service names
 within this extension, its documentation, or its user interface is strictly
-for nominative identification of the commercial storefront and user
-account services supported by this software.
+for service identification of the commercial storefront and user account
+services supported by this software.
 
 ========================================================================
 4. Extension Icons and Graphic Assets
@@ -56,11 +64,13 @@ The extension icons (icons/icon16.png through icons/icon128.png) were
 designed for Galactic Hamster to visually identify the extension when
 browsing Humble Bundle web pages.
 
+These original icons are authored by Galactic Hamster and licensed under the
+GNU General Public License version 3 or later (GPL-3.0-or-later).
+
 To the extent these icons incorporate stylistic references to Humble
 Bundle brand colorways or visual motifs for user recognition, such elements
-are distinguished from original software code and do not imply ownership of
-underlying third-party trademarks. The graphic icons are reserved branding
-assets and are not licensed as original GPLv3 code.
+do not imply ownership of underlying third-party trademarks. Trademark rights
+in project branding remain reserved under GPLv3 Section 7(e).
 
 ========================================================================
 5. Interoperability with Galactic Library
@@ -68,6 +78,12 @@ assets and are not licensed as original GPLv3 code.
 
 Humble Library includes companion integration modules that communicate
 with the Galactic Library extension via standard, documented browser
-messaging protocols. Communication between independently developed
-extensions across browser runtime boundaries does not make either extension
-a derivative work of the other under copyright law.
+messaging protocols.
+
+Humble Library and Galactic Library are independently developed and maintained.
+While communication between independently developed extensions across browser
+runtime boundaries does not normally create a derivative work under copyright
+law, each extension is distributed under its own license terms. Shared
+implementation code copied or synchronized across the companion repositories
+is original software licensed under the GNU General Public License version 3
+or later (GPL-3.0-or-later).

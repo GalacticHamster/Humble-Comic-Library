@@ -257,7 +257,9 @@ The release ZIP filenames retain `Humble-Comic-Library` for compatibility with e
 
 Humble Library is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (GPL-3.0-or-later). See [LICENSE](LICENSE) for the full license text.
 
-Copyright (C) 2026 Galactic Hamster / Galactic Hamster LLC.
+Copyright (C) 2026 Galactic Hamster
+Published and distributed by Galactic Hamster LLC.
 
-Original project branding, extension icons, and promotional artwork are reserved pursuant to GPLv3 Section 7(e). "Humble Bundle" and "Humble" are trademarks of Humble Bundle, Inc. Humble Library is an independent, unofficial project not affiliated with or endorsed by Humble Bundle, Inc. Complete notices and disclaimers are documented in [NOTICE](NOTICE).
+Original runtime icons (`icons/icon*.png`) are licensed under GPL-3.0-or-later. Project names, trademarks, and logos are reserved pursuant to GPLv3 Section 7(e). "Humble Bundle" and "Humble" are trademarks of Humble Bundle, Inc. Humble Library is an independent project not affiliated with or endorsed by Humble Bundle, Inc. Complete notices and disclaimers are documented in [NOTICE](NOTICE).
+
 
