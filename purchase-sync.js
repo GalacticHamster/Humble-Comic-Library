@@ -106,7 +106,7 @@
     const ours=(await accounts(p)).find(a=>a.stableId===proposal.localId),theirs=peer.accounts.find(a=>a.stableId===proposal.remoteId);
     if(!ours||!theirs||ours.fingerprint!==proof.setup.remoteFingerprint||theirs.fingerprint!==proof.setup.localFingerprint)throw Error('Saved accounts changed during setup. Connect again to review them.');
     if(ours.count&&theirs.count&&!proof.setup.sameAccount)throw Error('Confirm these are the same store account before combining saved purchases.');
-    const saved=await update(p,v=>{if(v&&(v.peerId!==sender.id||v.id!==proposal.id||v.localId!==proposal.localId||v.remoteId!==proposal.remoteId))throw Error('Disconnect the existing relationship before changing accounts.');return {...v,...proposal,peerId:sender.id,confirmed:true,remoteConfirmed:true,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,setup:null};});
+    const saved=await update(p,v=>{const replacement=proof.setup?.repair===true&&(v?.id??null)===proof.setup.replaceId&&(!v||v.peerId===sender.id);if(v&&(v.peerId!==sender.id||v.id!==proposal.id||v.localId!==proposal.localId||v.remoteId!==proposal.remoteId)&&!replacement)throw Error('The purchase-sync account relationship changed. Review repair again.');return {...v,...proposal,peerId:sender.id,confirmed:true,remoteConfirmed:true,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,setup:null};});
     await onActive(p);await schedule(p,saved);return {mapping:saved};
    }
 
@@ -126,21 +126,24 @@
   async function local(message){const p=message.provider;checkProvider(p);
    if(message.action==='syncState')return {state:(await read())[p]??null,accounts:await catalog(p)};
    if(message.action==='syncCreateAccount'){if(message.confirmed!==true)throw Error('Confirm creating a separate saved account.');const choices=await service.accounts(p),active=choices.find(a=>a.active);const data={protocolVersion:1,provider:p,snapshotId:crypto.randomUUID(),accountRef:crypto.randomUUID(),accountLabel:'',capturedAt:new Date(now()).toISOString(),scope:'historical',completeness:'partial',limitations:[],records:[]};await service.commit(data,{newLabel:message.newLabel,expectedActiveLabel:active?.label??'',expectedActiveId:active?.accountRef??null});return {accounts:await catalog(p)};}
-   if(message.action==='syncChoices'){const linked=await service.local({action:'connection',provider:p,peerId:message.peerId}),peerId=linked.peerId,r=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});return {peerId,accounts:await accounts(p),remoteAccounts:r.accounts,state:(await read())[p]??null};}
+   if(message.action==='syncChoices'){const linked=await service.local({action:'connection',provider:p,peerId:message.peerId}),peerId=linked.peerId,r=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});return {peerId,accounts:await accounts(p),remoteAccounts:r.accounts,remoteRelationshipId:r.mapping?.id??null,state:(await read())[p]??null};}
    if(message.action==='syncDisconnect'){const s=(await read())[p];await update(p,()=>null);await alarms?.clear(ALARM+p);if(s)try{await service.request(s.peerId,{type:PREFIX+'DISCONNECT',provider:p,id:s.id});}catch{}return {};}
-   if(message.action==='syncConnect'){
+   if(message.action==='syncConnect'||message.action==='syncRepair'){
+    const repairing=message.action==='syncRepair';
     if(message.confirmed!==true)throw Error('Confirm connecting and ongoing synchronization first.');
     const linked=await service.local({action:'connection',provider:p,peerId:message.peerId}),peerId=linked.peerId,rows=await accounts(p),r=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});
     const localId=message.localId??(rows.length===1?rows[0].stableId:null),remoteId=message.remoteId??(r.accounts.length===1?r.accounts[0].stableId:null),ours=rows.find(a=>a.stableId===localId),theirs=r.accounts.find(a=>a.stableId===remoteId);
     if(!ours||!theirs)throw Error('Multiple saved accounts need an explicit choice in Advanced.');
-    const current=(await read())[p];if(current&&(current.peerId!==peerId||current.localId!==localId||current.remoteId!==remoteId))throw Error('Disconnect the previous relationship before choosing different accounts.');
+    const current=(await read())[p];
+    if(repairing&&((current?.id??null)!==message.expectedId||(r.mapping?.id??null)!==message.expectedRemoteId||ours.fingerprint!==message.localFingerprint||theirs.fingerprint!==message.remoteFingerprint))throw Error('The accounts or connection changed. Review repair again.');
+    if(!repairing&&current&&(current.peerId!==peerId||current.localId!==localId||current.remoteId!==remoteId))throw Error('Repair the connection before choosing different accounts.');
     const verified=current?.confirmed&&current.remoteConfirmed&&r.mapping?.confirmed&&r.mapping.id===current.id;
     if(!verified&&ours.count&&theirs.count&&message.sameAccount!==true)throw Error('Confirm these are the same store account before combining saved purchases.');
-    const setup={ticket:crypto.randomUUID(),localFingerprint:ours.fingerprint,remoteFingerprint:theirs.fingerprint,sameAccount:message.sameAccount===true};
-    let state=await update(p,v=>({...v,id:v?.id??crypto.randomUUID(),peerId,localId,remoteId,confirmed:true,remoteConfirmed:false,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,setup}));
+    const setup={ticket:crypto.randomUUID(),localFingerprint:ours.fingerprint,remoteFingerprint:theirs.fingerprint,sameAccount:message.sameAccount===true,...(repairing?{repair:true,replaceId:r.mapping?.id??null}:{})};
+    let state=await update(p,v=>{if(repairing&&(v?.id??null)!==message.expectedId)throw Error('The connection changed. Review repair again.');return {...v,id:repairing?crypto.randomUUID():v?.id??crypto.randomUUID(),peerId,localId,remoteId,confirmed:true,remoteConfirmed:false,peerVerified:false,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,error:null,errorCode:null,inFlight:null,pair:repairing?null:v?.pair,setup};});
     let accepted;try{accepted=await service.request(peerId,{type:PREFIX+'ACCEPT',provider:p,mapping:{id:state.id,localId:state.remoteId,remoteId:state.localId},ticket:setup.ticket});}catch(error){await update(p,v=>v?.id===state.id?{...v,status:'attention',error:'Connection setup did not complete: '+error.message}:v);throw error;}
     if(!accepted.mapping?.confirmed||accepted.mapping.id!==state.id)throw Error('Connection was not approved. Update both extensions and try again.');
-    state=await update(p,v=>{if(!v?.confirmed||v.id!==state.id||v.setup?.ticket!==setup.ticket)throw Error('Setup was cancelled or replaced.');return {...v,remoteConfirmed:true,setup:null};});
+    state=await update(p,v=>{if(!v?.confirmed||v.id!==state.id||v.setup?.ticket!==setup.ticket)throw Error('Setup was cancelled or replaced.');return {...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null};});
     await onActive(p);await schedule(p,state);return {state};
    }
    if(message.action==='syncNow'){await reconnect(p);await mark(p);if(central)return run(p);return {state:(await read())[p]};}
