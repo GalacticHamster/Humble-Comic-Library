@@ -49,3 +49,9 @@ If a saved account or permission was replaced, choose **Repair connection** in P
 ## Routine imports
 
 Account naming is optional. A first import uses a default saved account, and routine updates reuse the selected account without repeatedly asking for a nickname or checkbox confirmation. HB and FAN do not verify which website user is signed in: if you change website accounts, use Saved accounts or Advanced accounts first. Add another account explicitly with a full scan; rename an existing account through its Rename action. These actions preserve separate account identities and import histories. GL keeps verified console-account checks in place.
+
+## Lifecycle and connection reports
+
+Restoring or clearing a library turns off its automatic purchase-sync permission before another transfer can save. Removing a mapped GL account retires that connection along with its records; other accounts and integrations stay separate. The other extension is notified when reachable, but a failed notification does not undo a completed local operation. Reset import history only resets the scan baseline; it is not clearing purchases or granting sync permission.
+
+In Purchase sync, open **Advanced: accounts and diagnostics**, choose **Check sync connection**, then **Export connection report**. This read-only check reports pairing, purchase permission, mapped-account availability, verified peer confirmation, last success, pending work, failure category and the next recovery action. The export omits raw account IDs, purchase lists and website credentials. It describes the connection when checked, not a guarantee about later changes.

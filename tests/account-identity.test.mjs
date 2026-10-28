@@ -20,3 +20,11 @@ test('R3 unnamed first import and repeated updates reuse one stable account with
  await assert.rejects(store.execute('begin',[{reuseAccount:true,accountId:id(),profileLabel:a.label},17]),/changed/);
  await assert.rejects(store.execute('begin',[{reuseAccount:true,accountId:a.stableId,profileLabel:'Cosmetic edit'},17]),/Rename/);
 });
+
+test('R4 restoring account lineage revokes permission before best-effort peer notification',async()=>{
+ const m=memory({[label]:'A',[active]:id(),[archives]:[]}),events=[],store=create(m.area,{onInvalidated:retired=>{assert.deepEqual(m.saved.galacticPurchaseSync,{});events.push(...retired);throw Error('Offline peer');}});
+ const a=(await store.execute('syncAccounts'))[0],backup=role==='hb'?H.createLibraryBackup(m.saved):await store.execute('backup');
+ m.saved.galacticPurchaseSync={[role==='hb'?'humble':'fanatical']:{id:'old',peerId:'gl',localId:a.stableId,confirmed:true,remoteConfirmed:true}};
+ await store.execute(role==='hb'?'replace':'restore',[role==='hb'?H.restoreBackupState(backup):backup]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(m.saved[active],a.stableId);assert.deepEqual(m.saved.galacticPurchaseSync,{});assert.equal(events[0].id,'old');
+});

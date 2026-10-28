@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Galactic Hamster
 /* Opening review uses Chrome's trusted options route, not a page-supplied URL. */
 if (typeof importScripts === 'function') importScripts('purchase-snapshot.js','purchase-transfer.js','purchase-sync.js','purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js');
-const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local);
+const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local,{onInvalidated:events=>purchaseSync.notifyInvalidated(events)});
 const appearanceService=GalacticHamsterTheme.createService({runtime:chrome.runtime,companion:true,
   read:async()=>{const value=await chrome.storage.local.get({galacticHamsterAppearance:null});return value.galacticHamsterAppearance;},
   save:prefs=>libraryStore.execute('patch',[{galacticHamsterAppearance:prefs}]),

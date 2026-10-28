@@ -857,7 +857,7 @@
     });}
     return {libraryItems:enrich(state.libraryItems,false),historicalLibraryItems:enrich(state.historicalLibraryItems??[],true),stats,details};
   }
-  function createSyncStore(area) {
+  function createSyncStore(area,{onInvalidated=()=>{}}={}) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
@@ -971,8 +971,8 @@
         }
       }
       if(operation==='replace'){
-        const replacement=restoreBackupState(createLibraryBackup(args[0]));
-        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+        const replacement=restoreBackupState(createLibraryBackup(args[0]));const retirement=await globalThis.GalacticPurchaseSync?.retirementPatch(area);
+        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       if(operation==='shareSnapshot'){
         const [profileLabel]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);if(!profileLabel||state.humbleProfileLabel!==profileLabel)throw new Error('The active Humble profile changed. Refresh before sharing.');
@@ -1092,7 +1092,8 @@
         const keys=args[0];if(!Array.isArray(keys))throw new Error('Invalid removal.');
         const clear=keys.includes('libraryItems');
         if(!clear&&keys.some(key=>!['hclPurchaseFocus','galacticLibraryExtensionId'].includes(key)))throw new Error('Unsupported removal.');
-        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey]:keys);return true;
+        const retirement=clear?await globalThis.GalacticPurchaseSync?.retirementPatch(area):null;
+        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey]:keys);Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       throw new Error('Unsupported library operation.');
     }

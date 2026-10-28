@@ -39,6 +39,13 @@
  }
  const retryable=code=>['transport','transport-exhausted','source-busy'].includes(code);
  const needsRepair=s=>Boolean(s?.status==='attention'&&!retryable(s.errorCode??failureKind(s.error)));
+ async function retirementPatch(area,{provider=null,localId=null}={}){
+  const saved=(await area.get({[KEY]:{}}))[KEY],next={...saved},retired=[];
+  for(const p of providers){const s=saved[p];if(provider&&p!==provider||localId&&s?.localId!==localId)continue;
+   delete next[p];if(s?.id&&s.peerId)retired.push({provider:p,id:s.id,peerId:s.peerId});
+  }
+  return {patch:{[KEY]:next},retired};
+ }
  function mapping(raw){if(!raw||Object.keys(raw).some(k=>!['id','localId','remoteId'].includes(k))||![raw.id,raw.localId,raw.remoteId].every(validId))throw Error('Invalid account relationship.');return raw;}
  function createCoordinator({runtime,area,alarms,service,role,catalog,ensureAccount=async()=>{},busy=async()=>false,now=()=>Date.now(),coalesceMs=750,onActive=async()=>{}}){
   const central=role==='gl',supported=central?providers:[role==='hb'?'humble':'fanatical'];let tail=Promise.resolve(),cycleTail=Promise.resolve(),timer;const jobs=new Map();
@@ -95,6 +102,7 @@
   }
   function run(provider){if(jobs.has(provider))return jobs.get(provider);let expected;const job=cycleTail.then(async()=>{expected=(await read())[provider]?.id;return cycle(provider);}).catch(async error=>{const s=(await read())[provider];if(s?.confirmed&&s.id===expected)await retry(provider,s,error);return {error:error.message};}).finally(()=>jobs.delete(provider));cycleTail=job.catch(()=>{});jobs.set(provider,job);return job;}
   async function external(message,sender){checkProvider(message.provider);const p=message.provider;
+   if(message.type===PREFIX+'DIAGNOSTICS')return {accounts:await catalog(p),mapping:await consent(p)};
    if(message.type===PREFIX+'ACCOUNTS')return {accounts:await accounts(p),mapping:await consent(p)};
    if(message.type===PREFIX+'CONSENT')return {mapping:await consent(p)};
    if(message.type===PREFIX+'ACCEPT'){
@@ -124,6 +132,13 @@
    throw Error('Unsupported synchronization operation.');
   }
   async function local(message){const p=message.provider;checkProvider(p);
+   if(message.action==='syncDiagnostics'){
+    const state=(await read())[p]??null,ours=await catalog(p);let linked=false,other=null,problem=null;
+    try{const peer=await service.resolvePeer(p,state?.peerId);await service.request(peer,{type:'GH_PURCHASE_CAPABILITIES',provider:p});linked=true;other=await service.request(peer,{type:PREFIX+'DIAGNOSTICS',provider:p});}catch(error){problem=failureKind(error);}
+    const localAccountPresent=Boolean(state&&ours.some(a=>a.stableId===state.localId)),remoteAccountPresent=Boolean(state&&other?.accounts?.some(a=>a.stableId===state.remoteId));
+    const verified=Boolean(state?.confirmed&&other?.mapping?.confirmed&&other.mapping.id===state.id&&other.mapping.localId===state.remoteId&&other.mapping.remoteId===state.localId&&localAccountPresent&&remoteAccountPresent);
+    return {report:{format:1,provider:p,checkedAt:new Date(now()).toISOString(),pairingAvailable:linked,localPurchasePermission:Boolean(state?.confirmed),remotePurchasePermission:Boolean(state&&other?.mapping?.confirmed&&other.mapping.id===state.id&&other.mapping.localId===state.remoteId&&other.mapping.remoteId===state.localId),localAccountPresent,remoteAccountPresent,verifiedPeerConfirmation:verified,localAccountCount:ours.length,remoteAccountCount:other?.accounts?.length??null,lastSuccess:state?.lastSuccess??null,pending:Boolean(state?.pending),failureCode:problem??(state&&(!localAccountPresent||!remoteAccountPresent)?'missing-account':state&&!verified?'consent-required':state?.errorCode??(state?.error?failureKind(state.error):null)),recoveryAction:!state?'connect':verified?'sync':linked?'repair':'check-pairing'}};
+   }
    if(message.action==='syncState')return {state:(await read())[p]??null,accounts:await catalog(p)};
    if(message.action==='syncCreateAccount'){if(message.confirmed!==true)throw Error('Confirm creating a separate saved account.');const choices=await service.accounts(p),active=choices.find(a=>a.active);const data={protocolVersion:1,provider:p,snapshotId:crypto.randomUUID(),accountRef:crypto.randomUUID(),accountLabel:'',capturedAt:new Date(now()).toISOString(),scope:'historical',completeness:'partial',limitations:[],records:[]};await service.commit(data,{newLabel:message.newLabel,expectedActiveLabel:active?.label??'',expectedActiveId:active?.accountRef??null});return {accounts:await catalog(p)};}
    if(message.action==='syncChoices'){const linked=await service.local({action:'connection',provider:p,peerId:message.peerId}),peerId=linked.peerId,r=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});return {peerId,accounts:await accounts(p),remoteAccounts:r.accounts,remoteRelationshipId:r.mapping?.id??null,state:(await read())[p]??null};}
@@ -164,10 +179,11 @@
   async function configurationChanged(p){const s=(await read())[p];if(!s?.confirmed)return;await update(p,v=>v?.id===s.id?{...v,remoteConfirmed:false,pending:true,status:'attention',error:'The Galactic Library connection changed. Restore its connection or choose a new account relationship.',epoch:(v.epoch??0)+1}:v);await alarms?.clear(ALARM+p);try{await service.request(s.peerId,{type:PREFIX+'SUSPEND',provider:p,id:s.id});}catch{}if(await service.resolvePeer(p,s.peerId)===s.peerId){await update(p,v=>v?.id===s.id?{...v,status:'pending',error:null,errorCode:null}:v);await startup();}}
   async function startup(){for(const p of supported){let s=(await read())[p];if(!s?.confirmed||needsRepair(s))continue;try{await reconnect(p);s=(await read())[p];if(s?.remoteConfirmed){await onActive(p);await update(p,v=>({...v,pending:true,status:'pending'}));await mark(p);}}catch(error){await retry(p,s,error);}}}
   function register(){service.setSync({external,local});alarms?.onAlarm?.addListener(alarm=>{if(alarm.name.startsWith(ALARM)){const p=alarm.name.slice(ALARM.length);if(supported.includes(p))run(p).catch(()=>{});}});runtime.onStartup?.addListener(()=>startup().catch(()=>{}));runtime.onInstalled?.addListener(()=>startup().catch(()=>{}));startup().catch(()=>{});}
-  return {register,mark,run,local,external,accounts,startup,configurationChanged,dispose(){clearTimeout(timer);}};
+  async function notifyInvalidated(events){for(const event of events)try{await service.request(event.peerId,{type:PREFIX+'DISCONNECT',provider:event.provider,id:event.id});}catch{}}
+  return {register,mark,run,local,external,accounts,startup,configurationChanged,notifyInvalidated,dispose(){clearTimeout(timer);}};
  }
  // Compare committed purchase data, excluding bookkeeping and display labels.
  function meaningful(value){if(Array.isArray(value))return value.map(meaningful);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([k])=>!['observedAt','updatedAt','importedAt','archivedAt','lastSync','profileLabel','nickname','localScanState'].includes(k)).map(([k,v])=>[k,meaningful(v)]));return value;}
  function observeCompanion(chrome,coordinator,provider,keys,control){let deferred=false;chrome.storage.onChanged?.addListener((changes,area)=>{if(area!=='local')return;if(changes.galacticLibraryExtensionId&&changes.galacticLibraryExtensionId.oldValue!==changes.galacticLibraryExtensionId.newValue)coordinator.configurationChanged?.(provider).catch(()=>{});const changed=keys.some(k=>changes[k]&&stable(meaningful(changes[k].oldValue))!==stable(meaningful(changes[k].newValue)));if(!changed&&!(deferred&&changes[control]&&!changes[control].newValue))return;chrome.storage.local.get({[control]:null}).then(state=>{if(state[control]){deferred=true;return;}deferred=false;return coordinator.mark(provider);}).catch(()=>{});});}
- root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,accountUuid,migrateAccounts,failureKind,retryable,needsRepair,assertCommit,meaningful,observeCompanion,createCoordinator});
+ root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,accountUuid,migrateAccounts,failureKind,retryable,needsRepair,retirementPatch,assertCommit,meaningful,observeCompanion,createCoordinator});
 })(globalThis);
