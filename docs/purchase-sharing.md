@@ -41,3 +41,5 @@ Developer UI policy: prefer ASCII control, navigation, status and button text; w
 Saved Humble and Fanatical accounts carry a stable local account ID with their purchase data. Existing valid IDs migrate automatically without changing purchases or a working purchase-sync relationship. Names and purchase updates do not change this ID. Older accounts without recoverable identity receive a new ID and may need connection repair; names and common purchases never establish identity.
 
 Backups may retain account lineage, but restoring them resets automatic purchase-sync permission. Restored IDs do not grant permission to resume sharing. Private incremental scan authority remains separate. Conflicting or duplicate account identities are rejected rather than merging accounts.
+
+Temporary connection failures retry within bounded limits. New committed purchases can restart a transport-exhausted check. Missing accounts, revoked purchase-sync permission and conflicting relationships stop automatic retries until repaired; restarting the extension does not repeatedly propose an obsolete account. Saved setup history is distinct from currently verified peer permission.
