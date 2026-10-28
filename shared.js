@@ -971,7 +971,7 @@
         }
       }
       if(operation==='replace'){
-        const replacement=restoreBackupState(createLibraryBackup(args[0]));const retirement=await globalThis.GalacticPurchaseSync?.retirementPatch(area);
+        const parsed=restoreBackupState(createLibraryBackup(args[0])),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',parsed):parsed;const retirement=await globalThis.GalacticPurchaseSync?.retirementPatch(area);
         await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       if(operation==='shareSnapshot'){

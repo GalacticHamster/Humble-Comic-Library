@@ -28,3 +28,15 @@ test('R4 restoring account lineage revokes permission before best-effort peer no
  await store.execute(role==='hb'?'replace':'restore',[role==='hb'?H.restoreBackupState(backup):backup]);await new Promise(resolve=>setImmediate(resolve));
  assert.equal(m.saved[active],a.stableId);assert.deepEqual(m.saved.galacticPurchaseSync,{});assert.equal(events[0].id,'old');
 });
+
+test('legacy restore assigns new lineage in its atomic replacement, never borrowing the replaced identity',async()=>{
+ const prior=id(),m=memory({[label]:'Old',[active]:prior,[archives]:[]}),store=create(m.area);
+ const backup=role==='hb'?H.createLibraryBackup({...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'Restored'}):{schemaVersion:2,profileLabel:'Restored',profileArchives:[],items:[]};
+ await store.execute(role==='hb'?'replace':'restore',[role==='hb'?H.restoreBackupState(backup):backup]);
+ assert(Y.accountUuid(m.saved[active]));assert.notEqual(m.saved[active],prior);const restored=m.saved[active];
+ await store.execute('syncAccounts');assert.equal(m.saved[active],restored);assert.deepEqual(m.saved.galacticPurchaseSync,{});
+});
+test('ambiguous duplicate account names stop migration without merging overlapping datasets',async()=>{
+ const m=memory({[label]:'Same',[active]:id(),[archives]:[archive('Same',id())]}),before=structuredClone(m.saved);
+ await assert.rejects(Y.migrateAccounts(m.area,role),/duplicate names/);assert.deepEqual(m.saved,before);
+});

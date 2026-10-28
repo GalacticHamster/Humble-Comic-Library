@@ -22,6 +22,13 @@
   // Removal is restart-safe: embedded IDs win if the process stops before this.
   if(old!==null&&area.remove)await area.remove([REGISTRY]);
  }
+ async function restoredAccounts(role,value){
+  // Generate missing lineage in the replacement transaction, never borrowing
+  // identity or consent from the dataset being replaced.
+  const state={...value,[REGISTRY]:null};
+  await migrateAccounts({get:async defaults=>({...defaults,...state}),set:async patch=>Object.assign(state,patch)},role);
+  delete state[REGISTRY];return state;
+ }
  async function assertCommit(area,provider,target,accountId){if(!target?.autoSync)return;const saved=(await area.get({[KEY]:{}}))[KEY][provider],expected=target.autoSync;if(!saved?.confirmed||!saved.remoteConfirmed||saved.id!==expected.id||saved.peerId!==expected.peerId||saved.localId!==expected.localId||saved.localId!==accountId)throw Error('Automatic synchronization consent or destination account changed before saving.');}
  const validId=id=>typeof id==='string'&&id.length>0&&id.length<=128;
  function failureKind(error){
@@ -40,7 +47,7 @@
  const retryable=code=>['transport','transport-exhausted','source-busy'].includes(code);
  const needsRepair=s=>Boolean(s?.status==='attention'&&!retryable(s.errorCode??failureKind(s.error)));
  async function retirementPatch(area,{provider=null,localId=null}={}){
-  const saved=(await area.get({[KEY]:{}}))[KEY],next={...saved},retired=[];
+  const saved=(await area.get({[KEY]:{}}))[KEY],next=provider?{...saved}:{},retired=[];
   for(const p of providers){const s=saved[p];if(provider&&p!==provider||localId&&s?.localId!==localId)continue;
    delete next[p];if(s?.id&&s.peerId)retired.push({provider:p,id:s.id,peerId:s.peerId});
   }
@@ -153,7 +160,7 @@
     if(repairing&&((current?.id??null)!==message.expectedId||(r.mapping?.id??null)!==message.expectedRemoteId||ours.fingerprint!==message.localFingerprint||theirs.fingerprint!==message.remoteFingerprint))throw Error('The accounts or connection changed. Review repair again.');
     if(!repairing&&current&&(current.peerId!==peerId||current.localId!==localId||current.remoteId!==remoteId))throw Error('Repair the connection before choosing different accounts.');
     const verified=current?.confirmed&&current.remoteConfirmed&&r.mapping?.confirmed&&r.mapping.id===current.id;
-    if(!verified&&ours.count&&theirs.count&&message.sameAccount!==true)throw Error('Confirm these are the same store account before combining saved purchases.');
+    if((repairing||!verified)&&ours.count&&theirs.count&&message.sameAccount!==true)throw Error('Confirm these are the same store account before combining saved purchases.');
     const setup={ticket:crypto.randomUUID(),localFingerprint:ours.fingerprint,remoteFingerprint:theirs.fingerprint,sameAccount:message.sameAccount===true,...(repairing?{repair:true,replaceId:r.mapping?.id??null}:{})};
     let state=await update(p,v=>{if(repairing&&(v?.id??null)!==message.expectedId)throw Error('The connection changed. Review repair again.');return {...v,id:repairing?crypto.randomUUID():v?.id??crypto.randomUUID(),peerId,localId,remoteId,confirmed:true,remoteConfirmed:false,peerVerified:false,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,error:null,errorCode:null,inFlight:null,pair:repairing?null:v?.pair,setup};});
     let accepted;try{accepted=await service.request(peerId,{type:PREFIX+'ACCEPT',provider:p,mapping:{id:state.id,localId:state.remoteId,remoteId:state.localId},ticket:setup.ticket});}catch(error){await update(p,v=>v?.id===state.id?{...v,status:'attention',error:'Connection setup did not complete: '+error.message}:v);throw error;}
@@ -161,7 +168,7 @@
     state=await update(p,v=>{if(!v?.confirmed||v.id!==state.id||v.setup?.ticket!==setup.ticket)throw Error('Setup was cancelled or replaced.');return {...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null};});
     await onActive(p);await schedule(p,state);return {state};
    }
-   if(message.action==='syncNow'){await reconnect(p);await mark(p);if(central)return run(p);return {state:(await read())[p]};}
+   if(message.action==='syncNow'){try{await reconnect(p);}catch(error){const state=(await read())[p];if(state?.confirmed)await retry(p,state,error);throw error;}await mark(p);if(central)return run(p);return {state:(await read())[p]};}
    throw Error('Unsupported synchronization action.');
   }
   async function reconnect(p){
@@ -185,5 +192,5 @@
  // Compare committed purchase data, excluding bookkeeping and display labels.
  function meaningful(value){if(Array.isArray(value))return value.map(meaningful);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([k])=>!['observedAt','updatedAt','importedAt','archivedAt','lastSync','profileLabel','nickname','localScanState'].includes(k)).map(([k,v])=>[k,meaningful(v)]));return value;}
  function observeCompanion(chrome,coordinator,provider,keys,control){let deferred=false;chrome.storage.onChanged?.addListener((changes,area)=>{if(area!=='local')return;if(changes.galacticLibraryExtensionId&&changes.galacticLibraryExtensionId.oldValue!==changes.galacticLibraryExtensionId.newValue)coordinator.configurationChanged?.(provider).catch(()=>{});const changed=keys.some(k=>changes[k]&&stable(meaningful(changes[k].oldValue))!==stable(meaningful(changes[k].newValue)));if(!changed&&!(deferred&&changes[control]&&!changes[control].newValue))return;chrome.storage.local.get({[control]:null}).then(state=>{if(state[control]){deferred=true;return;}deferred=false;return coordinator.mark(provider);}).catch(()=>{});});}
- root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,accountUuid,migrateAccounts,failureKind,retryable,needsRepair,retirementPatch,assertCommit,meaningful,observeCompanion,createCoordinator});
+ root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,accountUuid,migrateAccounts,restoredAccounts,failureKind,retryable,needsRepair,retirementPatch,assertCommit,meaningful,observeCompanion,createCoordinator});
 })(globalThis);
