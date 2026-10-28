@@ -3,15 +3,15 @@
  const pick=(value,provider)=>S.metadata(Object.fromEntries(S.fields.filter(key=>value?.[key]!==undefined&&value[key]!==null&&value[key]!==''&&(!Array.isArray(value[key])||value[key].length)).map(key=>[key,value[key]])),provider);
  const glSnapshotMediaType=kind=>kind==='comic'?'book':['book','audiobook','game','software','audio','elearning','other'].includes(kind)?kind:'other';
  async function descriptor(provider,label,items){return {accountRef:await S.hash(JSON.stringify([provider,label,items])),label,count:items.length};}
- function hbScopes(state){return [{label:state.humbleProfileLabel??'',items:state.libraryItems??[],state},...(state.profileArchives??[]).map(a=>({label:a.profileLabel,items:a.backup.items,state:root.HumbleComicLibrary.restoreBackupState({...a.backup,profileArchives:[]})}))];}
- function fanScopes(state){return [{label:state.fanaticalProfileLabel??'',items:state.fanaticalLibraryItems??[],state},...(state.fanaticalProfileArchives??[]).map(a=>({label:a.profileLabel,items:a.items,state:a}))];}
+ function hbScopes(state){return [{stableId:state.humbleAccountId,label:state.humbleProfileLabel??'',items:state.libraryItems??[],state},...(state.profileArchives??[]).map(a=>({stableId:a.backup.accountId,label:a.profileLabel,items:a.backup.items,state:root.HumbleComicLibrary.restoreBackupState({...a.backup,profileArchives:[]})}))];}
+ function fanScopes(state){return [{stableId:state.fanaticalAccountId,label:state.fanaticalProfileLabel??'',items:state.fanaticalLibraryItems??[],state},...(state.fanaticalProfileArchives??[]).map(a=>({stableId:a.accountId,label:a.profileLabel,items:a.items,state:a}))];}
  const scopes=(role,state)=>role==='hb'?hbScopes(state):fanScopes(state);
  async function accounts(role,state){return Promise.all(scopes(role,state).map(async (value,index)=>{
  const details=await descriptor(role==='hb'?'humble':'fanatical',value.label,value.items),limitations=[];
  const eligible=value.items.filter(item=>role==='hb'?(item.provenance?.length?item.provenance:[item]).some(p=>p.purchaseKey):/^[A-Za-z0-9_-]{6,128}$/u.test(item.sourceItemId??''));
  const missing=value.items.length-eligible.length;if(missing)limitations.push(missing+' saved items do not have enough purchase information to share.');
  if(role==='hb'){const legacy=eligible.filter(item=>!(item.provenance?.length?item.provenance:[item]).some(p=>p.providerItemId||p.entitlementId||item.providerItemId)).length;if(legacy)limitations.push(legacy+' older saved items lack purchase identifiers. Preview a transfer to see which existing purchases could receive more information; items that cannot be matched are skipped.');}
- return {...details,active:index===0,eligibleCount:eligible.length,limitations};}));}
+ return {...details,stableId:value.stableId,active:index===0,eligibleCount:eligible.length,limitations};}));}
  async function selected(role,state,ref){for(const value of scopes(role,state))if((await descriptor(role==='hb'?'humble':'fanatical',value.label,value.items)).accountRef===ref)return value;throw Error('Saved account data changed. Refresh the account choices and confirm again.');}
  async function snapshot(role,state,ref){const scope=await selected(role,state,ref),provider=role==='hb'?'humble':'fanatical',records=[],limitations=[];
  if(role==='hb'){

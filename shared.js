@@ -553,7 +553,7 @@
   const LIBRARY_STATE_DEFAULTS = {
     libraryItems: [], purchaseSummaries: [], customCollectionMappings: [],
     keyReminders: [], keyReminderScan: null, lastImport: null, mediaImportVersion: 1,
-    historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], mediaTypeOverrides: {}, rejectedPurchaseItems: []
+    historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', humbleAccountId: null, profileArchives: [], mediaTypeOverrides: {}, rejectedPurchaseItems: []
   };
 
   function backupRecord(value, fields, label, required = []) {
@@ -721,13 +721,15 @@
       }
       return rec;
     });
-    return { libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems };
+    if(value.accountId!=null&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(value.accountId))throw Error('Invalid saved account identity.');
+    const ids=[value.accountId,...profileArchives.map(a=>a.backup.accountId)].filter(Boolean).map(id=>id.toLowerCase());if(new Set(ids).size!==ids.length)throw Error('Duplicate saved account identity.');
+    return { humbleAccountId:value.accountId??null, libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems };
   }
 
   function createLibraryBackup(state, exportedAt = new Date().toISOString()) {
     const saved = { ...LIBRARY_STATE_DEFAULTS, ...state };
     return {
-      version: BACKUP_VERSION, exportedAt, items: saved.libraryItems, purchases: saved.purchaseSummaries,
+      version: BACKUP_VERSION, ...(saved.humbleAccountId?{accountId:saved.humbleAccountId}:{}), exportedAt, items: saved.libraryItems, purchases: saved.purchaseSummaries,
       collectionMappings: saved.customCollectionMappings, keyReminders: saved.keyReminders,
       keyReminderScan: saved.keyReminderScan, lastImport: saved.lastImport, mediaImportVersion: saved.mediaImportVersion,
       historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries, profileLabel:saved.humbleProfileLabel, profileArchives:saved.profileArchives,
@@ -860,9 +862,10 @@
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
     async function operate(operation,args){
+      if(['syncAccounts','begin','selectProfile','renameProfile'].includes(operation))await globalThis.GalacticPurchaseSync?.migrateAccounts(area,'hb');
       if(operation==='syncAccounts'){
-      const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state),saved=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;
-      const result=globalThis.GalacticPurchaseSync.registry(rows,saved);if(Object.keys(result.patch).length)await area.set(result.patch);return result.accounts;
+      const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state);
+      return rows;
     }
     if(['handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(operation)){
         const A=globalThis.GalacticPurchaseAdapters,S=globalThis.GalacticPurchaseSnapshot,state=await area.get(LIBRARY_STATE_DEFAULTS);
@@ -872,9 +875,9 @@
         const [raw,target]=args,data=S.validate(raw);if(data.provider!=='humble')throw Error('Wrong purchase provider.');
         if(operation!=='handoffPreview'&&(await area.get({[controlKey]:null}))[controlKey])throw Error('Wait for the Humble scan to finish before importing saved purchases.');
         let scope;
-        if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label},fresh:true};}
+        if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label,humbleAccountId:global.crypto.randomUUID()},fresh:true};}
         else scope=await A.selected('hb',state,target?.accountRef);
-      if(operation==='handoffImport'&&target?.autoSync){const ids=(await area.get({galacticPurchaseAccountIds:{}})).galacticPurchaseAccountIds;await globalThis.GalacticPurchaseSync.assertCommit(area,data.provider,target,ids[scope.label]);}
+      if(operation==='handoffImport'&&target?.autoSync){const accountId=scope.state.humbleAccountId;await globalThis.GalacticPurchaseSync.assertCommit(area,data.provider,target,accountId);}
         const result=A.hbMerge(scope.items,data.records,Boolean(target?.autoSync));
         if(operation==='handoffPreview'){
           const hi=scope.fresh?await A.inventory({role:'hb',accountRef:'new-account-preview',accountLabel:scope.label,currentCount:0,historicalCount:0,observations:[]}):await A.hbInventory(state,target.accountRef),gi=await A.inventory({role:'gl',accountRef:data.accountRef,accountLabel:data.accountLabel,currentCount:data.records.length,historicalCount:0,observations:data.records.map((r,index)=>({rowRef:'current:'+index,status:'current',title:r.title,mediaType:r.mediaType,purchaseId:r.metadata.purchaseId,providerItemId:r.providerItemId,entitlement:r.metadata.entitlement,bundle:r.metadata.sourceBundle,purchasedAt:r.purchasedAt}))}),comparison=hi?A.reconcileInventories(hi,gi):null;
@@ -884,7 +887,7 @@
         const next={...scope.state,libraryItems:result.items,purchaseSummaries:[...purchases.values()],profileArchives:[]};
         const clean=restoreBackupState(createLibraryBackup(next));
         if(!result.stats.added&&!result.stats.updated&&!scope.fresh&&clean.purchaseSummaries.length===(scope.state.purchaseSummaries??[]).length)return result.stats;
-        if(scope.label===state.humbleProfileLabel||!state.humbleProfileLabel&&!state.libraryItems.length)await area.set({libraryItems:clean.libraryItems,purchaseSummaries:clean.purchaseSummaries,humbleProfileLabel:scope.label,[shareScopeKey]:null});
+        if(scope.label===state.humbleProfileLabel||!state.humbleProfileLabel&&!state.libraryItems.length)await area.set({libraryItems:clean.libraryItems,purchaseSummaries:clean.purchaseSummaries,humbleProfileLabel:scope.label,humbleAccountId:scope.state.humbleAccountId,[shareScopeKey]:null});
         else {const archives=state.profileArchives.filter(p=>p.profileLabel!==scope.label);archives.push({profileLabel:scope.label,backup:createLibraryBackup({...next,profileArchives:[]})});if(archives.length>100)throw Error('Too many saved accounts.');await area.set({profileArchives:archives,[shareScopeKey]:null});}
         return result.stats;
       }
@@ -905,7 +908,7 @@
           if(next===label)return true;
           if(next===state.humbleProfileLabel||state.profileArchives.some(entry=>entry.profileLabel===next))throw new Error('That account nickname is already in use.');
           const archives=state.profileArchives.map(entry=>entry.profileLabel===label?{profileLabel:next,backup:{...entry.backup,profileLabel:next}}:entry);
-          await area.set({...await globalThis.GalacticPurchaseSync?.renamePatch(area,label,next),profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
+          await area.set({profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
         }
         if(label===state.humbleProfileLabel)return true;
         if(!state.humbleProfileLabel&&state.libraryItems.length)throw new Error('Confirm a nickname for the current library through the importer before switching saved accounts.');
@@ -947,11 +950,11 @@
           clean.profileArchives=[...current.profileArchives.filter(entry=>entry.profileLabel!==archived.profileLabel),archived];
           if(clean.profileArchives.length>100)throw new Error('Too many archived profiles; export a backup first.');
         }
-        clean.humbleProfileLabel=control.profileLabel;
+        clean.humbleProfileLabel=control.profileLabel;clean.humbleAccountId=control.changing?global.crypto.randomUUID():current.humbleAccountId;
         const checked=restoreBackupState(createLibraryBackup({...LIBRARY_STATE_DEFAULTS,...clean,profileArchives:[]}));for(const field of scanFields)if(Object.hasOwn(clean,field))clean[field]=checked[field];
         const sharing=await area.get({[shareScopeKey]:null});
         try {
-          await area.set({...(!current.humbleProfileLabel?await globalThis.GalacticPurchaseSync?.renamePatch(area,'',control.profileLabel):{}),...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});
+          await area.set({...clean,[controlKey]:null,[shareScopeKey]:control.changing?null:sharing[shareScopeKey]?{...sharing[shareScopeKey],revisionRef:global.crypto.randomUUID()}:null});
           return true;
         } catch (error) {
           try { await area.set({[controlKey]:null}); } catch (_) {}

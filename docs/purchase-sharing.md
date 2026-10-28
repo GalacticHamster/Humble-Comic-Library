@@ -35,3 +35,9 @@ Official builds connect by published ID. For unpacked builds, allow this extensi
 Transfers preserve richer data, merge supported purchases without deletion and are idempotent. They do not establish a complete scan/reminder baseline. Retry after refreshing choices if staging expires or a source worker restarts. Validation failures do not apply a partial import. If completion is uncertain, check the receiving account before retrying. Normal standalone imports still work without GL.
 
 Developer UI policy: prefer ASCII control, navigation, status and button text; write UTF-8. Do not substitute question marks for decorative separators or use unverified symbols. Unicode titles, authors and user metadata remain supported. Shared control-text integrity checks and native package checks guard known corruption.
+
+## Saved account identity
+
+Saved Humble and Fanatical accounts carry a stable local account ID with their purchase data. Existing valid IDs migrate automatically without changing purchases or a working purchase-sync relationship. Names and purchase updates do not change this ID. Older accounts without recoverable identity receive a new ID and may need connection repair; names and common purchases never establish identity.
+
+Backups may retain account lineage, but restoring them resets automatic purchase-sync permission. Restored IDs do not grant permission to resume sharing. Private incremental scan authority remains separate. Conflicting or duplicate account identities are rejected rather than merging accounts.

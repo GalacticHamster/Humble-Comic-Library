@@ -4,9 +4,25 @@
  const stable=value=>JSON.stringify(sort(value));
  function sort(value){if(Array.isArray(value))return value.map(sort);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>[k,sort(value[k])]));return value;}
  async function fingerprint(raw){const data=root.GalacticPurchaseSnapshot.validate(raw);return root.GalacticPurchaseSnapshot.hash(stable({provider:data.provider,records:data.records.map(stable).sort()}));}
- function registry(accounts,saved={}){const next=Object.fromEntries(accounts.map(a=>[a.label,Object.hasOwn(saved,a.label)&&typeof saved[a.label]==='string'?saved[a.label]:crypto.randomUUID()]));return {accounts:accounts.map(a=>({...a,stableId:next[a.label]})),patch:stable(next)===stable(saved)?{}:{[REGISTRY]:next}};}
+ const accountUuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(value);
+ // Called inside the companion writer queue. One atomic write adopts existing
+ // local IDs into their datasets; the old sidecar is then only a migration input.
+ async function migrateAccounts(area,role){
+  const hb=role==='hb',idKey=hb?'humbleAccountId':'fanaticalAccountId',labelKey=hb?'humbleProfileLabel':'fanaticalProfileLabel',archiveKey=hb?'profileArchives':'fanaticalProfileArchives';
+  const state=await area.get({[idKey]:null,[labelKey]:'',[archiveKey]:[],[REGISTRY]:null}),archives=state[archiveKey],old=state[REGISTRY];
+  const entries=[{label:state[labelKey],id:state[idKey]},...archives.map(a=>({label:a.profileLabel,id:hb?a.backup?.accountId:a.accountId}))];
+  if(new Set(entries.map(a=>a.label)).size!==entries.length)throw Error('Saved accounts have duplicate names. Your purchases were kept; restore a valid backup.');
+  const counts=new Map();for(const a of entries)if(accountUuid(a.id)){const k=a.id.toLowerCase();counts.set(k,(counts.get(k)??0)+1);}
+  if([...counts.values()].some(n=>n>1))throw Error('Two saved accounts have the same account identity. Your purchases were kept; restore a valid backup.');
+  const legacy=old&&typeof old==='object'&&!Array.isArray(old)?old:{},uses=new Map();for(const a of entries){const id=legacy[a.label];if(accountUuid(id))uses.set(id.toLowerCase(),(uses.get(id.toLowerCase())??0)+1);}
+  const reserved=new Set(counts.keys());
+  for(const a of entries){if(accountUuid(a.id))continue;const id=legacy[a.label];a.id=accountUuid(id)&&uses.get(id.toLowerCase())===1&&!reserved.has(id.toLowerCase())?id:crypto.randomUUID();reserved.add(a.id.toLowerCase());}
+  const nextArchives=archives.map((a,i)=>hb?{...a,backup:{...a.backup,accountId:entries[i+1].id}}:{...a,accountId:entries[i+1].id});
+  if(state[idKey]!==entries[0].id||stable(archives)!==stable(nextArchives)||old!==null)await area.set({[idKey]:entries[0].id,[archiveKey]:nextArchives,...(old!==null?{[REGISTRY]:null}:{})});
+  // Removal is restart-safe: embedded IDs win if the process stops before this.
+  if(old!==null&&area.remove)await area.remove([REGISTRY]);
+ }
  async function assertCommit(area,provider,target,accountId){if(!target?.autoSync)return;const saved=(await area.get({[KEY]:{}}))[KEY][provider],expected=target.autoSync;if(!saved?.confirmed||!saved.remoteConfirmed||saved.id!==expected.id||saved.peerId!==expected.peerId||saved.localId!==expected.localId||saved.localId!==accountId)throw Error('Automatic synchronization consent or destination account changed before saving.');}
- async function renamePatch(area,label,next){const value=(await area.get({[REGISTRY]:{}}))[REGISTRY];if(!value[label])return {};const renamed={...value,[next]:value[label]};delete renamed[label];return {[REGISTRY]:renamed};}
  const validId=id=>typeof id==='string'&&id.length>0&&id.length<=128;
  function mapping(raw){if(!raw||Object.keys(raw).some(k=>!['id','localId','remoteId'].includes(k))||![raw.id,raw.localId,raw.remoteId].every(validId))throw Error('Invalid account relationship.');return raw;}
  function createCoordinator({runtime,area,alarms,service,role,catalog,ensureAccount=async()=>{},busy=async()=>false,now=()=>Date.now(),coalesceMs=750,onActive=async()=>{}}){
@@ -113,5 +129,5 @@
  // Compare committed purchase data, excluding bookkeeping and display labels.
  function meaningful(value){if(Array.isArray(value))return value.map(meaningful);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([k])=>!['observedAt','updatedAt','importedAt','archivedAt','lastSync','profileLabel','nickname','localScanState'].includes(k)).map(([k,v])=>[k,meaningful(v)]));return value;}
  function observeCompanion(chrome,coordinator,provider,keys,control){let deferred=false;chrome.storage.onChanged?.addListener((changes,area)=>{if(area!=='local')return;if(changes.galacticLibraryExtensionId&&changes.galacticLibraryExtensionId.oldValue!==changes.galacticLibraryExtensionId.newValue)coordinator.configurationChanged?.(provider).catch(()=>{});const changed=keys.some(k=>changes[k]&&stable(meaningful(changes[k].oldValue))!==stable(meaningful(changes[k].newValue)));if(!changed&&!(deferred&&changes[control]&&!changes[control].newValue))return;chrome.storage.local.get({[control]:null}).then(state=>{if(state[control]){deferred=true;return;}deferred=false;return coordinator.mark(provider);}).catch(()=>{});});}
- root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,registry,renamePatch,assertCommit,meaningful,observeCompanion,createCoordinator});
+ root.GalacticPurchaseSync=Object.freeze({KEY,REGISTRY,PREFIX,ALARM,stable,fingerprint,accountUuid,migrateAccounts,assertCommit,meaningful,observeCompanion,createCoordinator});
 })(globalThis);
