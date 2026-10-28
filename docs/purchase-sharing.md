@@ -45,3 +45,7 @@ Backups may retain account lineage, but restoring them resets automatic purchase
 Temporary connection failures retry within bounded limits. New committed purchases can restart a transport-exhausted check. Missing accounts, revoked purchase-sync permission and conflicting relationships stop automatic retries until repaired; restarting the extension does not repeatedly propose an obsolete account. Saved setup history is distinct from currently verified peer permission.
 
 If a saved account or permission was replaced, choose **Repair connection** in Purchase sync. Review the current saved accounts and confirm once; there is no need to disconnect first or repeat the store scan. A single available account is preselected as a convenience, not treated as proof of identity. Multiple accounts require an explicit choice. Repair preserves purchases and replaces the obsolete synchronization relationship.
+
+## Routine imports
+
+Account naming is optional. A first import uses a default saved account, and routine updates reuse the selected account without repeatedly asking for a nickname or checkbox confirmation. HB and FAN do not verify which website user is signed in: if you change website accounts, use Saved accounts or Advanced accounts first. Add another account explicitly with a full scan; rename an existing account through its Rename action. These actions preserve separate account identities and import histories. GL keeps verified console-account checks in place.

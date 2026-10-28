@@ -920,9 +920,13 @@
         await area.set({...snapshot,humbleProfileLabel:label,profileArchives:archives,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
       }
       if(operation==='begin'){
-        const [options,tabId]=args;const profileLabel=String(options.profileLabel??'').trim();
-        if(!options.confirmed||!profileLabel||profileLabel.length>100)throw new Error('Enter an account nickname and confirm the signed-in Humble account.');
-        const state=await area.get(LIBRARY_STATE_DEFAULTS);const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
+        const [options,tabId]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);let profileLabel=String(options.profileLabel??'').trim();
+        const reuse=options.reuseAccount===true&&options.accountId===state.humbleAccountId&&!options.switchProfile;
+        if(options.reuseAccount&&!reuse)throw Error('The selected saved account changed. Start the update again.');
+        if(reuse){if(profileLabel&&profileLabel!==state.humbleProfileLabel)throw Error('Use Change account to select another account; use Rename in Saved accounts to change its name.');profileLabel=state.humbleProfileLabel||'Default account';}
+        if(!profileLabel&&options.confirmed&&options.switchProfile){let n=state.profileArchives.length+2;do{profileLabel='Account '+n++;}while(profileLabel===state.humbleProfileLabel||state.profileArchives.some(a=>a.profileLabel===profileLabel));}
+        if((!options.confirmed&&!reuse)||!profileLabel||profileLabel.length>100)throw new Error('Choose the saved account to update.');
+        const changing=Boolean(state.humbleProfileLabel)&&state.humbleProfileLabel!==profileLabel;
         if(changing&&state.profileArchives.some(entry=>entry.profileLabel===profileLabel))throw new Error('This account is already saved. Use saved account before importing.');
         if(changing&&(!options.fullRescan||!options.switchProfile))throw new Error('Choose Rescan all purchases and explicitly select Save a new account.');
         const forceFull=changing||(!state.humbleProfileLabel&&!state.libraryItems.length&&!state.purchaseSummaries.length);const token=global.crypto.randomUUID();

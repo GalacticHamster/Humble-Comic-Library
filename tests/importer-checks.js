@@ -5,7 +5,7 @@
     await wait(()=>document.querySelector('#hcl-importer output')?.textContent);
     const panel=document.querySelector('#hcl-importer'),profile=panel.querySelector('.library-import-profile'),footer=panel.querySelector('.library-import-footer'),quick=panel.querySelector('[data-import-mode="new"]'),full=panel.querySelector('[data-import-mode="all"]');
     check(panel.querySelector('.library-import-description strong').textContent==='Humble Library','purchase importer displays the approved Humble Library name');
-    check(panel.children.length===3&&profile.children.length===3,'importer groups description, three account controls and footer into three rows');
+    check(panel.children.length===3&&profile.tagName==='DETAILS'&&!profile.open&&profile.querySelectorAll('label').length===3,'importer keeps account controls collapsed in Advanced accounts');
     check(getComputedStyle(profile).display==='grid'&&footer.contains(panel.querySelector('output'))&&footer.contains(quick),'account controls and scan status have dedicated layout containers');
     check(quick.textContent==='Import new purchases'&&full.textContent==='Rescan all purchases','import buttons use the shared labels');
     check(panel.querySelector('details').textContent.includes('does not sign you in'),'account nickname help explains local scope');
@@ -22,10 +22,9 @@
       check(!details.open&&arrowVisible('disclosure-closed'),label+' closes with its disclosure arrow restored');
     }
     panel.querySelector('[data-profile-confirm]').checked=true;panel.querySelector('[data-profile-label]').dispatchEvent(new Event('input'));check(!panel.querySelector('[data-profile-confirm]').checked,'editing the account nickname requires fresh signed-in-account confirmation');
-    const before=JSON.stringify(fixtureStored);quick.click();await wait(()=>panel.querySelector('output').textContent.startsWith('Import failed:'));
-    check(JSON.stringify(fixtureStored)===before,'unconfirmed account cannot start import or replace ownership');
-    window.confirm=()=>false;full.click();check(JSON.stringify(fixtureStored)===before,'cancelled full rescan leaves the active snapshot unchanged');
-    const controls=[...profile.children];check(controls.every(label=>label.querySelector('input')),'each account control retains its visible associated label');
+    check(panel.querySelector('[data-profile-label]').readOnly,'editing a display name cannot select an account');
+    const before=JSON.stringify(fixtureStored);window.confirm=()=>false;full.click();check(JSON.stringify(fixtureStored)===before,'cancelled full rescan leaves the active snapshot unchanged');
+    check([...profile.querySelectorAll('label')].every(label=>label.querySelector('input')),'advanced account controls retain associated labels');
     const realFetch=window.fetch,detailRequests=[];
     const orders=[{gamekey:'pending'},{gamekey:'unchanged'}];
     window.fetch=async(url,...args)=>{
@@ -38,7 +37,7 @@
     };
     Object.assign(fixtureStored,{humbleProfileLabel:'fixture',libraryItems:[],purchaseSummaries:orders.map(order=>({purchaseKey:order.gamekey,importVersion:9})),mediaImportVersion:9,
       keyReminders:[{id:'pending',purchaseKey:'pending',title:'Pending game',status:'unrevealed'}],keyReminderScan:{complete:true,purchaseKeys:['pending','unchanged'],baselinePurchaseKeys:['pending','unchanged']},lastImport:null});
-    panel.querySelector('[data-profile-label]').value='fixture';panel.querySelector('[data-profile-confirm]').checked=true;
+    panel.querySelector('[data-profile-label]').value='fixture';panel.querySelector('[data-profile-confirm]').checked=false;
     quick.click();
     await wait(()=>panel.querySelector('output').textContent.startsWith('No new purchases; rechecking key status'));
     check(panel.querySelector('output').textContent.includes('existing purchase'),'in-progress importer identifies existing purchases as key-status rechecks');

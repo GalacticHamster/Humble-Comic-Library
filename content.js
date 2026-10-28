@@ -2955,11 +2955,11 @@ function addPurchaseImporter() {
   panel.className = 'hcl-importer';
   panel.innerHTML = `
     <div class="library-import-description"><strong>Humble Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Only the active account is checked for ownership. Use Saved accounts below to switch back to a saved snapshot, then Import new purchases to refresh it. Rename account keeps its purchases and scan history. For a new account, sign in on the website, enter a new nickname, select Save a new account, and rescan all purchases once.</p></details></div>
-    <div class="library-import-profile">
+    <details class="library-import-profile"><summary>Advanced accounts</summary>
       <label>Account nickname <input data-profile-label maxlength="100" placeholder="e.g. personal"></label>
       <label><input type="checkbox" data-profile-confirm> The signed-in account matches this nickname</label>
       <label><input type="checkbox" data-profile-switch> Save a new account on full rescan</label>
-    </div>
+    </details>
     <div class="library-import-footer"><output aria-live="polite"></output>
     <div class="hcl-import-actions">
       <button type="button" data-import-mode="new" title="Imports new purchases, updates older saved purchases automatically, and rechecks unresolved key status.">Import new purchases</button>
@@ -2970,6 +2970,8 @@ function addPurchaseImporter() {
     </div>
     </div>`;
   LibraryAccountProfiles.mount(panel.querySelector('.library-import-description'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives'],onActiveChange:(label,previous)=>{const input=panel.querySelector('[data-profile-label]');if(previous===undefined&&input.value)return;const changed=input.value!==label;input.value=label;if(changed){panel.querySelector('[data-profile-confirm]').checked=false;if(previous!==undefined)panel.querySelector('.library-import-footer > output').textContent='Active account: '+(label||'Not yet named')+'. Import new purchases checks for updates.';}panel.querySelector('[data-profile-switch]').checked=false;}});
+  panel.querySelector('[data-profile-label]').readOnly=true;
+  panel.querySelector('[data-profile-switch]').addEventListener('change',()=>{const input=panel.querySelector('[data-profile-label]');input.readOnly=!panel.querySelector('[data-profile-switch]').checked;if(!input.readOnly)input.value='';});
   panel.querySelector('[data-profile-label]').addEventListener('input',()=>{panel.querySelector('[data-profile-confirm]').checked=false;});
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
@@ -3012,7 +3014,7 @@ function addPurchaseImporter() {
         status.textContent = 'Inspected ' + result.anchorCount + ' link' + (result.anchorCount === 1 ? '' : 's') + ' and ' + result.candidateCount + ' possible purchase element' + (result.candidateCount === 1 ? '' : 's') + '; downloaded a safe structural navigation report.';
         return;
       }
-      const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan, profileLabel:panel.querySelector('[data-profile-label]').value, confirmed:panel.querySelector('[data-profile-confirm]').checked, switchProfile:panel.querySelector('[data-profile-switch]').checked });
+      const result = await importPurchases((message) => { status.textContent = message; }, { fullRescan, profileLabel:panel.querySelector('[data-profile-label]').value, useSavedAccount:!panel.querySelector('[data-profile-switch]').checked, confirmed:panel.querySelector('[data-profile-confirm]').checked, switchProfile:panel.querySelector('[data-profile-switch]').checked });
       const scope = purchaseImportScope(result);
       const reminders = result.keyReminders;
       const reminderStatus = reminders.complete
@@ -3032,8 +3034,9 @@ function addPurchaseImporter() {
   document.body.prepend(panel);
 }
 
-async function importPurchases(report, { fullRescan = false, profileLabel='', confirmed=false, switchProfile=false } = {}) {
-  const scan=await HumbleComicLibrary.storageRequest('begin',{fullRescan,profileLabel,confirmed,switchProfile});
+async function importPurchases(report, { fullRescan = false, profileLabel='', confirmed=false, switchProfile=false, useSavedAccount=false } = {}) {
+  const account=useSavedAccount?(await HumbleComicLibrary.storageRequest('syncAccounts')).find(a=>a.active):null;
+  const scan=await HumbleComicLibrary.storageRequest('begin',{fullRescan,profileLabel:useSavedAccount?account?.label??'':profileLabel,confirmed,switchProfile,...(account?{reuseAccount:true,accountId:account.stableId}:{})});
   fullRescan=fullRescan||scan.forceFull;
   // This endpoint is used by Humble's purchase pages. Fetching occurs in the
   // authenticated Humble tab, so no cookie is read, copied, or stored by us.

@@ -370,3 +370,5 @@
 :is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate p { margin:4px 0 0!important; }
 :is(#hcl-summary, #hcl-match-inspector) .library-ui-candidate strong { display:block; }
 :is(#hcl-summary, #hcl-match-inspector) :is(h2,p,strong,summary) { overflow-wrap:anywhere; }
+
+.library-import-profile > summary { grid-column:1 / -1; cursor:pointer; }
