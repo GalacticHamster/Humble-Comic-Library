@@ -14,3 +14,7 @@ Extension pairing alone is not standing import permission. Preserve the explicit
 
 Install the version-controlled identity guard with `git config --local core.hooksPath .githooks`.
 See [.githooks/README.md](.githooks/README.md) for installation, effective-identity checks and tests.
+
+## Audit document maintenance
+
+When an implementation change fully resolves findings in a tracked audit document, update that document in the same implementation commit or remove it only if it is obsolete, contains no unique enduring technical information, and no active workflow depends on it. Preserve architectural decisions, contracts, recovery procedures, regression cases, diagnostics and unresolved limitations. Check source, test, script and documentation references before removal; retain uncertain material and label historical findings clearly rather than presenting them as current behavior. This policy applies to future ordinary commits and does not authorize rewriting history.
