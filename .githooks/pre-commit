@@ -1,0 +1,41 @@
+#!/bin/sh
+# Project identity guard. Use Git's effective identities, including environment overrides.
+expected='Galactic Hamster <gh@galactichamster.com>'
+failed=0
+
+check_identity() {
+    role=$1
+    identity=$2
+    case "$identity" in
+        "$expected "*) ;;
+        *)
+            printf 'Commit blocked: effective Git %s is %s\n' "$role" "${identity%%>*}>" >&2
+            failed=1
+            ;;
+    esac
+}
+
+if author=$(git var GIT_AUTHOR_IDENT 2>/dev/null); then
+    check_identity author "$author"
+else
+    printf '%s\n' 'Commit blocked: Git could not determine the effective author identity.' >&2
+    failed=1
+fi
+if committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null); then
+    check_identity committer "$committer"
+else
+    printf '%s\n' 'Commit blocked: Git could not determine the effective committer identity.' >&2
+    failed=1
+fi
+
+if [ "$failed" -ne 0 ]; then
+    printf '%s\n' \
+        "Both identities must be $expected." \
+        'Set this repository identity with:' \
+        '  git config --local user.name "Galactic Hamster"' \
+        '  git config --local user.email "gh@galactichamster.com"' \
+        'Also clear or correct GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL,' \
+        'GIT_COMMITTER_NAME, GIT_COMMITTER_EMAIL, and any --author override before retrying.' >&2
+    exit 1
+fi
+exit 0
