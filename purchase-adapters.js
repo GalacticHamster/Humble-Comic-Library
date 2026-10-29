@@ -2,6 +2,17 @@
 (function(root){'use strict';const S=root.GalacticPurchaseSnapshot;
  const pick=(value,provider)=>S.metadata(Object.fromEntries(S.fields.filter(key=>value?.[key]!==undefined&&value[key]!==null&&value[key]!==''&&(!Array.isArray(value[key])||value[key].length)).map(key=>[key,value[key]])),provider);
  const glSnapshotMediaType=kind=>kind==='comic'?'book':['book','audiobook','game','software','audio','elearning','other'].includes(kind)?kind:'other';
+ // Two existing extractors spell the same purchase-scoped key reference
+ // differently. This is an exact source-token bridge, never a title match or
+ // a rewrite of a saved ID. Positional fallbacks are deliberately ineligible.
+ function humbleEntitlementAlias(id,purchase){
+  if(typeof id!=='string'||typeof purchase!=='string'||!purchase)return null;
+  for(const [from,to]of [['key','entitlement'],['entitlement','key']]){
+   const prefix=purchase+':'+from+':';if(!id.startsWith(prefix))continue;
+   const suffix=id.slice(prefix.length);if(!/^[^:]+:\d+$/u.test(suffix)||suffix.startsWith('position-'))return null;
+   return purchase+':'+to+':'+suffix;
+  }return null;
+ }
  async function descriptor(provider,label,items){return {accountRef:await S.hash(JSON.stringify([provider,label,items])),label,count:items.length};}
  function hbScopes(state){return [{stableId:state.humbleAccountId,label:state.humbleProfileLabel??'',items:state.libraryItems??[],state},...(state.profileArchives??[]).map(a=>({stableId:a.backup.accountId,label:a.profileLabel,items:a.backup.items,state:root.HumbleComicLibrary.restoreBackupState({...a.backup,profileArchives:[]})}))];}
  function fanScopes(state){return [{stableId:state.fanaticalAccountId,label:state.fanaticalProfileLabel??'',items:state.fanaticalLibraryItems??[],state},...(state.fanaticalProfileArchives??[]).map(a=>({stableId:a.accountId,label:a.profileLabel,items:a.items,state:a}))];}
@@ -27,7 +38,10 @@
  const unique=new Map();for(const row of records){const key=row.providerItemId??JSON.stringify([row.metadata.purchaseId,row.title,row.mediaType,row.metadata.entitlement??'']);if(!unique.has(key))unique.set(key,row);}
  return S.validate({protocolVersion:1,provider,snapshotId:crypto.randomUUID(),accountRef:ref,accountLabel:scope.label,capturedAt:new Date().toISOString(),scope:'historical',completeness:'partial',limitations:[...limitations,'Saved supported purchase records; not a newly validated complete website scan. Absence is not deletion.'],records:[...unique.values()]});}
  function hbMerge(existing,incoming,automatic=false){const H=root.HumbleComicLibrary,items=structuredClone(existing),byNative=new Map(),byPurchaseTitle=new Map(),byPurchaseAnyKind=new Map();const indexItem=(item,index)=>{for(const p of item.provenance?.length?item.provenance:[item]){if(p.providerItemId){const entries=byNative.get(p.providerItemId)??new Set();entries.add(index);byNative.set(p.providerItemId,entries);}const anyKey=JSON.stringify([p.purchaseKey,H.presentationTitle(p.title||item.title)]);const anyEntries=byPurchaseAnyKind.get(anyKey)??new Set();anyEntries.add(index);byPurchaseAnyKind.set(anyKey,anyEntries);const kinds=new Set([item.kind??'book',glSnapshotMediaType(item.kind??'book')]);if(item.manualKind){kinds.add(item.manualKind);kinds.add(glSnapshotMediaType(item.manualKind));}if(item.automaticKind){kinds.add(item.automaticKind);kinds.add(glSnapshotMediaType(item.automaticKind));}for(const k of kinds){const key=JSON.stringify([p.purchaseKey,k,H.presentationTitle(p.title||item.title,k)]),entries=byPurchaseTitle.get(key)??new Set();entries.add(index);byPurchaseTitle.set(key,entries);}}};items.forEach(indexItem);const stats={added:0,updated:0,unchanged:0,skipped:0};
- for(const row of incoming){const meta=row.metadata;const origin={title:row.title,sourceBundle:meta.sourceBundle??'',purchaseKey:meta.purchaseId,purchasedAt:row.purchasedAt,...(row.providerItemId?{providerItemId:row.providerItemId}:{}),...H.entitlementFields(meta)};if(meta.entitlement==='third-party-key'&&row.providerItemId?.includes(':entitlement:'))origin.entitlementId=row.providerItemId.split(':entitlement:').slice(1).join(':entitlement:');
+ for(const sourceRow of incoming){let row=sourceRow;const meta=row.metadata;
+ const alias=meta.entitlement==='third-party-key'?humbleEntitlementAlias(row.providerItemId,meta.purchaseId):null;
+ if(alias&&!byNative.has(row.providerItemId)&&[...(byNative.get(alias)??[])].some(index=>(items[index].provenance?.length?items[index].provenance:[items[index]]).some(p=>p.providerItemId===alias&&p.purchaseKey===meta.purchaseId&&(p.entitlement??items[index].entitlement)==='third-party-key')))row={...row,providerItemId:alias};
+ const origin={title:row.title,sourceBundle:meta.sourceBundle??'',purchaseKey:meta.purchaseId,purchasedAt:row.purchasedAt,...(row.providerItemId?{providerItemId:row.providerItemId}:{}),...H.entitlementFields(meta)};if(meta.entitlement==='third-party-key'&&row.providerItemId?.includes(':entitlement:'))origin.entitlementId=row.providerItemId.split(':entitlement:').slice(1).join(':entitlement:');
  const nativeMatches=row.providerItemId?byNative.get(row.providerItemId):null;
  const fallback=byPurchaseTitle.get(JSON.stringify([meta.purchaseId,row.mediaType,H.presentationTitle(row.title,row.mediaType)]))??(row.mediaType==='other'?byPurchaseTitle.get(JSON.stringify([meta.purchaseId,'unclassified',H.presentationTitle(row.title,'unclassified')])):null)??byPurchaseAnyKind.get(JSON.stringify([meta.purchaseId,H.presentationTitle(row.title)]))??[];
  const indices=nativeMatches?.size?nativeMatches:new Set([...fallback].filter(index=>{const item=items[index];return (item.provenance?.length?item.provenance:[item]).some(p=>p.purchaseKey===meta.purchaseId&&(!row.providerItemId||!p.providerItemId||p.providerItemId===row.providerItemId));})),candidates=[...indices].map(index=>({item:items[index],index}));
@@ -92,5 +106,5 @@
  }
  // Display counts only. Name coverage is not an identity or ownership decision.
  function previewTitles(existing,added){const names=new Set(existing.map(r=>diagnosticTitle(r.title))),fresh=new Set(added.map(r=>diagnosticTitle(r.title)).filter(n=>n&&!names.has(n)));return {newTitleNames:fresh.size,additionalRecords:added.length-fresh.size,titleComparison:'saved-names'};}
- root.GalacticPurchaseAdapters=Object.freeze({pick,descriptor,hbScopes,fanScopes,accounts,selected,snapshot,hbMerge,fanMerge,productToken,inventory,validateInventory,hbInventory,reconcileInventories,previewTitles,glSnapshotMediaType});
+ root.GalacticPurchaseAdapters=Object.freeze({pick,descriptor,hbScopes,fanScopes,accounts,selected,snapshot,hbMerge,fanMerge,productToken,inventory,validateInventory,hbInventory,reconcileInventories,previewTitles,glSnapshotMediaType,humbleEntitlementAlias});
 })(globalThis);
