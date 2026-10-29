@@ -49,6 +49,9 @@ try{
       let connected=await syncCall({action:'syncConnect',peerId:choices.peerId,localId:choices.accounts[0].stableId,remoteId:choices.remoteAccounts[0].stableId,confirmed:true,sameAccount:true});assert(connected.ok,connected.error);
       const waitForPurchase=async native=>{for(let n=0;n<300;n++){if(await evaluate(`(async()=>{const S=await import('./src/lib/storage.js');return Object.values((await S.getDatabase()).providerItems).some(i=>i.provider==='humble'&&i.providerItemId===${JSON.stringify(native)});})()`,attached.sessionId))return;await pause(20);}throw Error('Automatic purchase sync did not save '+native);};
       await waitForPurchase('sync-order-1:product:book-1');
+      // The first imported item can be visible before the bidirectional cycle
+      // acknowledges completion. Isolate identity loss from an in-flight save.
+      let settled=false;for(let n=0;n<300;n++){const a=(await syncCall({action:'syncState'})).state,b=await evaluate(`chrome.storage.local.get('galacticPurchaseSync').then(s=>s.galacticPurchaseSync?.humble)`,session.sessionId);if(a?.status==='synced'&&!a.pending&&b?.status==='synced'&&!b.pending){settled=true;break;}await pause(20);}assert(settled,'Initial purchase synchronization did not settle before identity-loss injection');
       await evaluate(`(async()=>{await chrome.storage.local.remove(['humbleAccountId','galacticPurchaseSync']);await HumbleComicLibrary.storageRequest('syncAccounts');return true;})()`,session.sessionId);
       assert.equal((await syncCall({action:'syncNow'})).ok,false);
       const stopped=await syncCall({action:'syncState'});assert.equal(stopped.state.errorCode,'missing-account');assert.equal(stopped.state.status,'attention');

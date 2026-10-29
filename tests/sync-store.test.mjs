@@ -81,7 +81,7 @@ test('saved account selection validates confirmation, stale UI, and target befor
   const f=fixture(),scan=await f.store.execute('begin',[{...options,profileLabel:'work',switchProfile:true},1]);await f.store.execute('commit',[scan.token,updates,1]);const before=structuredClone(f.state);
   for(const args of [{...choose('personal','work'),confirmed:false},choose('personal','stale'),choose('missing','work')]){await assert.rejects(f.store.execute('selectProfile',[args]));assert.deepEqual(f.state,before);}
   await assert.rejects(f.store.execute('begin',[{...options,profileLabel:'personal',switchProfile:true},1]),/Use saved account/);assert.deepEqual(f.state,before);
-  f.state.humbleProfileLabel='';const unnamed=structuredClone(f.state);await assert.rejects(f.store.execute('selectProfile',[choose('personal','')]),/nickname/);assert.deepEqual(f.state,unnamed);
+  f.state.humbleProfileLabel='';const unnamed=structuredClone(f.state);await assert.rejects(f.store.execute('selectProfile',[choose('personal','')]),/Saved accounts/);assert.deepEqual(f.state,unnamed);
 });
 test('renaming active and saved accounts preserves evidence, rejects collisions and invalidates scans',async()=>{
   const f=fixture(),scan=await f.store.execute('begin',[{...options,profileLabel:'work',switchProfile:true},1]);await f.store.execute('commit',[scan.token,updates,1]);

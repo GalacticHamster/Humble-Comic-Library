@@ -894,14 +894,14 @@
       if(operation==='profiles'){
         const state=await area.get(LIBRARY_STATE_DEFAULTS),unique=new Map(state.profileArchives.map(entry=>[entry.profileLabel,entry]));
         if(state.humbleProfileLabel)unique.delete(state.humbleProfileLabel);
-        return {activeLabel:state.humbleProfileLabel,profiles:[...(state.humbleProfileLabel?[{label:state.humbleProfileLabel,active:true,itemCount:state.libraryItems.length}]:[]),...[...unique.values()].map(entry=>({label:entry.profileLabel,active:false,itemCount:entry.backup.items.length}))]};
+        return {activeLabel:state.humbleProfileLabel,profiles:[...(state.humbleProfileLabel||state.humbleAccountId||state.libraryItems.length?[{label:state.humbleProfileLabel,active:true,itemCount:state.libraryItems.length}]:[]),...[...unique.values()].map(entry=>({label:entry.profileLabel,active:false,itemCount:entry.backup.items.length}))]};
       }
       if(operation==='selectProfile'||operation==='renameProfile'){
         const [options]=args,state=await area.get(LIBRARY_STATE_DEFAULTS),label=String(options.profileLabel??'').trim();
         if(options.confirmed!==true)throw new Error('Confirm the selected account before continuing.');
         if(options.expectedActiveLabel!==state.humbleProfileLabel)throw new Error('The active account changed. Review the saved accounts and try again.');
         const selected=label===state.humbleProfileLabel&&label?null:[...state.profileArchives].reverse().find(entry=>entry.profileLabel===label);
-        if(!label||label!==state.humbleProfileLabel&&!selected)throw new Error('This saved account is unavailable. Refresh the account list.');
+        if(!label&&operation!=='renameProfile'||label!==state.humbleProfileLabel&&!selected)throw new Error('This saved account is unavailable. Refresh the account list.');
         if(operation==='renameProfile'){
           const next=String(options.newLabel??'').trim();
           if(!next||next.length>100)throw new Error('Enter an account nickname of 1 to 100 characters.');
@@ -911,7 +911,7 @@
           await area.set({profileArchives:archives,...(label===state.humbleProfileLabel?{humbleProfileLabel:next}:{}),hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});return true;
         }
         if(label===state.humbleProfileLabel)return true;
-        if(!state.humbleProfileLabel&&state.libraryItems.length)throw new Error('Confirm a nickname for the current library through the importer before switching saved accounts.');
+        if(!state.humbleProfileLabel&&state.libraryItems.length)throw new Error('Name the current account in Saved accounts before switching. Your purchases were kept.');
         const snapshot=restoreBackupState({...selected.backup,profileArchives:[]});
         if(snapshot.humbleProfileLabel&&snapshot.humbleProfileLabel!==label)throw new Error('Saved account identity is inconsistent. Restore a valid backup first.');
         const archives=state.profileArchives.filter(entry=>entry.profileLabel!==label&&entry.profileLabel!==state.humbleProfileLabel);
@@ -1125,16 +1125,16 @@
     host.append(details);
     const list=details.querySelector('[data-account-list]'),confirmed=details.querySelector('[data-account-confirm]'),name=details.querySelector('[data-account-name]'),use=details.querySelector('[data-account-use]'),rename=details.querySelector('[data-account-rename]'),status=details.querySelector('[data-account-status]');
     let data={activeLabel:'',profiles:[]},active,revision=0,busy=false;
-    const controls=()=>{list.disabled=confirmed.disabled=name.disabled=busy||!data.profiles.length;use.disabled=busy||!list.value||list.value===data.activeLabel;rename.disabled=busy||!list.value;};
+    const controls=()=>{list.disabled=confirmed.disabled=name.disabled=busy||!data.profiles.length;use.disabled=busy||!list.value||list.value===data.activeLabel;rename.disabled=busy||!data.profiles.some(profile=>profile.label===list.value);};
     async function refresh(){
       const generation=++revision;
       try{
         const next=await request('profiles');if(generation!==revision)return;
         const previous=active,selected=list.value;data=next;active=next.activeLabel;
-        list.replaceChildren(...next.profiles.map(profile=>{const option=document.createElement('option');option.value=profile.label;option.textContent=profile.label+(profile.active?' (active)':'')+' - '+profile.itemCount+' items';return option;}));
+        list.replaceChildren(...next.profiles.map(profile=>{const option=document.createElement('option');option.value=profile.label;option.textContent=(profile.label||'Default account')+(profile.active?' (active)':'')+' - '+profile.itemCount+' items';return option;}));
         list.value=previous===active&&next.profiles.some(profile=>profile.label===selected)?selected:active||next.profiles[0]?.label||'';
         if(previous!==active||name.value===''){name.value=list.value;confirmed.checked=false;}
-        details.querySelector('summary').textContent='Saved accounts ('+next.profiles.length+')'+(active?' - active: '+active:' - not yet named');
+        details.querySelector('summary').textContent='Saved accounts ('+next.profiles.length+')'+(data.profiles.some(profile=>profile.active)?' - active: '+(active||'Default account'):' - no saved account');
         controls();if(previous!==active)onActiveChange(active,previous);
       }catch(error){if(generation===revision)status.textContent='Could not load saved accounts: '+error.message;}
     }
@@ -1147,7 +1147,7 @@
     });
     rename.addEventListener('click',async()=>{
       const label=list.value,next=name.value.trim();busy=true;controls();
-      try{await request('renameProfile',{profileLabel:label,newLabel:next,expectedActiveLabel:data.activeLabel,confirmed:true});await refresh();list.value=next;name.value=next;confirmed.checked=false;status.textContent='Renamed '+label+' to '+next+'. Purchases and scan history were kept; no scan was started.';}
+      try{await request('renameProfile',{profileLabel:label,newLabel:next,expectedActiveLabel:data.activeLabel,confirmed:true});await refresh();list.value=next;name.value=next;confirmed.checked=false;status.textContent='Renamed '+(label||'Default account')+' to '+next+'. Purchases and scan history were kept; no scan was started.';}
       catch(error){status.textContent=error.message;await refresh();}finally{busy=false;controls();}
     });
     chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&keys.some(key=>changes[key]))refresh();});

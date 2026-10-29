@@ -40,3 +40,13 @@ test('ambiguous duplicate account names stop migration without merging overlappi
  const m=memory({[label]:'Same',[active]:id(),[archives]:[archive('Same',id())]}),before=structuredClone(m.saved);
  await assert.rejects(Y.migrateAccounts(m.area,role),/duplicate names/);assert.deepEqual(m.saved,before);
 });
+test('unnamed saved purchases remain visible and can be named without a website scan or changed identity',async()=>{
+ const a=id(),b=id(),item=role==='hb'?{title:'Unnamed purchased book',kind:'book',source:'humble',purchaseKey:'order-1'}:{source:'fanatical',sourceItemId:'product-123456',title:'Unnamed purchased book',mediaType:'book',bundle:{sourceItemId:'',title:''},purchaseDate:null},itemsKey=role==='hb'?'libraryItems':'fanaticalLibraryItems';
+ const permission={[role==='hb'?'humble':'fanatical']:{id:'relation',localId:a,confirmed:true,remoteConfirmed:true}},m=memory({[label]:'',[active]:a,[archives]:[archive('Other',b)],[itemsKey]:[item],galacticPurchaseSync:permission}),store=create(m.area);
+ const profiles=await store.execute('profiles');assert.equal(profiles.profiles.length,2);assert.equal(profiles.profiles[0].label,'');assert.equal(profiles.profiles[0].active,true);
+ await store.execute('renameProfile',[{profileLabel:'',newLabel:'Personal',expectedActiveLabel:'',confirmed:true}]);assert.equal(m.saved[active],a);assert.deepEqual(m.saved[itemsKey],[item]);assert.deepEqual(m.saved.galacticPurchaseSync,permission);
+ await assert.rejects(store.execute('renameProfile',[{profileLabel:'',newLabel:'Stale',expectedActiveLabel:'',confirmed:true}]),/active account changed/);
+ await assert.rejects(store.execute('renameProfile',[{profileLabel:'Personal',newLabel:'Other',expectedActiveLabel:'Personal',confirmed:true}]),/already in use/);
+ await store.execute('selectProfile',[{profileLabel:'Other',expectedActiveLabel:'Personal',confirmed:true}]);assert.equal(m.saved[active],b);
+ await store.execute('selectProfile',[{profileLabel:'Personal',expectedActiveLabel:'Other',confirmed:true}]);assert.equal(m.saved[active],a);assert.deepEqual(m.saved[itemsKey],[item]);
+});
