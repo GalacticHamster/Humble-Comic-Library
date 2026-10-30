@@ -1,10 +1,21 @@
 # Humble Library
 
-An unofficial browser extension that marks books, comics, games, or software you already own while viewing a Humble Bundle listing. It is not affiliated with or endorsed by Humble Bundle.
+Humble Library 1.0.0 is an unofficial Chrome and Firefox extension that helps you check Humble Bundle offers against your saved purchases. Import books, comics, audiobooks, games and software, then see purchase and ownership evidence, possible matches, and bundle value while browsing.
 
-## What works now
+Your library and purchase history stay in browser-local extension storage. Imports read your signed-in Humble account; optional Galactic Library integration checks other libraries and can synchronize saved purchases with your explicit account consent. Humble Library is not affiliated with or endorsed by Humble Bundle.
 
-- Load it unpacked in Chrome/Chromium browsers. A separately packaged Firefox desktop build is available for manual testing; its installed runtime and storefront UI are tested in isolated Chrome and Firefox profiles.
+[Privacy policy](PRIVACY.md) | [Import guide](#import-your-purchases) | [Galactic Library setup](docs/companion-pairing.md) | [Report an issue](https://github.com/GalacticHamster/Humble-Comic-Library/issues)
+
+## Installation and availability
+
+- **Chrome:** Humble Library has an existing Chrome Web Store listing. The **1.0.0 update is pending store publication**, so the installed store version may be older than the tagged source here. A verified listing URL is not yet included in this README.
+- **Firefox desktop 140+:** The 1.0.0 Firefox build is supported, but AMO publication and store availability are pending. Normal Firefox distribution requires signing.
+
+For source installation or temporary Firefox testing, see [Development and testing](#development-and-testing). Those instructions are separate from store installation.
+
+## Features
+
+- Use the extension in Chrome or Firefox desktop 140+.
 - Import DRM-free book, comic, and audiobook titles plus detected game and Humble-declared Software entitlements from your signed-in Humble Purchases page—without copying, reading, or saving a Humble cookie.
 - Track third-party entitlements that Humble has not yet revealed, including their source purchase and Humble-reported expiry status. The reminder queue is grouped by expiry state. By default, entries use Humble's normal purchase-card flow and require Humble popups to be allowed; an explicit opt-in can instead open a direct Humble order link, which places the purchase identifier in the URL and browser history. Imports check newly discovered purchases and refresh pending entitlements; **Rescan all purchases** establishes a complete reminder baseline for older purchases. Actual redemption-key values are never stored.
 - On the Purchases page, download a safe key-reminder discovery report to identify which non-secret Humble key-status and expiry fields are available. The report contains aggregate field names, types, and counts only—never key values, titles, bundle names, purchase identifiers, purchase dates, or other field values.
@@ -33,20 +44,7 @@ Contents coverage is deduplicated across local collections and GL providers. Mis
 
 The extension runs only on Humble bundle catalogue, Books, Games, Software, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
 
-## Load it
-
-### Chrome / Chromium
-
-1. In Chrome, open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose this folder.
-
-### Firefox desktop
-
-1. Build the Firefox package with `./scripts/package-release.ps1 -Target Firefox`.
-2. Extract `dist/Humble-Comic-Library-<version>-firefox.zip` to a temporary folder.
-3. Open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose the extracted `manifest.json`.
-4. Follow the same import and bundle-page checks as Chrome. The Firefox package passes installed-runtime and storefront tests. Signed-in provider checks and AMO signing remain separate release steps.
+## Import your purchases
 
 For a Humble import in either browser, open **Extension options**, select **Open Humble purchase importer**, and click **Import new purchases** on that page. It fetches Humble's order list and retrieves details for new purchases, previously failed checks, unresolved key reminders, and keys whose reported expiry is due. Each required purchase detail is fetched once, sharing the request between title import and safe key-status updates. Progress and completion messages distinguish new purchases, failed-purchase retries, existing-purchase key rechecks, and the one-time upgrade backfill. With no new purchases, it says **No new purchases; rechecking key status** when existing keys still need attention. If nothing needs checking, it returns without fetching purchase details. Use **Rescan all purchases** when you need to rebuild the full Humble library or establish a complete key-reminder baseline for older purchases. Keep the page open until it completes.
 
@@ -164,6 +162,23 @@ Rich mappings can include `sourceLabel`, `sourceId`, `sourceUrl` (HTTP/HTTPS wit
 Importing replaces previous custom mappings; built-in mappings remain. Mappings and imported bibliographic evidence are included in backups. Run IDs are retained locally; GL contents requests also need a readable run name/year to establish coverage.
 
 A matching edition-bound rule takes precedence over generic title rules. Conflicting reviewed lists, including contradictory full/excerpt assertions, require review and supply no automatic owned-contents evidence.
+
+## Development and testing
+
+These installs are for development and testing, not signed store distribution.
+
+### Chrome / Chromium
+
+1. In Chrome, open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked** and choose this folder.
+
+### Firefox desktop
+
+1. Build the Firefox package with `./scripts/package-release.ps1 -Target Firefox`.
+2. Extract `dist/Humble-Comic-Library-<version>-firefox.zip` to a temporary folder.
+3. Open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose the extracted `manifest.json`.
+4. Follow the same import and bundle-page checks as Chrome. The Firefox package passes installed-runtime and storefront tests. Signed-in provider checks and AMO signing remain separate release steps.
 
 ## Create a release ZIP
 
