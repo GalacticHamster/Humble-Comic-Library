@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 ? Local release candidate
+
+- Import Humble books, comics, games, audiobooks and supported software into a browser-local library and refresh newly saved purchases.
+- Check supported Humble bundles with conservative Owned, New, Possible and Partial badges, source explanations and tier summaries.
+- Use standalone checks without Galactic Library, or connect optional external-library matching and explicitly authorized saved-purchase synchronization.
+- Keep routine imports simple with an optional account nickname; preserve separate saved accounts, purchase history and local backups.
+- Save supplied Humble purchase prices, currency and history locally for provenance and value summaries. Financial-data disclosure remains applicable even though no developer server receives this information.
+
+Prepared locally; not yet published. Uncertain editions and temporary or historical-only access do not become confirmed ownership.
+
+## Earlier development notes
 
 - Adds manual, account-scoped entitlement reminder sharing with Galactic Library using opaque references and narrow status/date DTOs; complete staged uploads preserve previous reminders on failure and never claim destination activation.
 - Adds installed-extension checks in Chrome and Firefox plus storefront fixtures in both browsers and a real Chrome HB-to-GL exchange. Includes the Firefox restore dependency and rejects destructive incomplete full-scan commits in the background writer.
