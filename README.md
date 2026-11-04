@@ -42,7 +42,7 @@ Matching preserves Unicode, articles, and meaningful edition wording. Locally re
 
 Contents coverage is deduplicated across local collections and GL providers. Missing run/language scope remains uncertain, and excerpts or temporary access never prove full-unit coverage. Full contents alone prove an offered collection owned only when a reviewed mapping explicitly declares `contentsComplete: true`; a title-derived range only supplies comparison targets. Older GL responses still support exact/Possible identity matching, but supply no central contents coverage. Requests are batched within GL's item/contents limits; incomplete responses report an error and are not cached as empty results.
 
-The extension runs only on Humble bundle catalogue, Books, Games, Software, and Purchases pages. Its only named Chrome API permission is local storage, and it does not request access to every website or every Humble page.
+The extension runs only on Humble bundle catalogue, Books, Games, Software, and Purchases pages. Its named browser permissions are `storage` for local data, `unlimitedStorage` for large libraries and purchase histories, and `alarms` for purchase-sync retries. It does not request access to every website or every Humble page. `unlimitedStorage` removes the normal extension-local quota, but does not guarantee disk space or prevent all storage failures. Failed saves keep the previous library and manual corrections.
 
 ## Import your purchases
 
@@ -201,6 +201,8 @@ Store screenshots are checked into [store-assets/](store-assets/) for review and
 Record each published version in [CHANGELOG.md](CHANGELOG.md), and increase the numeric `version` in `manifest.json` before every subsequent Chrome Web Store or AMO upload.
 
 ## Verification
+
+For large-library storage regressions, run `node tests/runtime.mjs --quota` and `node tests/runtime.mjs --quota --firefox`. These use disposable installed packages and synthetic libraries above 15.68 MiB. The Chrome-only `node tests/runtime.mjs --quota --quota-limited` control removes the permission from its disposable copy to verify rejection preserves existing data; it never changes the release manifest or a personal library.
 
 Run `node --test --test-concurrency=1 tests` for the core, backup, navigation, and Windows Chrome/Firefox packaging checks. When the adjacent GalacticLibrary repo is present, the suite also exercises its actual companion API; the standalone HB suite uses contract fixtures otherwise. Run `node tests/browser.mjs` and `node tests/browser.mjs --firefox` for storefront UI checks in isolated Chrome/Firefox profiles with synthetic libraries. Run `node tests/runtime.mjs` and `node tests/runtime.mjs --firefox` for the packaged extension with real background/storage APIs; `node tests/runtime.mjs --central` verifies the real installed HB-to-GL reminder exchange when the adjacent GL repo is present. See [runtime verification](docs/runtime-verification.md) for coverage and limits. Set `CHROME_BIN` if Chrome/Chromium is installed elsewhere. These checks do not use a personal browser profile or signed-in provider accounts.
 

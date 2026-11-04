@@ -6,6 +6,7 @@
   "description": "Locally mark Humble Bundle books, comics, games, and software you already own.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "alarms"
   ],
   "background": {

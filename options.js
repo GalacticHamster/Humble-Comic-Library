@@ -952,8 +952,7 @@
         const bytes = await new Promise((resolve) => chrome.storage.local.getBytesInUse(null, resolve));
         if (typeof bytes === 'number' && Number.isFinite(bytes)) {
           const mb = (bytes / 1024 / 1024).toFixed(2);
-          const pct = ((bytes / (10 * 1024 * 1024)) * 100).toFixed(0);
-          count.textContent += ` Storage usage: ${mb} MB (${pct}% of 10 MB quota).`;
+          count.textContent += ` Storage usage: ${mb} MB.`;
         }
       } catch (_) {}
     }

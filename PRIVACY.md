@@ -1,6 +1,6 @@
 # Privacy Policy for Humble Library
 
-Last updated: October 19, 2026
+Last updated: November 3, 2026
 
 Humble Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
 
@@ -47,6 +47,7 @@ An already saved GL feed remains after unlinking, clearing or uninstalling HB. R
 ## Browser permissions used
 
 - **storage** saves library data, preferences, account relationships, and local working state.
+- **unlimitedStorage** allows large browser-local libraries and purchase histories to exceed the normal extension-storage quota. It adds no website access or remote storage. Available disk space and browser-wide storage limits can still cause saves to fail; the existing saved library is retained when a save fails.
 - **alarms** schedules background purchase-synchronization work and retries.
 - Content-script access to Humble pages reads listings and runs the user-initiated purchase importer and overlays.
 

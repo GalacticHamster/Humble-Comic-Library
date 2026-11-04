@@ -3023,7 +3023,7 @@ function addPurchaseImporter() {
       status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
     } catch (error) {
       if (/kQuotaBytes/iu.test(error.message)) {
-        status.textContent = 'Import failed (Storage Quota Exceeded): Chrome storage quota exceeded. Your existing library and manual corrections were preserved. Try exporting a backup or clearing unused archived accounts.';
+        status.textContent = 'Import failed (Storage Quota Exceeded): Browser storage quota exceeded. Your existing library and manual corrections were preserved. Try exporting a backup or clearing unused archived accounts.';
       } else {
         status.textContent = `Import failed: ${error.message}`;
       }

@@ -146,6 +146,45 @@ function generateRealisticLibrary(count) {
   return { items, purchases };
 }
 
+test('full import and incremental update above 15.68 MiB preserve purchases and corrections, including rejected later saves', async () => {
+  let failure = '';
+  const manual = {title:'Manual corrected book',kind:'comic',automaticKind:'book',source:'manual',providerItemId:'manual-correction'};
+  const historical = {title:'Earlier purchased book',kind:'book',source:'humble',purchaseKey:'historical-order'};
+  const harness = createScaleHarness({libraryItems:[manual],historicalLibraryItems:[historical],
+    historicalPurchaseSummaries:[{purchaseKey:'historical-order',sourceBundle:'Old bundle',itemCount:1}],
+    mediaTypeOverrides:{'manual-correction':'comic','large-order:product:large-0':'comic'}},
+    {onSet:async values=>{if(failure&&Object.hasOwn(values,'libraryItems'))throw Error(failure);}});
+  const bundle = 'Synthetic descriptive bundle '.repeat(14);
+  const titles = Array.from({length:10000},(_,i)=>`Synthetic book ${i} ${'Long bibliographic title '.repeat(16)}`.trim());
+  const order = {gamekey:'large-order',product:{human_name:bundle}};
+  const detail = {subproducts:titles.map((title,i)=>({human_name:title,machine_name:`large-${i}`,downloads:[{format:'EPUB',url:'https://humble.invalid/book.epub'}]}))};
+  const result = await harness.importer([order],{'large-order':detail}).scan(true);
+  assert.equal(result.reconciled,true);
+  assert.ok(Buffer.byteLength(JSON.stringify(harness.stored))>15.68*1024*1024,'actual stored imported records exceed the reported failure size');
+  assert.equal(harness.stored.libraryItems.length,10001);
+  assert.equal(harness.stored.libraryItems.find(item=>item.title===titles[0]).kind,'comic');
+  assert.equal(harness.stored.libraryItems.find(item=>item.title===manual.title).kind,'comic');
+  assert.equal(harness.stored.historicalLibraryItems[0].purchaseKey,'historical-order');
+  assert.equal(harness.stored.historicalPurchaseSummaries[0].purchaseKey,'historical-order');
+
+  const nextOrder = {gamekey:'new-order',product:{human_name:'New bundle'}};
+  const nextDetail = {subproducts:[{human_name:'New incremental book',machine_name:'new-book',downloads:[{format:'EPUB',url:'https://humble.invalid/new.epub'}]}]};
+  const updated = await harness.importer([nextOrder,order],{'new-order':nextDetail,'large-order':detail}).scan(false);
+  assert.equal(updated.newPurchases,1);
+  assert.equal(harness.stored.libraryItems.length,10002);
+  assert.ok(harness.stored.purchaseSummaries.some(p=>p.purchaseKey==='large-order'));
+  assert.ok(harness.stored.purchaseSummaries.some(p=>p.purchaseKey==='new-order'));
+  const snapshot = plain(harness.stored);
+  for(const error of ['Resource::kQuotaBytes quota exceeded','Disk write failed']) {
+    failure=error;
+    await assert.rejects(harness.importer([nextOrder,order],{'new-order':nextDetail,'large-order':detail}).scan(true),/quota|Disk write failed/i);
+    for(const key of ['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','mediaTypeOverrides','rejectedPurchaseItems','keyReminders','keyReminderScan','lastImport']) {
+      assert.deepEqual(harness.stored[key],snapshot[key],`${key} is preserved after ${error}`);
+    }
+    assert.equal(harness.stored.hclSyncControl,null);
+  }
+});
+
 test('6,000 to 10,000 item realistic library: serialized storage footprint is well under 10MB quota', async () => {
   const lib6k = generateRealisticLibrary(6000);
   const state6k = {

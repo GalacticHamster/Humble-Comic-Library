@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Request `unlimitedStorage` in Chrome and Firefox so large local libraries and purchase histories are not blocked by the normal extension-storage quota. Import validation and single-write commits remain unchanged; failed writes preserve previous purchases and manual corrections. Disk exhaustion and browser-wide storage failures remain possible.
+
 ## 1.0.0 ? Local release candidate
 
 - Import Humble books, comics, games, audiobooks and supported software into a browser-local library and refresh newly saved purchases.
