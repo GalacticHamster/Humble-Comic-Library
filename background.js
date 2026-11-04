@@ -14,7 +14,7 @@ chrome.runtime.onMessageExternal?.addListener((message,sender,respond)=>{
     const {galacticLibraryExtensionId:id=''}=await chrome.storage.local.get({galacticLibraryExtensionId:''});
     if(!HumbleComicLibrary.trustedGalacticSender(sender.id,id,chrome.runtime))return {ok:false,error:'Companion is not allowed.'};
     if(message.apiVersion!==1&&!(message.apiVersion===undefined&&['PING','GET_STATUS'].includes(message.type)))return {ok:false,error:'Unsupported companion API version.'};
-    if(message.type!=='OPEN_REVIEW')return {ok:true,apiVersion:1,appVersion:chrome.runtime.getManifest?.().version??'1.0.0',ready:true,purchaseProvider:'humble',capabilities:{centralReview:true}};
+    if(message.type!=='OPEN_REVIEW')return {ok:true,apiVersion:1,appVersion:chrome.runtime.getManifest?.().version??'1.0.1',ready:true,purchaseProvider:'humble',capabilities:{centralReview:true}};
     await chrome.runtime.openOptionsPage();return {ok:true,apiVersion:1};
   })().then(respond,()=>respond({ok:false,error:'Could not open source review.'}));return true;
 });

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
 
 - Request `unlimitedStorage` in Chrome and Firefox so large local libraries and purchase histories are not blocked by the normal extension-storage quota. Import validation and single-write commits remain unchanged; failed writes preserve previous purchases and manual corrections. Disk exhaustion and browser-wide storage failures remain possible.
 

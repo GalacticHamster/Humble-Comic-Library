@@ -5,7 +5,7 @@ import test from 'node:test';
 const product="HumbleComicLibrary";
 function harness(saved='',firefox=false){
  const values={galacticLibraryExtensionId:saved,keep:'synthetic'},external=[],internal=[],opened=[];
- const runtime={id:'a'.repeat(32),getURL:()=>firefox?'moz-extension://synthetic/':'chrome-extension://synthetic/',getManifest:()=>({version:'1.0.0'}),onMessageExternal:{addListener:fn=>external.push(fn)},onMessage:{addListener:fn=>internal.push(fn)},openOptionsPage:async()=>opened.push(true)};
+ const runtime={id:'a'.repeat(32),getURL:()=>firefox?'moz-extension://synthetic/':'chrome-extension://synthetic/',getManifest:()=>({version:'1.0.1'}),onMessageExternal:{addListener:fn=>external.push(fn)},onMessage:{addListener:fn=>internal.push(fn)},openOptionsPage:async()=>opened.push(true)};
  const context={setTimeout,clearTimeout,URL,chrome:{runtime,storage:{local:{get:async defaults=>({...defaults,...values}),set:async updates=>Object.assign(values,updates),remove:async keys=>{for(const key of [].concat(keys))delete values[key];}}},tabs:{create:async()=>{}}},createSyncStore:()=>({execute:async()=>{}})};context.globalThis=context;vm.createContext(context);
  vm.runInContext(fs.readFileSync(new URL("../shared.js",import.meta.url),'utf8'),context);
  vm.runInContext(fs.readFileSync(new URL('../theme.js',import.meta.url),'utf8'),context);
