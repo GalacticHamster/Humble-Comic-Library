@@ -70,6 +70,22 @@
     check(fixtureStored.libraryItems.length===1&&fixtureStored.libraryItems[0].providerItemId==='saved-order:product:source-book'&&fixtureStored.libraryItems[0].sourceBundle===old.sourceBundle&&fixtureStored.libraryItems[0].purchasedAt===old.purchasedAt,'Import new purchases automatically recovers legacy IDs and preserves original purchase facts');
     check(fixtureStored.historicalLibraryItems[0].providerItemId==='saved-order:product:source-book','the normal import also recovers historical source identities');
     detailRequests.length=0;quick.click();await wait(()=>!quick.disabled);check(detailRequests.length===0,'a migrated legacy library returns to normal incremental imports');
+    // Exercise the actual panel completion and recovery text, not only the scope helper.
+    Object.assign(fixtureStored,{humbleProfileLabel:'',libraryItems:[],historicalLibraryItems:[],purchaseSummaries:[],historicalPurchaseSummaries:[],profileArchives:[],keyReminders:[],keyReminderScan:null,lastImport:null,mediaImportVersion:9});
+    let recover=false;detailRequests.length=0;
+    window.fetch=async(url,...args)=>{
+      if(url==='/api/v1/user/order?all=true')return {ok:true,json:async()=>[{gamekey:'good'},{gamekey:'retry'}]};
+      if(String(url).startsWith('/api/v1/order/')){
+        detailRequests.push(url);if(!recover&&String(url).includes('/retry?'))throw Error('Unavailable order');
+        return {ok:true,status:200,text:async()=>JSON.stringify({subproducts:[{human_name:String(url).includes('/retry?')?'Recovered book':'Good book',downloads:[{format:'pdf'}]}]})};
+      }
+      return realFetch(url,...args);
+    };
+    quick.click();await wait(()=>!quick.disabled);
+    check(fixtureStored.libraryItems.length===1&&panel.querySelector('output').textContent.startsWith('Saved 1 purchase'),'first-account panel presents saved partial purchases');
+    check(!/use Rescan all|repeat a full|Import failed/.test(panel.querySelector('output').textContent),'partial panel offers Quick recovery without a Full warning');
+    recover=true;detailRequests.length=0;quick.click();await wait(()=>!quick.disabled);
+    check(detailRequests.length===1&&fixtureStored.libraryItems.length===2,'actual Quick button retries only the unresolved purchase');
     window.fetch=realFetch;
     await fetch('/test-result',{method:'POST',body:JSON.stringify({checks})});
   }catch(error){await fetch('/test-result',{method:'POST',body:JSON.stringify({checks,error:error.message})});}

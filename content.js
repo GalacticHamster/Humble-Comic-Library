@@ -3019,8 +3019,9 @@ function addPurchaseImporter() {
       const reminders = result.keyReminders;
       const reminderStatus = reminders.complete
         ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}${reminders.expiringSoon ? `, ${reminders.expiringSoon} expiring within 30 days` : ''}`
+        : result.failures ? `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; failed checks will be retried by Import new purchases`
         : `${reminders.unrevealed} pending key reminder${reminders.unrevealed === 1 ? '' : 's'}; older purchases have not been checked yet—use Rescan all purchases for complete reminders`;
-      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
+      status.textContent = `${scope}; imported ${result.added} new item${result.added === 1 ? '' : 's'} (${result.addedGames} game${result.addedGames === 1 ? '' : 's'}${result.addedSoftware ? `, ${result.addedSoftware} software item${result.addedSoftware === 1 ? '' : 's'}` : ''}${result.addedAudiobooks ? `, ${result.addedAudiobooks} audiobook${result.addedAudiobooks === 1 ? '' : 's'}` : ''})${result.datesBackfilled ? ` and backfilled ${result.datesBackfilled === 1 ? '' : 's'} purchase date${result.datesBackfilled === 1 ? '' : 's'}` : ''}${result.failures && !result.fullRescan ? `; ${result.failures} purchase${result.failures === 1 ? '' : 's'} could not be imported and will be retried next time` : ''}; ${reminderStatus}${reminders.failures ? `; ${reminders.failures} key-reminder check${reminders.failures === 1 ? '' : 's'} will be retried` : ''}; ${result.total} total items.`;
     } catch (error) {
       if (/kQuotaBytes/iu.test(error.message)) {
         status.textContent = 'Import failed (Storage Quota Exceeded): Browser storage quota exceeded. Your existing library and manual corrections were preserved. Try exporting a backup or clearing unused archived accounts.';
@@ -3037,6 +3038,7 @@ function addPurchaseImporter() {
 async function importPurchases(report, { fullRescan = false, profileLabel='', confirmed=false, switchProfile=false, useSavedAccount=false } = {}) {
   const account=useSavedAccount?(await HumbleComicLibrary.storageRequest('syncAccounts')).find(a=>a.active):null;
   const scan=await HumbleComicLibrary.storageRequest('begin',{fullRescan,profileLabel:useSavedAccount?account?.label??'':profileLabel,confirmed,switchProfile,...(account?{reuseAccount:true,accountId:account.stableId}:{})});
+  try {
   fullRescan=fullRescan||scan.forceFull;
   // This endpoint is used by Humble's purchase pages. Fetching occurs in the
   // authenticated Humble tab, so no cookie is read, copied, or stored by us.
@@ -3149,6 +3151,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     report(`${action}: purchase ${index + 1} of ${purchasesToInspect.length}\u2026`);
     try {
       const detail = await fetchOrderDetail(key);
+      if (Object.hasOwn(detail ?? {}, 'gamekey') && detail.gamekey !== key) throw new Error('Purchase detail does not match the requested order.');
       if (!detail || typeof detail !== 'object' || Array.isArray(detail)
         || !['subproducts', 'products', 'tpkd_dict', 'all_tpks', 'all_tpkds', 'downloads', 'product', 'human_name'].some((field) => Object.hasOwn(detail, field))) {
         throw new Error('Unexpected purchase detail.');
@@ -3171,7 +3174,8 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
         if (allPurchaseKeys.has(key)) { imported.push(...items); purchaseSummaries.push(summary); }
         else historicalUpgrades.push({...priorPurchases.get(key), purchaseKey:key, importVersion:CURRENT_IMPORT_VERSION});
       }
-    } catch {
+    } catch (error) {
+      if (error?.code === 'HB_AUTH_REQUIRED') throw error;
       if (importTitles) failures.push(key);
       if (refreshReminders) {
         reminderFailures += 1;
@@ -3186,6 +3190,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
   // Only a complete explicit rescan can prune the current Humble snapshot.
   // Media backfills continue to correct entitlement classification separately.
   const reconciled = fullRescan && failures.length === 0 && reminderFailures === 0;
+  if (scan.forceFull && failures.length && !purchaseSummaries.length) throw new Error('No purchases could be loaded. Your saved library was kept. Retry Import new purchases, or sign in again if your session expired.');
   const upgraded = HumbleComicLibrary.enrichMissingProductIds({libraryItems,historicalLibraryItems}, metadataEvidence, {legacyImport:true});
   // Carry user classifications onto newly recovered IDs before merging imports.
   const migratedOverrides = {...mediaTypeOverrides};
@@ -3298,6 +3303,7 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
     }
   }
   await HumbleComicLibrary.storageRequest('commit',scan.token,{
+    successfulPurchaseKeys: purchaseSummaries.map(purchase => purchase.purchaseKey),
     rejectedPurchaseItems: dedupedRejected,
     libraryItems: [...merged.values()],
     purchaseSummaries: [...allPurchases.values()],
@@ -3334,12 +3340,18 @@ async function importPurchases(report, { fullRescan = false, profileLabel='', co
       expiringSoon
     }
   };
+  } catch (error) {
+    // Release only this scan's lease. A late failure must not cancel a newer import.
+    try { await HumbleComicLibrary.storageRequest('abort',scan.token); } catch (_) {}
+    throw error;
+  }
 }
 
 function purchaseImportScope(result, inProgress = false) {
   const purchases = (count) => `${count} purchase${count === 1 ? '' : 's'}`;
   if (result.fullRescan) {
     if (inProgress) return `Rescanning all ${purchases(result.scannedPurchases)}`;
+    if (result.failures) return `Saved ${purchases(result.scannedPurchases - result.failures)}; ${purchases(result.failures)} couldn't be loaded and will be retried by Import new purchases; prior entries kept`;
     return `Rescanned ${purchases(result.scannedPurchases)}; ${result.reconciled ? 'current snapshot reconciled; historical evidence archived' : 'scan incomplete; prior entries retained—repeat a full rescan to reconcile'}`;
   }
   const parts = [result.newPurchases
@@ -3778,7 +3790,7 @@ async function fetchJson(path) {
     credentials: 'same-origin',
     headers: { Accept: 'application/json' }
   });
-  if (response.status === 401 || response.status === 403) throw new Error('Your Humble login has expired. Sign in and try again.');
+  if (response.status === 401 || response.status === 403) throw Object.assign(new Error('Your Humble login has expired. Sign in and try again. Your saved library was kept.'), {code:'HB_AUTH_REQUIRED'});
   if (!response.ok) throw new Error(`Humble responded with ${response.status}.`);
   return response.json();
 }
@@ -3788,7 +3800,7 @@ async function fetchOrderDetail(purchaseKey) {
     credentials: 'same-origin',
     headers: { Accept: 'application/json' }
   });
-  if (response.status === 401 || response.status === 403) throw new Error('Your Humble login has expired. Sign in and try again.');
+  if (response.status === 401 || response.status === 403) throw Object.assign(new Error('Your Humble login has expired. Sign in and try again. Your saved library was kept.'), {code:'HB_AUTH_REQUIRED'});
   if (!response.ok) throw new Error(`Humble responded with ${response.status}.`);
   // Humble returns the entitlement name together with redemption-key fields.
   // Redact those values before parsing so they can never enter extension

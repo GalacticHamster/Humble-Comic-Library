@@ -934,19 +934,38 @@
         const baseline=changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:state.libraryItems.filter(item=>item.source!=='humble'),customCollectionMappings:state.customCollectionMappings}:state;
         return {token,forceFull,state:baseline};
       }
+      if(operation==='abort'){
+        const [token,tabId]=args,stored=await area.get({[controlKey]:null}),control=stored[controlKey];
+        if(!control||control.token!==token||control.tabId!==tabId)return false;
+        await area.set({[controlKey]:null});return true;
+      }
       if(operation==='commit'){
         const [token,updates,tabId]=args;const stored=await area.get({[controlKey]:null});const control=stored[controlKey];
         if(!control||control.token!==token||control.tabId!==tabId)throw new Error('Scan superseded by another scan, clear, or restore. Start a fresh scan.');
         const current=await area.get(LIBRARY_STATE_DEFAULTS);
-        if((control.changing||control.forceFull)&&updates.lastImport?.reconciled!==true)throw new Error('This profile requires a complete successful rescan; the prior library was retained.');
-        if(control.fullRescan&&updates.lastImport?.reconciled!==true){
+        if((control.changing||control.forceFull)&&updates.lastImport?.reconciled!==true){
+          // Profile consent was checked at begin. A bounded partial Full may
+          // establish that profile, but cannot acquire absence/removal authority.
+          const successful=updates.successfulPurchaseKeys,failed=updates.lastImport?.failedPurchaseKeys;
+          const verified=new Set(Array.isArray(successful)?successful:[]);
+          const summaries=new Set((updates.purchaseSummaries??[]).filter(p=>p.importVersion===CURRENT_IMPORT_VERSION).map(p=>p.purchaseKey));
+          const validKey=key=>typeof key==='string'&&key.length>0;
+          if(updates.lastImport?.fullRescan!==true||!Array.isArray(successful)||!successful.length||!successful.every(validKey)||new Set(successful).size!==successful.length
+            ||!Array.isArray(failed)||!failed.length||!failed.every(validKey)||new Set(failed).size!==failed.length||failed.some(key=>verified.has(key))
+            ||updates.lastImport.scannedPurchases!==successful.length+failed.length
+            ||successful.some(key=>!summaries.has(key)))throw new Error('This profile requires a complete successful rescan or validated partial purchases; the prior library was retained.');
+        }
+        if((control.fullRescan||control.forceFull)&&updates.lastImport?.reconciled!==true){
+          // Switching starts from the explicitly selected new profile's baseline;
+          // the prior profile is archived atomically below, never merged into it.
+          const baseline=control.changing?{...LIBRARY_STATE_DEFAULTS,libraryItems:current.libraryItems.filter(item=>item.source!=='humble')}:current;
           const failed=updates.lastImport?.failedPurchaseKeys;
           const identities=items=>new Set(items.flatMap(item=>{const origins=item.provenance?.length?item.provenance:[item];return origins.map(origin=>JSON.stringify([catalogItemKey(item),origin.purchaseKey??'',origin.entitlementId??'']));}));
           const incoming=identities(Array.isArray(updates.libraryItems)?updates.libraryItems:[]);
           const purchases=new Set((updates.purchaseSummaries??[]).map(item=>item.purchaseKey));
           const history=identities(updates.historicalLibraryItems??current.historicalLibraryItems);
           const historicalPurchases=new Set((updates.historicalPurchaseSummaries??current.historicalPurchaseSummaries).map(item=>item.purchaseKey));
-          if(!Array.isArray(failed)||!failed.length||[...identities(current.libraryItems)].some(ref=>!incoming.has(ref))||current.purchaseSummaries.some(item=>!purchases.has(item.purchaseKey))||[...identities(current.historicalLibraryItems)].some(ref=>!history.has(ref))||current.historicalPurchaseSummaries.some(item=>!historicalPurchases.has(item.purchaseKey)))throw new Error('Incomplete full scan cannot remove existing purchase evidence; prior library retained.');
+          if(!Array.isArray(failed)||!failed.length||[...identities(baseline.libraryItems)].some(ref=>!incoming.has(ref))||baseline.purchaseSummaries.some(item=>!purchases.has(item.purchaseKey))||[...identities(baseline.historicalLibraryItems)].some(ref=>!history.has(ref))||baseline.historicalPurchaseSummaries.some(item=>!historicalPurchases.has(item.purchaseKey)))throw new Error('Incomplete full scan cannot remove existing purchase evidence; prior library retained.');
         }
         const clean=Object.fromEntries(scanFields.filter(key=>Object.hasOwn(updates,key)).map(key=>[key,updates[key]]));
         if(control.changing){

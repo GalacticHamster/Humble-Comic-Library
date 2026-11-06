@@ -29,6 +29,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
   if(message.operation==='commit')args[2]=sender.tab?.id??null;
+  if(message.operation==='abort')args[1]=sender.tab?.id??null;
   libraryStore.execute(message.operation,args).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:error.message}));return true;
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
