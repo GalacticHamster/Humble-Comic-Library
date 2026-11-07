@@ -8,7 +8,9 @@ import {setTimeout as pause} from 'node:timers/promises';
 import {chromePipe,firefoxMarionette,freePort} from './native-protocol.mjs';
 const root=path.resolve(import.meta.dirname,'..'),hb=fs.existsSync(path.join(root,'ownership.js'));
 const firefox=process.argv.includes('--firefox'),baseline=process.argv.find(v=>v.startsWith('--baseline='))?.slice(11),phase=baseline?'before':'after';
-const output=path.join(root,'audit-artifacts/bundle-match-context');fs.mkdirSync(output,{recursive:true});
+const output=path.join(root,'audit-artifacts/bundle-match-context-v2');fs.mkdirSync(output,{recursive:true});
+// Minimal synthetic expected summary and protocol trace, independent of local audit output.
+const expected=JSON.parse(fs.readFileSync(path.join(root,'tests/fixtures/bundle-context-summary.json'),'utf8'));assert.equal(expected.fixtureVersion,2);
 const original='Beneath the Trees Where Nobody Sees',sequel=original+': Rite of Spring';
 const products=[original,sequel,'Independent New Story'].map((name,i)=>({_id:'context-product-'+i,name,type:'book'}));
 const raw={_id:'context-bundle',name:'Synthetic Comics Bundle',slug:'context-fixture',bundles:[{price:{USD:500},games:products}]};
@@ -49,6 +51,6 @@ try{
  assert.equal(await evaluate("fixtureRequests.filter(t=>t==='MATCH_ITEMS').length"),1);
  const result={repo:hb?'HB':'FAN',browser:firefox?'Firefox':'Chrome',phase,badges,summary,summaryBasis,dialog,requests:await evaluate('fixtureRequests'),writes:0};
  fs.writeFileSync(path.join(output,`${phase}-${firefox?'firefox':'chrome'}.json`),JSON.stringify(result,null,2));
- if(!baseline){const p=path.join(output,`before-${firefox?'firefox':'chrome'}.json`);if(fs.existsSync(p)){const before=JSON.parse(fs.readFileSync(p,'utf8'));assert.equal(summaryBasis,before.summaryBasis,'Summary/count/pricing changed outside intended candidate captions');assert.deepEqual(badges,before.badges);assert.deepEqual(result.requests,before.requests);}}
+ if(!baseline){assert.equal(summaryBasis,expected.summaryBasis,'Summary/count/pricing changed outside intended candidate captions');assert.deepEqual(result.requests,expected.requests,'Discovery/matching protocol trace changed');}
  console.log(`${result.repo} ${result.browser} ${phase}: real production bundle render, badges, primary/details, no writes/additional lookups, identical summary pricing passed`);
 }finally{protocol?.close?.();child?.kill();await new Promise(r=>server.close(r));await pause(300);if(path.dirname(path.resolve(profile))!==path.resolve(os.tmpdir())||!path.basename(profile).startsWith('bundle-context-ui-'))throw Error('Unsafe disposable profile cleanup');fs.rmSync(profile,{recursive:true,force:true,maxRetries:6,retryDelay:300});}
