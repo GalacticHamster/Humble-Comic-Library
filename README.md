@@ -1,6 +1,6 @@
 # Humble Library
 
-Humble Library 1.0.1 is an unofficial Chrome and Firefox extension that helps you check Humble Bundle offers against your saved purchases. Import books, comics, audiobooks, games and software, then see purchase and ownership evidence, possible matches, and bundle value while browsing.
+Humble Library 1.0.2 is an unofficial Chrome and Firefox extension that helps you check Humble Bundle offers against your saved purchases. Import books, comics, audiobooks, games and software, then see purchase and ownership evidence, possible matches, and bundle value while browsing.
 
 Your library and purchase history stay in browser-local extension storage. Imports read your signed-in Humble account; optional Galactic Library integration checks other libraries and can synchronize saved purchases with your explicit account consent. Humble Library is not affiliated with or endorsed by Humble Bundle.
 
@@ -8,8 +8,8 @@ Your library and purchase history stay in browser-local extension storage. Impor
 
 ## Installation and availability
 
-- **Chrome:** Humble Library has an existing Chrome Web Store listing. The **1.0.1 update is pending store publication**, so the installed store version may be older than the tagged source here. A verified listing URL is not yet included in this README.
-- **Firefox desktop 140+:** The 1.0.1 Firefox build is supported, but AMO publication and store availability are pending. Normal Firefox distribution requires signing.
+- **Chrome:** Humble Library has an existing Chrome Web Store listing. The owner confirms **1.0.1 is published**; **1.0.2 is a local release candidate** and has not been submitted by this preparation. A verified listing URL is not yet included in this README.
+- **Firefox desktop 140+:** The 1.0.2 Firefox candidate is supported; its store submission and signing remain pending. Normal Firefox distribution requires signing.
 
 For source installation or temporary Firefox testing, see [Development and testing](#development-and-testing). Those instructions are separate from store installation.
 

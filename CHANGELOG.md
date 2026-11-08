@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 — Release candidate
+
+- Save independently verified Humble purchases when another purchase cannot be read, preserving earlier purchases, history and manual corrections. Unresolved purchases remain retryable; account/session conflicts still prevent unsafe saves.
+- Improve first-account recovery and retain normal incremental imports after valid saved purchases. Partial purchase additions can reach Galactic Library through the existing consented synchronization protocol.
+- Clarify the privacy policy's explicitly enabled Software diagnostic export, which can contain product titles and bundle names.
+
+Prepared locally for review; not submitted or published. No new permissions, ownership/matching rules or synchronization protocol changes since published 1.0.1.
+
 ## 1.0.1
 
 - Request `unlimitedStorage` in Chrome and Firefox so large local libraries and purchase histories are not blocked by the normal extension-storage quota. Import validation and single-write commits remain unchanged; failed writes preserve previous purchases and manual corrections. Disk exhaustion and browser-wide storage failures remain possible.
