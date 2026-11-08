@@ -2953,6 +2953,7 @@ function addPurchaseImporter() {
   const panel = document.createElement('section');
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer';
+  if(!globalThis.HumbleImporterPageStatus){globalThis.HumbleImporterPageStatus=(message,sender,respond)=>{if(message?.type!=='GH_IMPORTER_PAGE_STATUS'||sender.id!==chrome.runtime.id)return false;respond({present:Boolean(document.querySelector('#hcl-importer')?.isConnected)});return false;};chrome.runtime.onMessage?.addListener(globalThis.HumbleImporterPageStatus);}
   panel.innerHTML = `
     <div class="library-import-description"><strong>Humble Library</strong> <span>Import purchases from the Humble account signed in to this browser.</span><details><summary>How account nicknames work</summary><p>Choose a local nickname, such as personal. It does not sign you in or detect your account. Only the active account is checked for ownership. Use Saved accounts below to switch back to a saved snapshot, then Import new purchases to refresh it. Rename account keeps its purchases and scan history. For a new account, sign in on the website, enter a new nickname, select Save a new account, and rescan all purchases once.</p></details></div>
     <details class="library-import-profile"><summary>Advanced accounts</summary>

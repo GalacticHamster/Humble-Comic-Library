@@ -4,6 +4,14 @@ Compatible official installations connect automatically. In Settings, check the 
 
 ## Managed identities
 
+On Humble Purchases, Humble Library remains the importer when a compatible
+Galactic Library is also installed. GL hides its duplicate panel. Import and
+inspect diagnostics in the Humble Library panel as usual. This does not grant
+purchase sharing: use **Connect and sync** in GL Providers or Humble Library's
+purchase-sync section to authorize it. Existing saved purchases can sync without
+another store scan. Reload an already-open purchase page after an extension
+installation or update when prompted. Humble Library still works without GL.
+
 | Product | Chrome Web Store listing ID | Existing Firefox Gecko ID |
 | --- | --- | --- |
 | Humble Library | bjjpfofmcmiipeghcbhdfjedpldmkcii | humble-comic-library@galactichamster.com |

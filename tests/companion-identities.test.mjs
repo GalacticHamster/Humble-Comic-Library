@@ -38,3 +38,13 @@ test('status handshake handles compatible legacy capabilities, incompatible API 
  await assert.rejects(h.F.testGalacticLink(async()=>({ok:true,apiVersion:2})),/Incompatible/);
  await assert.rejects(h.F.testGalacticLink(async()=>{throw Error('Missing or disabled');}),/not verified|unavailable/);
 });
+
+test('importer discovery advertises UI only; page status requires trusted GL and never imports or grants sync',async()=>{
+ const h=harness(),id=h.F.builtinGalacticId(h.runtime),before=JSON.stringify(h.values);
+ const ping=await h.send({type:'PING',apiVersion:1},{id});assert.equal(ping.capabilities.providerImporter,1);assert.equal(ping.capabilities.importerPageStatus,1);
+ assert.equal((await h.send({type:'GET_IMPORTER_STATUS',apiVersion:1,tabId:1},{id:'untrusted'})).ok,false);
+ assert.equal((await h.send({type:'GET_IMPORTER_STATUS',apiVersion:2,tabId:1},{id})).ok,false);
+ assert.equal((await h.send({type:'GET_IMPORTER_STATUS',apiVersion:1},{id})).ok,false);
+ assert.equal((await h.send({type:'GET_IMPORTER_STATUS',apiVersion:1,tabId:1},{id})).present,false);
+ assert.equal(JSON.stringify(h.values),before);assert.equal(h.opened.length,0);
+});
