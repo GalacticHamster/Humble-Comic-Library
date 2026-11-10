@@ -17,7 +17,7 @@
    else if(Array.isArray(entry)){if(entry.length>50)fail();out[key]=entry.map(v=>text(v,500));}
    else out[key]=text(entry,['collects','contentsStatement'].includes(key)?10000:500);
  }
- if(out.keyCheckedAt!==undefined){if(provider!=='fanatical'||!['unknown','unrevealed'].includes(out.keyStatus)||!date(out.keyCheckedAt))fail('Invalid key observation.');out.keyCheckedAt=date(out.keyCheckedAt);}
+ if(out.keyCheckedAt!==undefined){if(!['humble','fanatical'].includes(provider)||!(provider==='humble'?['unknown','unrevealed','revealed','expired','unavailable']:['unknown','unrevealed']).includes(out.keyStatus)||!date(out.keyCheckedAt))fail('Invalid key observation.');out.keyCheckedAt=date(out.keyCheckedAt);}
  if(out.entitlement&&!['direct-download','third-party-key'].includes(out.entitlement)||out.keyStatus&&!['unknown','unrevealed','revealed','expired','unavailable'].includes(out.keyStatus))fail('Invalid entitlement evidence.');
  return out;}
  const reviewDate=v=>typeof v==='string'&&v.length<=40&&Number.isFinite(Date.parse(v));
@@ -45,7 +45,7 @@
  if(!result.snapshotId||!result.accountRef||!result.capturedAt||size(result)>MAX_BYTES)fail('Purchase snapshot exceeds the bounded transfer size.');
  const ids=result.records.map(v=>v.providerItemId??JSON.stringify([v.metadata.purchaseId,v.title,v.mediaType,v.metadata.entitlement??'']));if(new Set(ids).size!==ids.length)fail('Duplicate provider purchase records.');return result;}
  function withoutKeyObservations(value,level=0){
- const data=JSON.parse(JSON.stringify(value));if(data.provider!=='fanatical')return data;
+ const data=JSON.parse(JSON.stringify(value));if(data.provider==='humble'){if(level<1)for(const row of data.records)delete row.metadata.keyCheckedAt;return data;}if(data.provider!=='fanatical')return data;
  for(const row of data.records){if(level<1&&row.metadata?.keyCheckedAt!==undefined){delete row.metadata.keyStatus;delete row.metadata.keyCheckedAt;}for(const origin of row.origins??[]){if(level<1){delete origin.keyStatus;delete origin.keyCheckedAt;}if(level<2)delete origin.keyReview;}}return data;
  }
  function equal(left,right){

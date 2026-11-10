@@ -51,9 +51,9 @@ try{
       // Fault injection affects only the synthetic installed test library.
       await evaluate(`(async()=>{const H=HumbleComicLibrary;await H.storageRequest('replace',{...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'Sync fixture',libraryItems:[{title:'Synthetic sync first',kind:'book',source:'humble',purchaseKey:'sync-order-1',providerItemId:'sync-order-1:product:book-1',sourceBundle:'Synthetic sync bundle'}],purchaseSummaries:[{purchaseKey:'sync-order-1',itemCount:1}]});return true;})()`,session.sessionId);
       const syncCall=fields=>evaluate(`chrome.runtime.sendMessage(${JSON.stringify({type:'GH_PURCHASE_ACTION',provider:'humble',...fields})})`,attached.sessionId);
-      let choices=await syncCall({action:'syncChoices',peerId:installed.id});assert(choices.ok,choices.error);
-      let connected=await syncCall({action:'syncConnect',peerId:choices.peerId,localId:choices.accounts[0].stableId,remoteId:choices.remoteAccounts[0].stableId,confirmed:true,sameAccount:true});assert(connected.ok,connected.error);
-      const waitForPurchase=async native=>{for(let n=0;n<300;n++){if(await evaluate(`(async()=>{const S=await import('./src/lib/storage.js');return Object.values((await S.getDatabase()).providerItems).some(i=>i.provider==='humble'&&i.providerItemId===${JSON.stringify(native)});})()`,attached.sessionId))return;await pause(20);}throw Error('Automatic purchase sync did not save '+native);};
+      // Populated single-account setup must complete automatically, not race a manual Connect.
+      let choices,connected;
+      const waitForPurchase=async native=>{for(let n=0;n<300;n++){if(await evaluate(`(async()=>{const S=await import('./src/lib/storage.js');return Object.values((await S.getDatabase()).providerItems).some(i=>i.provider==='humble'&&i.providerItemId===${JSON.stringify(native)});})()`,attached.sessionId))return;await pause(20);}throw Error('Automatic purchase sync did not save '+native+' '+JSON.stringify({gl:await syncCall({action:'syncState'}),hb:await evaluate("chrome.runtime.sendMessage({type:'GH_PURCHASE_ACTION',action:'syncState',provider:'humble'})",session.sessionId)}));};
       await waitForPurchase('sync-order-1:product:book-1');
       // The first imported item can be visible before the bidirectional cycle
       // acknowledges completion. Isolate identity loss from an in-flight save.

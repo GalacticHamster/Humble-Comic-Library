@@ -1,6 +1,19 @@
 /* Provider-level adapters. Never reconstruct purchases from canonical identities. */
 (function(root){'use strict';const S=root.GalacticPurchaseSnapshot;
- const pick=(value,provider)=>S.metadata(Object.fromEntries(S.fields.filter(key=>value?.[key]!==undefined&&value[key]!==null&&value[key]!==''&&(!Array.isArray(value[key])||value[key].length)).map(key=>[key,value[key]])),provider);
+ // Source-only projection: malformed optional HB reminder evidence must not
+ // invalidate independently validated purchase identity. Wire validation remains strict.
+ function pick(value,provider,onInvalid=()=>{}){
+  const projected=Object.fromEntries(S.fields.filter(key=>value?.[key]!==undefined&&value[key]!==null&&value[key]!==''&&(!Array.isArray(value[key])||value[key].length)).map(key=>[key,value[key]]));
+  if(provider==='humble'){
+   let invalid=false;const statuses=['unknown','unrevealed','revealed','expired','unavailable'];
+   const validDate=v=>typeof v==='string'&&v.length<=500&&Number.isFinite(Date.parse(v));
+   if(projected.keyStatus!==undefined&&!statuses.includes(projected.keyStatus)||projected.keyCheckedAt!==undefined&&(!statuses.includes(projected.keyStatus)||!validDate(projected.keyCheckedAt))){delete projected.keyStatus;delete projected.keyCheckedAt;invalid=true;}
+   if(projected.keyCheckedAt!==undefined)projected.keyCheckedAt=new Date(projected.keyCheckedAt).toISOString();
+   if(projected.expiresAt!==undefined){if(validDate(projected.expiresAt))projected.expiresAt=new Date(projected.expiresAt).toISOString();else{delete projected.expiresAt;invalid=true;}}
+   if(invalid)onInvalid();
+  }
+  return S.metadata(projected,provider);
+ }
  const glSnapshotMediaType=kind=>kind==='comic'?'book':['book','audiobook','game','software','audio','elearning','other'].includes(kind)?kind:'other';
  // Two existing extractors spell the same purchase-scoped key reference
  // differently. This is an exact source-token bridge, never a title match or
@@ -29,11 +42,12 @@
  async function selected(role,state,ref){for(const value of scopes(role,state))if((await descriptor(role==='hb'?'humble':'fanatical',value.label,value.items)).accountRef===ref)return value;throw Error('Saved account data changed. Refresh the account choices and confirm again.');}
  async function snapshot(role,state,ref){const scope=await selected(role,state,ref),provider=role==='hb'?'humble':'fanatical',records=[],limitations=[];
  if(role==='hb'){
- let noPurchase=0,noNative=0;
+ let noPurchase=0,noNative=0,invalidObservations=0;
  for(const item of scope.items)for(const origin of item.provenance?.length?item.provenance:[item]){
- if(!origin.purchaseKey){noPurchase++;continue;}const meta=pick({...item,...origin,purchaseId:origin.purchaseKey},provider);
+ if(!origin.purchaseKey){noPurchase++;continue;}const meta=pick({...item,...origin,purchaseId:origin.purchaseKey},provider,()=>invalidObservations++);
  let id=origin.providerItemId??item.providerItemId??null;if(!id&&origin.entitlementId)id=origin.purchaseKey+':entitlement:'+origin.entitlementId;if(!id)noNative++;
  records.push({providerItemId:id,title:origin.title||item.title,mediaType:glSnapshotMediaType(item.kind??'book'),metadata:meta,purchasedAt:origin.purchasedAt??item.purchasedAt??null,origins:[]});}
+ if(invalidObservations)limitations.push(invalidObservations+' optional key observations could not be shared; purchases were retained. Refresh key reminders in Humble Library.');
  if(noPurchase)limitations.push(noPurchase+' manual/unsourced rows have no purchase identifier and are excluded.');
  if(noNative)limitations.push(noNative+' older Humble direct-download records lack retained provider observation IDs. GL can merge only an unambiguous existing purchase/title; unmatched records are skipped. Use Import new purchases in HB to update older purchases automatically; source IDs are recovered where attribution is unambiguous.');
  }else {let missingOrigins=0,missingProducts=0;for(const item of scope.items){if(!/^[A-Za-z0-9_-]{6,128}$/u.test(item.sourceItemId??'')){missingProducts++;continue;}const groups=new Map();for(const origin of item.purchaseOrigins??[]){if(!origin.purchaseRef){missingOrigins++;continue;}const key=JSON.stringify([origin.purchaseRef,origin.bundle.sourceItemId]);groups.set(key,{orderRef:origin.purchaseRef,bundleId:origin.bundle.sourceItemId,bundleTitle:origin.bundle.title,bundleSlug:origin.bundle.slug??'',purchasedAt:origin.purchaseDate,quantity:origin.quantity??1,occurrenceRefs:[],...(origin.keyStatus!==undefined?{keyStatus:origin.keyStatus,keyCheckedAt:origin.keyCheckedAt,...(origin.keyReview?{keyReview:S.keyReview(origin.keyReview)}:{})}:{})});}

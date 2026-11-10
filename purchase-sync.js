@@ -82,8 +82,8 @@
  }
  function mapping(raw){if(!raw||Object.keys(raw).some(k=>!['id','localId','remoteId'].includes(k))||![raw.id,raw.localId,raw.remoteId].every(validId))throw Error('Invalid account relationship.');return raw;}
  function createCoordinator({runtime,area,alarms,service,role,catalog,ensureAccount=async()=>{},busy=async()=>false,now=()=>Date.now(),coalesceMs=750,onActive=async()=>{},onSynced=async()=>{}}){
-  const central=role==='gl',supported=central?providers:[role==='hb'?'humble':'fanatical'];let tail=Promise.resolve(),cycleTail=Promise.resolve(),timer,disposed=false;const jobs=new Map(),discoveryJobs=new Map(),availability=new Map(),wakeTimers=new Map(),pendingDiscovery=new Map();
-  const allowed=p=>sharingAllowed(area,p),assignable=a=>a?.unassigned===true&&a.count===0&&a.historicalCount===0;
+  const central=role==='gl',supported=central?providers:[role==='hb'?'humble':'fanatical'];let tail=Promise.resolve(),cycleTail=Promise.resolve(),timer,disposed=false;const jobs=new Map(),discoveryJobs=new Map(),availability=new Map(),discoveryErrors=new Map(),wakeTimers=new Map(),pendingDiscovery=new Map();
+  const allowed=p=>sharingAllowed(area,p);
   async function read(){return (await area.get({[KEY]:{}}))[KEY];}
   function update(provider,fn){const work=tail.then(async()=>{const all=await read(),previous=all[provider]??null,next=fn(previous);if(stable(previous)!==stable(next))await area.set({[KEY]:{...all,[provider]:next}});return next;});tail=work.catch(()=>{});return work;}
   function checkProvider(provider){if(!supported.includes(provider))throw Error('Wrong synchronization provider.');}
@@ -92,7 +92,7 @@
   async function guard(provider,expected,account,checkRemote=false){if(!await allowed(provider))throw Error('Automatic sharing is disabled.');const current=(await read())[provider];if(!current?.confirmed||!current.remoteConfirmed||current.id!==expected.id||current.peerId!==expected.peerId)throw Error('Automatic synchronization was disconnected or its account relationship changed.');const live=await getMapped(provider,current);if(account&&live.accountRef!==account.accountRef)throw Error('Saved destination account changed. Retry from committed purchases.');if(checkRemote){const value=(await service.request(current.peerId,{type:PREFIX+'CONSENT',provider})).mapping;if(!value?.confirmed||!value.remoteConfirmed||value.id!==current.id||value.localId!==current.remoteId||value.remoteId!==current.localId)throw Error('Automatic synchronization consent changed in the other extension.');}return current;}
   async function consent(provider){const s=(await read())[provider];if(!s)return null;const authorized=await service.authorize(s.peerId,provider),samePeer=central||await service.resolvePeer(provider,s.peerId)===s.peerId;return {...s,confirmed:Boolean(s.confirmed&&authorized&&samePeer&&await allowed(provider))};}
   async function remote(provider,state){return service.request(state.peerId,{type:PREFIX+'ACCOUNTS',provider});}
-  async function schedule(provider,state,delay=coalesceMs){if(!state?.confirmed||!state.remoteConfirmed)return;await alarms?.create(ALARM+provider,{when:now()+Math.max(delay,1000)});clearTimeout(timer);timer=setTimeout(()=>{for(const p of supported)run(p).catch(()=>{});},delay);}
+  async function schedule(provider,state,delay=coalesceMs){if(disposed)return;if(!state?.confirmed||!state.remoteConfirmed)return;await alarms?.create(ALARM+provider,{when:now()+Math.max(delay,1000)});clearTimeout(timer);timer=setTimeout(()=>{for(const p of supported)run(p).catch(()=>{});},delay);}
   async function mark(provider){checkProvider(provider);if(!await allowed(provider))return;const state=await update(provider,s=>s?.confirmed&&!needsRepair(s)?{...s,pending:true,epoch:(s.epoch??0)+1,attempts:0,errorCode:null,error:null,status:s.remoteConfirmed?'pending':'confirmation'}:s);if(!state?.confirmed){await discover(provider,undefined,true);return;}if(needsRepair(state))return;await schedule(provider,state);}
   async function retry(provider,expected,error){
    const code=failureKind(error);let state=await update(provider,s=>{
@@ -159,10 +159,10 @@
     const existing=(await read())[p];
     if(existing?.confirmed&&existing.id===proposal.id&&existing.peerId===sender.id&&existing.localId===proposal.localId&&existing.remoteId===proposal.remoteId&&proof.remoteConfirmed)return {mapping:existing};
     if(!proof.setup?.ticket||proof.setup.ticket!==message.ticket)throw Error('Setup confirmation expired or was not requested locally.');
-    const ours=(await accounts(p)).find(a=>a.stableId===proposal.localId),theirs=peer.accounts.find(a=>a.stableId===proposal.remoteId);
+    const localAccounts=await accounts(p),ours=localAccounts.find(a=>a.stableId===proposal.localId),theirs=peer.accounts.find(a=>a.stableId===proposal.remoteId);
     if(!ours||!theirs||ours.fingerprint!==proof.setup.remoteFingerprint||theirs.fingerprint!==proof.setup.localFingerprint)throw Error('Saved accounts changed during setup. Connect again to review them.');
     if(ours.count&&theirs.count&&!proof.setup.sameAccount)throw Error('Confirm these are the same store account before combining saved purchases.');
-    if(proof.setup.automatic&&!proof.setup.sameAccount&&!(assignable(ours)||assignable(theirs)))throw Error('Saved account history changed during setup. Review the account relationship.');
+    if(proof.setup.singleAccount&&(localAccounts.length!==1||peer.accounts.length!==1))throw Error('Saved account choices changed during setup. Review the account relationship.');
     const saved=await update(p,v=>{const replacement=proof.setup?.repair===true&&(v?.id??null)===proof.setup.replaceId&&(!v||v.peerId===sender.id);if(v&&(v.peerId!==sender.id||v.id!==proposal.id||v.localId!==proposal.localId||v.remoteId!==proposal.remoteId)&&!replacement)throw Error('The purchase-sync account relationship changed. Review repair again.');return {...v,...proposal,peerId:sender.id,confirmed:true,remoteConfirmed:true,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,setup:null,recovery:false};});
     await onActive(p);await schedule(p,saved);return {mapping:saved};
    }
@@ -189,14 +189,15 @@
     else {const s=(await read())[p];if(s)try{await service.request(s.peerId,{type:PREFIX+'SUSPEND',provider:p,id:s.id,sharingDisabled:true});}catch{}}
     return {enabled:message.enabled};
    }
+   if(message.action==='syncRetry'){if(!await allowed(p))throw Error('Automatic sharing is disabled.');await discover(p,undefined,true);return {state:(await read())[p]??null};}
    if(message.action==='syncDiagnostics'){
     const state=(await read())[p]??null,ours=await catalog(p),enabled=await allowed(p);let linked=false,other=null,problem=null;
     try{const peer=await service.resolvePeer(p,state?.peerId);await service.request(peer,{type:'GH_PURCHASE_CAPABILITIES',provider:p});linked=true;other=await service.request(peer,{type:PREFIX+'DIAGNOSTICS',provider:p});}catch(error){problem=failureKind(error);}
     const localAccountPresent=Boolean(state&&ours.some(a=>a.stableId===state.localId)),remoteAccountPresent=Boolean(state&&other?.accounts?.some(a=>a.stableId===state.remoteId));
     const verified=Boolean(enabled&&state?.confirmed&&other?.mapping?.confirmed&&other.mapping.id===state.id&&other.mapping.localId===state.remoteId&&other.mapping.remoteId===state.localId&&localAccountPresent&&remoteAccountPresent);
-    return {report:{format:1,provider:p,checkedAt:new Date(now()).toISOString(),pairingAvailable:linked,automaticSharing:enabled,reminderSharingFailure:Boolean(state?.reminderError),localPurchasePermission:Boolean(state?.confirmed&&enabled),remotePurchasePermission:Boolean(state&&other?.mapping?.confirmed&&other.mapping.id===state.id&&other.mapping.localId===state.remoteId&&other.mapping.remoteId===state.localId),localAccountPresent,remoteAccountPresent,verifiedPeerConfirmation:verified,localAccountCount:ours.length,remoteAccountCount:other?.accounts?.length??null,lastSuccess:state?.lastSuccess??null,pending:Boolean(state?.pending),failureCode:!enabled||other?.sharing===false?'sharing-disabled':problem??(state&&(!localAccountPresent||!remoteAccountPresent)?'missing-account':state&&!verified?'consent-required':state?.errorCode??(state?.error?failureKind(state.error):null)),recoveryAction:!enabled?'enable-sharing':other?.sharing===false?'enable-sharing-in-companion':!state?'connect':verified?'sync':linked?'repair':'check-pairing'}};
+    return {report:{format:1,provider:p,checkedAt:new Date(now()).toISOString(),pairingAvailable:linked,automaticSharing:enabled,reminderSharingFailure:Boolean(state?.reminderError),localPurchasePermission:Boolean(state?.confirmed&&enabled),remotePurchasePermission:Boolean(state&&other?.mapping?.confirmed&&other.mapping.id===state.id&&other.mapping.localId===state.remoteId&&other.mapping.remoteId===state.localId),localAccountPresent,remoteAccountPresent,verifiedPeerConfirmation:verified,localAccountCount:ours.length,remoteAccountCount:other?.accounts?.length??null,lastSuccess:state?.lastSuccess??null,pending:Boolean(state?.pending),discoveryFailure:discoveryErrors.get(p)?.code??null,failureCode:!enabled||other?.sharing===false?'sharing-disabled':problem??discoveryErrors.get(p)?.code??(state&&(!localAccountPresent||!remoteAccountPresent)?'missing-account':state&&!verified?'consent-required':state?.errorCode??(state?.error?failureKind(state.error):null)),recoveryAction:!enabled?'enable-sharing':other?.sharing===false?'enable-sharing-in-companion':!state?'connect':verified?'sync':linked?'repair':'check-pairing'}};
    }
-   if(message.action==='syncState')return {state:(await read())[p]??null,accounts:await catalog(p),sharing:await allowed(p),availability:availability.get(p)??null};
+   if(message.action==='syncState')return {state:(await read())[p]??null,accounts:await catalog(p),sharing:await allowed(p),availability:availability.get(p)??null,discoveryError:discoveryErrors.get(p)??null};
    if(message.action==='syncCreateAccount'){if(message.confirmed!==true)throw Error('Confirm creating a separate saved account.');const choices=await service.accounts(p),active=choices.find(a=>a.active);const data={protocolVersion:1,provider:p,snapshotId:crypto.randomUUID(),accountRef:crypto.randomUUID(),accountLabel:'',capturedAt:new Date(now()).toISOString(),scope:'historical',completeness:'partial',limitations:[],records:[]};await service.commit(data,{newLabel:message.newLabel,expectedActiveLabel:active?.label??'',expectedActiveId:active?.accountRef??null});return {accounts:await catalog(p)};}
    if(message.action==='syncChoices'){const linked=await service.local({action:'connection',provider:p,peerId:message.peerId}),peerId=linked.peerId,r=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});return {peerId,accounts:await accounts(p),remoteAccounts:r.accounts,remoteRelationshipId:r.mapping?.id??null,state:(await read())[p]??null};}
    if(message.action==='syncDisconnect'){const s=(await read())[p];await update(p,()=>null);await alarms?.clear(ALARM+p);if(s)try{await service.request(s.peerId,{type:PREFIX+'DISCONNECT',provider:p,id:s.id});}catch{}return {};}
@@ -212,12 +213,14 @@
     if(repairing&&((current?.id??null)!==message.expectedId||(r.mapping?.id??null)!==message.expectedRemoteId||ours.fingerprint!==message.localFingerprint||theirs.fingerprint!==message.remoteFingerprint))throw Error('The accounts or connection changed. Review repair again.');
     if(!repairing&&current&&(current.peerId!==peerId||current.localId!==localId||current.remoteId!==remoteId))throw Error('Repair the connection before choosing different accounts.');
     const verified=current?.confirmed&&current.remoteConfirmed&&r.mapping?.confirmed&&r.mapping.id===current.id;
-    if((repairing||!verified)&&ours.count&&theirs.count&&message.sameAccount!==true)throw Error('Confirm these are the same store account before combining saved purchases.');
-    const setup={ticket:crypto.randomUUID(),automatic:message.automatic===true,localFingerprint:ours.fingerprint,remoteFingerprint:theirs.fingerprint,sameAccount:message.sameAccount===true,...(repairing?{repair:true,replaceId:r.mapping?.id??null}:{})};
+    const singleAccount=message.automatic===true&&rows.length===1&&r.accounts.length===1;
+    if((repairing||!verified)&&ours.count&&theirs.count&&message.sameAccount!==true&&!singleAccount)throw Error('Confirm these are the same store account before combining saved purchases.');
+    const setup={ticket:crypto.randomUUID(),automatic:message.automatic===true,localFingerprint:ours.fingerprint,remoteFingerprint:theirs.fingerprint,sameAccount:message.sameAccount===true||singleAccount,...(singleAccount?{singleAccount:true}:{}),...(repairing?{repair:true,replaceId:r.mapping?.id??null}:{})};
     let state=await update(p,v=>{if(repairing&&(v?.id??null)!==message.expectedId)throw Error('The connection changed. Review repair again.');return {...v,id:repairing?crypto.randomUUID():v?.id??crypto.randomUUID(),peerId,localId,remoteId,confirmed:true,remoteConfirmed:false,peerVerified:false,pending:true,status:'pending',epoch:(v?.epoch??0)+1,attempts:0,error:null,errorCode:null,inFlight:null,recovery:false,pair:repairing?null:v?.pair,setup};});
     let accepted;try{accepted=await service.request(peerId,{type:PREFIX+'ACCEPT',provider:p,mapping:{id:state.id,localId:state.remoteId,remoteId:state.localId},ticket:setup.ticket});}catch(error){await update(p,v=>v?.id===state.id?{...v,status:'attention',error:'Connection setup did not complete: '+error.message}:v);throw error;}
     if(!accepted.mapping?.confirmed||accepted.mapping.id!==state.id)throw Error('Connection was not approved. Update both extensions and try again.');
-    const currentLocal=(await accounts(p)).find(a=>a.stableId===localId),currentPeer=(await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p})).accounts.find(a=>a.stableId===remoteId);
+    const currentLocalRows=await accounts(p),currentRemoteRows=(await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p})).accounts,currentLocal=currentLocalRows.find(a=>a.stableId===localId),currentPeer=currentRemoteRows.find(a=>a.stableId===remoteId);
+    if(setup.singleAccount&&(currentLocalRows.length!==1||currentRemoteRows.length!==1))throw Error('Saved account choices changed during setup. Review the account relationship.');
     if(!currentLocal||!currentPeer||currentLocal.fingerprint!==ours.fingerprint||currentPeer.fingerprint!==theirs.fingerprint||(currentLocal.stamp??currentLocal.accountRef)!==(ours.stamp??ours.accountRef)||(currentPeer.stamp??currentPeer.accountRef)!==(theirs.stamp??theirs.accountRef))throw Error('Saved accounts changed during setup. Review the account relationship.');
     state=await update(p,v=>{if(!v?.confirmed||v.id!==state.id||v.setup?.ticket!==setup.ticket)throw Error('Setup was cancelled or replaced.');return {...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null};});
     await onActive(p);await schedule(p,state);return {state};
@@ -240,6 +243,7 @@
   async function configurationChanged(p){const s=(await read())[p];if(!s?.confirmed){await discover(p,undefined,true);return;}await update(p,v=>v?.id===s.id?{...v,remoteConfirmed:false,pending:true,status:'attention',error:'The Galactic Library connection changed. Restore its connection or choose a new account relationship.',epoch:(v.epoch??0)+1}:v);await alarms?.clear(ALARM+p);try{await service.request(s.peerId,{type:PREFIX+'SUSPEND',provider:p,id:s.id});}catch{}if(await service.resolvePeer(p,s.peerId)===s.peerId){await update(p,v=>v?.id===s.id?{...v,status:'pending',error:null,errorCode:null}:v);await startup();}}
   function wakeDiscovery(p,explicit){clearTimeout(wakeTimers.get(p));wakeTimers.set(p,setTimeout(()=>{wakeTimers.delete(p);if(!disposed)discover(p,explicit,true).catch(()=>{});},0));}
   function discover(p,explicit,force=false){
+   if(disposed)return Promise.resolve();
    if(discoveryJobs.has(p)){if(force||explicit)pendingDiscovery.set(p,explicit);return discoveryJobs.get(p);}
    const work=discoverOnce(p,explicit,force).finally(()=>{discoveryJobs.delete(p);if(pendingDiscovery.has(p)){const next=pendingDiscovery.get(p);pendingDiscovery.delete(p);if(!disposed)wakeDiscovery(p,next);}});discoveryJobs.set(p,work);return work;
   }
@@ -253,17 +257,13 @@
     await service.local({action:'connection',provider:p,peerId});
     let other;try{other=await service.request(peerId,{type:PREFIX+'DISCOVER',provider:p,relationshipId:saved?.id??null});}
     catch{
-     // Old GL can prove it had no saved provider accounts before its existing
-     // ACCOUNTS endpoint creates the default receiver. An old empty account
-     // with unknown historical occupancy is never assumed to be unassigned.
-     const before=await service.request(peerId,{type:PREFIX+'DIAGNOSTICS',provider:p});
+     // Older peers expose the same account inventory without DISCOVER.
      other=await service.request(peerId,{type:PREFIX+'ACCOUNTS',provider:p});
-     if(before.accounts?.length===0&&other.accounts?.length===1&&other.accounts[0].count===0&&!other.accounts[0].label)other={...other,accounts:[{...other.accounts[0],historicalCount:0,unassigned:true}]};
     }
     if(other.sharingModel!==undefined&&(other.sharingModel!==1||typeof other.enabled!=='boolean'))throw Error('Incompatible automatic sharing model. Update both extensions.');
     if(other.sharingModel===1&&!other.enabled){availability.set(p,'disabled-by-peer');if(saved?.confirmed)await update(p,s=>s?.id===saved.id?{...s,remoteConfirmed:false,pending:true,status:'attention',errorCode:'sharing-disabled',error:'Automatic sharing is disabled in the other extension.'}:s);return;}
     if(other.busy===true)throw Error('A library scan is still saving purchases.');
-    availability.set(p,'connected');await alarms?.clear(ALARM+'discovery-'+p);await area.set({['galacticPurchaseDiscoveryAttempts:'+p]:0});
+    availability.set(p,'connected');discoveryErrors.delete(p);await alarms?.clear(ALARM+'discovery-'+p);await area.set({['galacticPurchaseDiscoveryAttempts:'+p]:0});
     const ours=await accounts(p),theirs=other.accounts;
     if(!Array.isArray(theirs))throw Error('Incompatible companion account response.');
     if(saved?.confirmed){
@@ -274,7 +274,7 @@
      if((!other.mapping||!other.mapping.confirmed&&other.mapping.localId===saved.remoteId&&other.mapping.remoteId===saved.localId)&&(saved.previouslyConfirmed||saved.remoteConfirmed)&&saved.peerId===peerId&&localAccount&&remoteAccount){
       await local({action:'syncRepair',provider:p,peerId,localId:localAccount.stableId,remoteId:remoteAccount.stableId,confirmed:true,automatic:true,sameAccount:true,expectedId:saved.id,expectedRemoteId:other.mapping?.id??null,localFingerprint:localAccount.fingerprint,remoteFingerprint:remoteAccount.fingerprint});return;
      }
-     if(saved.setup&&!saved.previouslyConfirmed&&localAccount&&remoteAccount&&(!other.mapping||!other.mapping.confirmed)&&(assignable(localAccount)||assignable(remoteAccount))){await local({action:'syncRepair',provider:p,peerId,localId:localAccount.stableId,remoteId:remoteAccount.stableId,confirmed:true,automatic:true,expectedId:saved.id,expectedRemoteId:other.mapping?.id??null,localFingerprint:localAccount.fingerprint,remoteFingerprint:remoteAccount.fingerprint});return;}
+     if(saved.setup&&!saved.previouslyConfirmed&&localAccount&&remoteAccount&&(!other.mapping||!other.mapping.confirmed)&&ours.length===1&&theirs.length===1){await local({action:'syncRepair',provider:p,peerId,localId:localAccount.stableId,remoteId:remoteAccount.stableId,confirmed:true,automatic:true,expectedId:saved.id,expectedRemoteId:other.mapping?.id??null,localFingerprint:localAccount.fingerprint,remoteFingerprint:remoteAccount.fingerprint});return;}
      await reconnect(p);await onActive(p);await update(p,s=>({...s,pending:true,status:'pending',attempts:0,error:null,errorCode:null}));await schedule(p,(await read())[p]);return;
     }
     // A new companion wakes the central coordinator but does not race it.
@@ -288,14 +288,15 @@
      const localAccount=ours.find(a=>a.stableId===known.remoteId),remoteAccount=theirs.find(a=>a.stableId===known.localId);
      if(localAccount&&remoteAccount){await local({action:'syncRepair',provider:p,peerId,localId:localAccount.stableId,remoteId:remoteAccount.stableId,confirmed:true,automatic:true,sameAccount:true,expectedId:saved?.id??null,expectedRemoteId:known.id,localFingerprint:localAccount.fingerprint,remoteFingerprint:remoteAccount.fingerprint});return;}
     }
-    // An empty, unique destination may be assigned without merging identities.
-    // Populated accounts require an existing verified mapping or user decision.
-    if(ours.length!==1||theirs.length!==1||!(assignable(ours[0])||assignable(theirs[0]))){availability.set(p,'account-resolution-required');return;}
-    if(!ours[0].count&&!theirs[0].count)return;
+    // Product policy: the sole saved account in each extension is the default
+    // relationship, including populated/history-only datasets. Never replace
+    // a conflicting confirmed relationship merely because only one row remains.
+    if(saved?.confirmed||other.mapping?.confirmed)throw Error('A conflicting saved account relationship needs review in Advanced.');
+    if(ours.length!==1||theirs.length!==1){availability.set(p,'account-resolution-required');return;}
     const repairing=Boolean(saved||other.mapping);
     await local({action:repairing?'syncRepair':'syncConnect',provider:p,peerId,localId:ours[0].stableId,remoteId:theirs[0].stableId,confirmed:true,automatic:true,...(repairing?{expectedId:saved?.id??null,expectedRemoteId:other.mapping?.id??null,localFingerprint:ours[0].fingerprint,remoteFingerprint:theirs[0].fingerprint}:{})});
    }catch(error){
-    const code=failureKind(error);availability.set(p,code==='source-busy'?'waiting':code==='transport'?'unavailable':/Incompatible|Unsupported|Update both/i.test(error.message)?'incompatible':'account-resolution-required');
+    const code=failureKind(error);discoveryErrors.set(p,{code,message:code==='transport'?'The other extension could not be reached.':code==='source-busy'?'An import is still saving.':code==='mapping-conflict'?'A saved account relationship conflicts. Review accounts in Advanced.':'Saved purchase information could not be checked. Use Check sync connection in Advanced and export the connection report.'});availability.set(p,code==='source-busy'?'waiting':code==='transport'?'unavailable':/Incompatible|Unsupported|Update both/i.test(error.message)?'incompatible':['missing-account','mapping-conflict','identity-changed','consent-required','setup-incomplete'].includes(code)?'account-resolution-required':'validation-failed');
     const saved=(await read())[p];if(saved?.confirmed)await retry(p,saved,error);
     // Retry absent peers a bounded number of times. New-model peer startup also
     // sends DISCOVER, so later installation does not depend on polling forever.
@@ -305,7 +306,7 @@
     }
    }
   }
-  async function startup(){await sharingPreferences(area);for(const p of supported){const s=(await read())[p];if(needsRepair(s)&&s.errorCode!=='sharing-disabled')continue;await discover(p);}}
+  async function startup(){await sharingPreferences(area);for(const p of supported){const s=(await read())[p];if(needsRepair(s)&&!['sharing-disabled','operation-failed'].includes(s.errorCode))continue;await discover(p);}}
   function register(){service.setSync({external,local,allowed});alarms?.onAlarm?.addListener(alarm=>{if(alarm.name.startsWith(ALARM+'discovery-')){const p=alarm.name.slice((ALARM+'discovery-').length);if(supported.includes(p))discover(p).catch(()=>{});}else if(alarm.name.startsWith(ALARM)){const p=alarm.name.slice(ALARM.length);if(supported.includes(p))run(p).catch(()=>{});}});runtime.onStartup?.addListener(()=>startup().catch(()=>{}));runtime.onInstalled?.addListener(()=>startup().catch(()=>{}));startup().catch(()=>{});}
   async function notifyInvalidated(events){for(const event of events)try{await service.request(event.peerId,{type:PREFIX+'DISCONNECT',provider:event.provider,id:event.id});}catch{}}
   return {register,mark,run,local,external,allowed,discover,accounts,startup,configurationChanged,notifyInvalidated,dispose(){disposed=true;clearTimeout(timer);for(const t of wakeTimers.values())clearTimeout(t);}};

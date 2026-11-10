@@ -34,3 +34,14 @@ html.gh-app[data-gh-theme="light"] :is(.library-items > li,.contents-collection-
 [data-purchase-handoff] progress { width:100%; accent-color:var(--gh-accent); }
 
 [data-purchase-handoff] [hidden] { display:none !important; }
+
+/* Checkbox labels are a row, unlike the stacked text/select field rule above. */
+[data-purchase-handoff] .purchase-sharing-toggle { display:flex; align-items:center; gap:8px; margin:6px 0; cursor:pointer; }
+[data-purchase-handoff] .purchase-sharing-toggle > input { flex:0 0 16px; width:16px; height:16px; padding:0; margin:0; }
+[data-purchase-handoff] .purchase-sharing-toggle > span { min-width:0; overflow-wrap:anywhere; }
+[data-purchase-sync] { padding:12px 0; }
+[data-purchase-sync] .purchase-sync-heading { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; margin-bottom:6px; }
+[data-purchase-sync] .purchase-sync-heading h4 { margin:0; }
+[data-purchase-sync] .purchase-sync-heading > span { color:var(--gh-text-muted); font-size:.88rem; }
+[data-purchase-sync] > p { margin:6px 0; }
+[data-purchase-sync] .purchase-sync-explanation { color:var(--gh-text-muted); font-size:.88rem; }
