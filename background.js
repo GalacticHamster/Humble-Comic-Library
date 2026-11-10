@@ -15,7 +15,7 @@ chrome.runtime.onMessageExternal?.addListener((message,sender,respond)=>{
     if(!HumbleComicLibrary.trustedGalacticSender(sender.id,id,chrome.runtime))return {ok:false,error:'Companion is not allowed.'};
     if(message.apiVersion!==1&&!(message.apiVersion===undefined&&['PING','GET_STATUS'].includes(message.type)))return {ok:false,error:'Unsupported companion API version.'};
     if(message.type==='GET_IMPORTER_STATUS'){if(!Number.isInteger(message.tabId))return {ok:false};try{const r=await chrome.tabs.sendMessage(message.tabId,{type:'GH_IMPORTER_PAGE_STATUS'});return {ok:true,present:r?.present===true};}catch{return {ok:true,present:false};}}
-    if(message.type!=='OPEN_REVIEW')return {ok:true,apiVersion:1,appVersion:chrome.runtime.getManifest?.().version??'1.0.2',ready:true,purchaseProvider:'humble',capabilities:{centralReview:true,providerImporter:1,importerPageStatus:1}};
+    if(message.type!=='OPEN_REVIEW')return {ok:true,apiVersion:1,appVersion:chrome.runtime.getManifest?.().version??'1.0.3',ready:true,purchaseProvider:'humble',capabilities:{centralReview:true,providerImporter:1,importerPageStatus:1}};
     await chrome.runtime.openOptionsPage();return {ok:true,apiVersion:1};
   })().then(respond,()=>respond({ok:false,error:'Could not open source review.'}));return true;
 });
