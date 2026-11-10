@@ -1215,7 +1215,7 @@
   });
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
-    if (!confirm('Clear all saved accounts and every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping? Your wishlist, display preferences and Galactic Library link will be kept.')) return;
+    if (!confirm('Clear all saved accounts and every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping? Your wishlist, display preferences, sharing preference and Galactic Library link will be kept. Turn automatic sharing off first if you do not want Galactic Library to send its saved purchases back.')) return;
     await HumbleComicLibrary.storageRemove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();

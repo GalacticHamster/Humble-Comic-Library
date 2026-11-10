@@ -8,7 +8,7 @@ Before committing changed UI text, check first-time comprehension, jargon, misle
 
 ## Automatic purchase sync
 
-Extension pairing alone is not standing import permission. Preserve the explicitly confirmed account relationship, stable account IDs, provider/sender scoping and save-time consent guards. One local setup confirmation may authorize both verified extensions only through reverse-verified setup tickets and exact account checks; old pairing/proposals alone never grant standing consent. Sync only committed data, retain additive merges and idempotency, and keep manual offers separate. Shared sync runtime/UI are authored in GalacticLibrary/shared and mirrored with its sync-companion-purchases script. Validate synthetic data in disposable browser profiles; never use an installed personal library as a test destination.
+Automatic local sharing defaults on under the versioned opt-out model. Legacy disabled/disconnected states are not explicit opt-outs. Preserve any new-model explicit opt-out across startup, reconnect and library restore. Trusted companion discovery never establishes provider-account equivalence: preserve stable account mappings, reverse-verified setup tickets and save-time permission guards. Assign only an unambiguous empty destination automatically; populated or ambiguous account relationships require trustworthy saved identity evidence or an explicit decision. Sync committed data additively and idempotently, keeping manual offers separate. Shared runtime/UI are authored in GalacticLibrary/shared and mirrored with its sync-companion-purchases script. Validate synthetic data in disposable browser profiles; never use an installed personal library as a test destination.
 
 ## Git identity hook
 

@@ -27,8 +27,8 @@
         <p id="wishlist-status" role="status"></p>
       </section>
       <section>
-        <h2>Galactic Library connection</h2><details class="settings-help"><summary>Purchase sync</summary><div data-purchase-handoff="hb" data-provider="humble"></div></details>
-        <p><strong>Check other libraries:</strong> When you view a bundle, Galactic Library helps show which titles you own elsewhere and which may be matches. After connecting, refresh an already-open bundle page to update its results.</p><p><strong>Sync purchases:</strong> Choose Connect and sync to share saved purchases between the two extensions. Saved purchases synchronize automatically in both directions; no store rescan is needed. Manual recovery stays under Advanced.</p><p>Check connection verifies communication; it does not turn on automatic sync. Checking other libraries works separately from syncing saved purchases.</p>
+        <h2>Galactic Library connection</h2><div data-purchase-handoff="hb" data-provider="humble"></div>
+        <p><strong>Check other libraries:</strong> When you view a bundle, Galactic Library helps show which titles you own elsewhere and which may be matches. After installing or reloading Galactic Library, refresh an already-open bundle page to update its results.</p><p><strong>Sync purchases:</strong> Supported saved purchases synchronize automatically in both directions when Galactic Library is installed. Sharing is on by default and can be turned off above. No store rescan is needed; account choices and recovery stay under Advanced.</p><p>Check connection verifies communication. The automatic-sharing checkbox controls saved-purchase transfers. Checking other libraries works separately from syncing saved purchases.</p>
         <div class="actions"><button id="test-galactic-library-link" type="button">Check connection</button></div><p id="galactic-library-link-status" role="status"></p>
         <details class="settings-help"><summary>Advanced / Developer pairing</summary>
         <p>Built-in Galactic Library ID: <code id="builtin-galactic-id"></code></p>
@@ -50,14 +50,14 @@
         <ol id="key-reminder-list"></ol>
       </section>
       <section>
-        <h2>Share reminders with Galactic Library</h2>
-        <p>Send key and access reminders to Galactic Library. This shares item titles, media types, reminder status, and relevant dates—but <strong>never</strong> your keys, order numbers, purchase links, or prices. Reminders do not prove that you own an item or that it was activated in Steam or another destination. Nothing is sent until you choose <strong>Send reminders to Galactic Library</strong>.</p>
-        <details class="settings-help"><summary>Exactly what is shared</summary><p>Humble Library sends batches of up to 200 items containing titles, media types, opaque references, reminder status, and reported expiry/check dates. It never sends redemption keys, purchase IDs, URLs, prices, or destination account details. Sharing is entirely manual and does not run in the background.</p></details>
-        <p>Active Humble account nickname: <strong id="share-hb-profile">Not yet named</strong>. Confirm that Galactic Library is using the same website account. The nickname there may differ.</p>
+        <h2>Additional Galactic Library reminders</h2>
+        <p>Send key and access reminders to Galactic Library. This shares item titles, media types, reminder status, and relevant dates—but <strong>never</strong> your keys, order numbers, purchase links, or prices. Reminders do not prove that you own an item or that it was activated in Steam or another destination. Supported additional reminders are shared automatically after the saved accounts synchronize, using the automatic-sharing setting above. Your local reminders work without Galactic Library.</p>
+        <details class="settings-help"><summary>Exactly what is shared</summary><p>Humble Library sends batches of up to 200 items containing titles, media types, opaque references, reminder status, and reported expiry/check dates. It never sends redemption keys, purchase IDs, URLs, prices, or destination account details. Automatic sharing uses the verified saved-account relationship. The controls below are for advanced manual recovery only.</p></details>
+        <details class="settings-help"><summary>Advanced: manual reminder recovery</summary><p>Active Humble account nickname: <strong id="share-hb-profile">Not yet named</strong>. Confirm that Galactic Library is using the same website account. The nickname there may differ.</p>
         <label>Humble account nickname in Galactic Library <input id="share-gl-profile" maxlength="100" autocomplete="off"></label>
         <label><input id="confirm-reminder-sharing" type="checkbox"> I checked that both extensions refer to the same Humble account.</label>
         <div class="actions"><button id="share-entitlements" type="button">Send reminders to Galactic Library</button><button id="remove-shared-entitlements" type="button">Remove shared reminders</button></div>
-        <p id="entitlement-share-status" role="status"></p>
+        <p id="entitlement-share-status" role="status"></p></details>
       </section>
       <section>
         <h2>Display and diagnostics</h2>

@@ -2,7 +2,7 @@
 
 Humble Library 1.0.2 is an unofficial Chrome and Firefox extension that helps you check Humble Bundle offers against your saved purchases. Import books, comics, audiobooks, games and software, then see purchase and ownership evidence, possible matches, and bundle value while browsing.
 
-Your library and purchase history stay in browser-local extension storage. Imports read your signed-in Humble account; optional Galactic Library integration checks other libraries and can synchronize saved purchases with your explicit account consent. Humble Library is not affiliated with or endorsed by Humble Bundle.
+Your library and purchase history stay in browser-local extension storage. Imports read your signed-in Humble account; optional Galactic Library integration checks other libraries and shares supported saved purchases locally by default when both extensions are installed; you can turn sharing off in Extension options. Humble Library is not affiliated with or endorsed by Humble Bundle.
 
 [Privacy policy](PRIVACY.md) | [Import guide](#import-your-purchases) | [Galactic Library setup](docs/companion-pairing.md) | [Report an issue](https://github.com/GalacticHamster/Humble-Comic-Library/issues)
 
@@ -212,7 +212,7 @@ Run `node tests/browser.mjs --tier-switch` and repeat with `--firefox` for the I
 
 ## Private central reminders
 
-Use **Share entitlement reminders** in Extension options to send dated, narrow key-status evidence to Galactic Library, with opaque references and explicit account confirmation. GL stages complete uploads and keeps ownership and activation separate. Sharing is manual; either extension can remove the saved feed. See [setup, privacy and account scope](docs/reminder-sharing.md).
+Supported key-status evidence shares locally with Galactic Library by default after saved accounts are safely mapped. Additional reminders use opaque references and atomic feed uploads; ownership and activation remain separate. Turn automatic sharing off in Extension options to stop future transfers; either extension can remove an existing feed separately. See [setup, privacy and account scope](docs/reminder-sharing.md).
 
 ## Roadmap
 
@@ -237,7 +237,7 @@ The purchase importer groups its description, three account controls, and status
 
 Both companions offer a searchable, paged wishlist with editable priorities and separate wishlist export/restore. Wishes influence planning on bundles you open; there is no background bundle discovery or wishlist notification. Each companion keeps its own wishes. Both offer ownership backups and a title catalog export containing identity metadata only. Ownership backup formats remain provider-specific: FAN full backups include wishes and reset scan authority on restore; HB preserves wishes during ownership restore and exports them separately. Clearing the library preserves wishes, display preferences and pairing.
 
-HB's optional manual title replacement and reviewed collection mappings live under Advanced in Settings, with a shipped JSON example and review instructions. HB collects local Humble key reminders and can manually share them with GL; FAN reads the linked GL reminder list. Privacy explanations reflect each provider's actual storage behavior.
+HB's optional manual title replacement and reviewed collection mappings live under Advanced in Settings, with a shipped JSON example and review instructions. HB collects local Humble key reminders and shares supported evidence automatically under its sharing setting; FAN has standalone local reminders and an optional cross-provider GL list. Privacy explanations reflect each provider's actual storage behavior.
 
 
 ## Saved accounts and scan history
@@ -258,7 +258,7 @@ Theme version 1 is authored in GalacticLibrary/shared/theme.js, theme.css, theme
 
 [Share saved purchases](docs/purchase-sharing.md) with Galactic Library without another website scan. Automatic sharing requires compatible linked extensions and one-time standing permission for the selected account relationship. Historical limitations are reported; repeated imports are additive and idempotent.
 
-Automatic sync is enabled once for an explicitly selected store-account relationship, with one local confirmation and reverse-verified consent at the companion. Meaningful saved-purchase commits then synchronize both ways with GL. Manual sharing remains under Advanced. See [purchase sync](docs/purchase-sharing.md) for retries, account replacement, privacy and recovery. The alarms permission supports bounded durable retries.
+Automatic local sharing defaults on for fresh installs and eligible legacy upgrades, with a persistent sharing checkbox in Extension options. Verified mappings are reused and an unambiguous empty destination needs no setup action. Ambiguous populated accounts need one account decision; names alone do not prove identity. Meaningful saved-purchase commits synchronize both ways with GL; advanced manual recovery remains available. See [purchase sync](docs/purchase-sharing.md) for retries, account replacement, privacy and recovery. The alarms permission supports bounded durable retries.
 
 Galactic Library availability is checked before an external ownership lookup. When the browser reports no receiver, or GL explicitly denies the connection, local matches are final and unmatched items show **New**. This does not diagnose why the connection is unavailable. Timeouts, incompatible replies, and failures after a successful connection remain **Check incomplete**. Reload the bundle page or refresh central evidence after installing, enabling, or reconnecting GL. No purchase records are changed.
 

@@ -19,6 +19,14 @@ test('entitlement projection preserves separate purchases through opaque referen
   const reminderOnly=await E.project({...state,libraryItems:[],keyReminders:[{purchaseKey:'PRIVATE ORDER',id:'PRIVATE ID',title:'Unclassified course',status:'needs-review',checkedAt:'2026-10-01'}]},salt);assert.equal(reminderOnly.entries[0].mediaType,'unknown');assert.equal(reminderOnly.entries[0].keyStatus,'unknown');
   await assert.rejects(E.project({...state,humbleProfileLabel:''},salt),/confirmed/);
 });
+test('automatic additional feed excludes exactly represented native purchases and retains reminder-only evidence',async()=>{
+ const first={...origin,providerItemId:'purchase-one:key:game-one:0'},second={...origin,purchaseKey:'another-purchase',providerItemId:'purchase-two:key:game-two:0'};
+ const source={...state,libraryItems:[{title:'Same game',kind:'game',source:'humble',provenance:[first,second]}],keyReminders:[{id:'course-only',purchaseKey:'course-purchase',title:'A course',status:'unrevealed',checkedAt:'2026-10-01'}]};
+ const one=await E.project(source,salt,new Set([first.providerItemId]));assert.equal(one.entries.length,2);assert(one.entries.some(e=>e.title==='Same game'));assert(one.entries.some(e=>e.title==='A course'));
+ const both=await E.project(source,salt,new Set([first.providerItemId,second.providerItemId]));assert.deepEqual(both.entries.map(e=>e.title),['A course']);assert.equal(both.entries[0].activationStatus,'unknown');
+ assert.equal((await E.project(source,salt)).entries.length,3,'manual recovery keeps its existing complete projection');
+ assert(!JSON.stringify(both).includes('purchaseKey'));assert(!JSON.stringify(both).includes('PRIVATE KEY'));
+});
 
 test('sharing sends bounded sequential batches and only commits after source-snapshot verification',async()=>{
   const calls=[],feed={coverage:'partial',sentAt:'2026-10-01',entries:Array.from({length:401},(_,n)=>({itemRef:String(n)}))};let verified=false;

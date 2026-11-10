@@ -27,6 +27,7 @@
  async function external(message,sender){expired();if(message.protocolVersion!==1)throw Error('Unsupported purchase handoff protocol.');if(!await authorize(sender.id,message.provider))throw Error('Purchase handoff peer/provider is not authorized.');
  if(message.type.startsWith(prefix+'SYNC_')){if(!sync)throw Error('Update both extensions for automatic synchronization.');return sync.external(message,sender);}
  if(message.type===prefix+'CAPABILITIES')return {provider:message.provider,...(message.provider==='fanatical'?{keyObservations:1,keyReminderReviews:1}:{}),maxRecords:S.MAX_RECORDS,maxBytes:S.MAX_BYTES,chunkBytes:S.CHUNK_BYTES};
+ if(sync?.allowed&&!await sync.allowed(message.provider))throw Error('Automatic sharing is disabled.');
  if(message.type===prefix+'ACCOUNTS')return {accounts:await accounts(message.provider)};
  if(message.type===prefix+'BEGIN')return {manifest:await prepare(message.provider,message.accountRef,sender.id,message.purpose??'snapshot',(message.keyObservations===1?(message.keyReminderReviews===1?2:1):0))};
  if(message.type===prefix+'PREVIEW'){if(!preview)throw Error('Update both extensions to preview purchases.');const {data,sourceAccountStamp}=await reviewedPull(sender.id,message.provider,message.accountRef);return {preview:{...await preview(data,targetIntent(message.target)),sourceStamp:await sourceStamp(data),sourceAccountStamp}};}
@@ -46,6 +47,7 @@
  async function local(message,guard){if(message.action?.startsWith('sync')){if(!sync)throw Error('Automatic synchronization is unavailable.');return sync.local(message);}if(message.action==='pending'){const offer=(await area.get({[key]:null}))[key];return {offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}if(message.action==='state'){const offer=(await area.get({[key]:null}))[key];return {accounts:await accounts(message.provider),offer:offer?.provider===message.provider&&offer.manifest.expiresAt>now()?offer:null};}
  const id=await peer(message.provider,message.peerId);await bind(id,message.provider);
  if(message.action==='connection'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return {peerId:id,status:'Connected (API 1); purchase sharing supported. No purchases transferred.'};}
+ if(sync?.allowed&&!await sync.allowed(message.provider))throw Error('Automatic sharing is disabled. Turn it on before transferring purchases.');
  if(message.action==='remoteAccounts'){await request(id,{type:prefix+'CAPABILITIES',provider:message.provider});return request(id,{type:prefix+'ACCOUNTS',provider:message.provider});}
  if(['reconcile','preview'].includes(message.action)){
   if(message.action==='preview'){if(!preview)throw Error('Update both extensions to preview purchases.');const target=targetIntent(message.target);if(message.direction==='send')return request(id,{type:prefix+'PREVIEW',provider:message.provider,accountRef:message.accountRef,target});const {data,sourceAccountStamp}=await reviewedPull(id,message.provider,message.accountRef);return {preview:{...await preview(data,target),sourceStamp:await sourceStamp(data),sourceAccountStamp}};}
@@ -71,6 +73,6 @@
  }catch(error){if(message.useOffer&&!committed)try{const saved=(await area.get({[key]:null}))[key];if(saved?.manifest.token===message.offerToken)await area.set({[key]:null});}catch{}if(manifest&&!committed)try{await request(id,{type:prefix+'CANCEL',provider:message.provider,token:manifest.token});}catch{}throw error;}finally{running=false;}}
  function register(){runtime.onMessageExternal?.addListener((message,sender,respond)=>{if(!message?.type?.startsWith(prefix))return false;external(message,sender).then(value=>respond({ok:true,protocolVersion:1,...value}),error=>respond({ok:false,protocolVersion:1,error:error.message}));return true;});
  runtime.onMessage.addListener((message,sender,respond)=>{if(message?.type!=='GH_PURCHASE_ACTION')return false;if(sender.id!==runtime.id||!sender.url?.startsWith(runtime.getURL(''))){respond({ok:false,error:'Open Extension options for purchase handoff.'});return false;}local(message).then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error.message}));return true;});}
- return {external,local,register,request,prepare,snapshot,accounts,commit,resolvePeer:peer,authorize,setSync(value){sync=value;}};}
+ return {external,local,register,request,prepare,snapshot,accounts,commit,resolvePeer:peer,authorize,readSnapshot:async(id,provider,ref)=>(await reviewedPull(id,provider,ref)).data,setSync(value){sync=value;}};}
  root.GalacticPurchaseTransfer=Object.freeze({createService,TTL});
 })(globalThis);

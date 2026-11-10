@@ -6,7 +6,7 @@ import '../shared.js';
 import '../collection-mappings.js';
 
 test('account selection and rename accept only own settings or Humble purchase pages',async()=>{
-  const H=globalThis.HumbleComicLibrary,id='a'.repeat(32),state={...structuredClone(H.LIBRARY_STATE_DEFAULTS),humbleProfileLabel:'personal',profileArchives:[{profileLabel:'work',backup:H.createLibraryBackup({...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'work'})}]},listeners=[];
+  const H=globalThis.HumbleComicLibrary,id='a'.repeat(32),state={...structuredClone(H.LIBRARY_STATE_DEFAULTS),galacticPurchaseSharing:{version:1,humble:true,fanatical:true},humbleProfileLabel:'personal',profileArchives:[{profileLabel:'work',backup:H.createLibraryBackup({...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'work'})}]},listeners=[];
   const area={get:async defaults=>({...defaults,...structuredClone(state)}),set:async values=>Object.assign(state,structuredClone(values))};
   const context={HumbleComicLibrary:H,URL,chrome:{runtime:{id,getURL:()=> 'chrome-extension://'+id+'/',onMessageExternal:{addListener(){}},onMessage:{addListener:fn=>listeners.push(fn)}},storage:{local:area}}};vm.createContext(context);vm.runInContext(fs.readFileSync(new URL('../theme.js',import.meta.url),'utf8'),context);for(const file of ['purchase-snapshot.js', 'purchase-transfer.js', 'purchase-sync.js', 'purchase-adapters.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8'),context);vm.runInContext(fs.readFileSync(new URL('../background.js',import.meta.url),'utf8'),context);
   const send=(operation,url,senderId=id)=>new Promise(resolve=>listeners[1]({type:'HCL_STORE',operation,args:[{profileLabel:'work',expectedActiveLabel:'personal',newLabel:'renamed',confirmed:true}]},{id:senderId,url},resolve));

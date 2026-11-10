@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased ? automatic local sharing
+
+- Discover official Galactic Hamster companions automatically and share supported saved purchases locally by default. Upgrade legacy setup states without treating them as explicit opt-outs; remember the new sharing setting across restart and library restore.
+- Preserve verified account mappings, additive purchase/history merges and save-time authorization. Ambiguous populated accounts still need a one-time account decision in Advanced.
+- Keep standalone imports and reminders available without GL; share supported additional HB reminders through the mapped account without duplicate native reminders. No key values or provider credentials are shared.
+
 ## 1.0.2 — Release candidate
 
 - Save independently verified Humble purchases when another purchase cannot be read, preserving earlier purchases, history and manual corrections. Unresolved purchases remain retryable; account/session conflicts still prevent unsafe saves.

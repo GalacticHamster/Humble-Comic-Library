@@ -22,7 +22,10 @@
  const eligible=value.items.filter(item=>role==='hb'?(item.provenance?.length?item.provenance:[item]).some(p=>p.purchaseKey):/^[A-Za-z0-9_-]{6,128}$/u.test(item.sourceItemId??''));
  const missing=value.items.length-eligible.length;if(missing)limitations.push(missing+' saved items do not have enough purchase information to share.');
  if(role==='hb'){const legacy=eligible.filter(item=>!(item.provenance?.length?item.provenance:[item]).some(p=>p.providerItemId||p.entitlementId||item.providerItemId)).length;if(legacy)limitations.push(legacy+' older saved items lack purchase identifiers. Preview a transfer to see which existing purchases could receive more information; items that cannot be matched are skipped.');}
- return {...details,stableId:value.stableId,active:index===0,eligibleCount:eligible.length,limitations};}));}
+ const historicalCount=(role==='hb'?value.state.historicalLibraryItems:value.state.fanaticalHistoricalItems??value.state.historicalItems??[] )?.length??0;
+ const occupied=role==='hb'?(value.state.purchaseSummaries?.length||value.state.historicalPurchaseSummaries?.length||value.state.keyReminders?.length||value.state.lastImport):(value.state.fanaticalImportSummary||value.state.localScanState?.summary||value.state.fanaticalLastScanAttempt);
+ const unassigned=!value.label&&!value.items.length&&!historicalCount&&!occupied;
+ return {...details,stableId:value.stableId,active:index===0,historicalCount,unassigned,eligibleCount:eligible.length,limitations};}));}
  async function selected(role,state,ref){for(const value of scopes(role,state))if((await descriptor(role==='hb'?'humble':'fanatical',value.label,value.items)).accountRef===ref)return value;throw Error('Saved account data changed. Refresh the account choices and confirm again.');}
  async function snapshot(role,state,ref){const scope=await selected(role,state,ref),provider=role==='hb'?'humble':'fanatical',records=[],limitations=[];
  if(role==='hb'){

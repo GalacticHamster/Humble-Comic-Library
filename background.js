@@ -43,9 +43,10 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='HCL_REMOVE_SHARED_ENTITLEMENTS'){
       const response=await HumbleEntitlements.request(chrome.runtime,id,{type:'REMOVE_ENTITLEMENT_FEED',apiVersion:1});if(!response?.ok||response.apiVersion!==1)throw new Error(response?.error??'Could not remove shared reminders.');return {ok:true,count:0};
     }
+    if(!await GalacticPurchaseSync.sharingAllowed(chrome.storage.local,'humble'))throw Error('Automatic sharing is disabled. Turn it on before sending reminders.');
     const targetProfile=typeof message.targetProfileLabel==='string'?message.targetProfileLabel.trim():'';if(!targetProfile||targetProfile.length>100)throw new Error('Enter the current GL Humble profile label.');
     const snapshot=await libraryStore.execute('shareSnapshot',[message.profileLabel]);const feed=await HumbleEntitlements.project(snapshot.state,snapshot.scope.salt);
-    const result=await HumbleEntitlements.send(chrome.runtime,id,targetProfile,feed,()=>libraryStore.execute('verifyShareSnapshot',[snapshot.scope,id]));return {ok:true,count:result.count,coverage:feed.coverage};
+    const result=await HumbleEntitlements.send(chrome.runtime,id,targetProfile,feed,async()=>{if(!await GalacticPurchaseSync.sharingAllowed(chrome.storage.local,'humble'))throw Error('Automatic sharing is disabled.');return libraryStore.execute('verifyShareSnapshot',[snapshot.scope,id]);});return {ok:true,count:result.count,coverage:feed.coverage};
   })().then(respond,()=>respond({ok:false,error:'Reminder request was not confirmed. Check both profile labels, GL permission/version and connection, then check the reminders in Galactic Library.'}));return true;
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -72,6 +73,24 @@ const purchaseHandoff=GalacticPurchaseTransfer.createService({runtime:chrome.run
  accounts:()=>libraryStore.execute('handoffAccounts'),snapshot:(_,ref)=>libraryStore.execute('handoffSnapshot',[ref]),inventory:(_,ref)=>libraryStore.execute('handoffInventory',[ref]),preview:(data,target)=>libraryStore.execute('handoffPreview',[data,target]),commit:(data,target)=>libraryStore.execute('handoffImport',[data,target])});
 purchaseHandoff.register();
 
-const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl)});
+async function shareMappedReminders({state,account,verify}){
+ const current=await libraryStore.execute('syncAccounts');if(!current.some(a=>a.active&&a.stableId===state.localId))return;
+ const remote=await purchaseHandoff.request(state.peerId,{type:'GH_PURCHASE_SYNC_ACCOUNTS',provider:'humble'}),target=remote.accounts.find(a=>a.stableId===state.remoteId);
+ if(!target?.active)return; // The legacy feed is explicitly bound to GL's active profile.
+ const snapshot=await libraryStore.execute('shareSnapshot',[account.label,state.localId]);
+ const purchases=await purchaseHandoff.snapshot('humble',account.accountRef);
+ let records=purchases.records.filter(r=>r.providerItemId);
+ // With skips, only exact native identities actually present at the mapped
+ // destination may suppress an additional reminder. Never deduplicate by title.
+ if(state.skipped){const saved=await purchaseHandoff.readSnapshot(state.peerId,'humble',target.accountRef);records=records.filter(r=>saved.records.some(s=>s.metadata.purchaseId===r.metadata.purchaseId&&s.metadata.entitlement==='third-party-key'&&(s.providerItemId===r.providerItemId||s.providerItemId===GalacticPurchaseAdapters.humbleEntitlementAlias(r.providerItemId,r.metadata.purchaseId))));}
+ const represented=new Set(records.map(r=>r.providerItemId));
+ const feed=await HumbleEntitlements.project(snapshot.state,snapshot.scope.salt,represented);
+ const fingerprint=await GalacticPurchaseSnapshot.hash(GalacticPurchaseSync.stable({id:state.id,entries:feed.entries,coverage:feed.coverage}));
+ if(fingerprint===state.reminderFingerprint)return {fingerprint};
+ const check=async()=>{await verify();await libraryStore.execute('verifyShareSnapshot',[snapshot.scope,state.peerId]);};
+ await HumbleEntitlements.send(chrome.runtime,state.peerId,target.label,feed,check,{id:state.id,sourceAccountId:state.localId});
+ return {fingerprint};
+}
+const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl),onSynced:shareMappedReminders});
 purchaseSync.register();
-GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives'], 'hclSyncControl');
+GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives','keyReminders'], 'hclSyncControl');

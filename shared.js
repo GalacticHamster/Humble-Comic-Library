@@ -990,18 +990,19 @@
         }
       }
       if(operation==='replace'){
-        const parsed=restoreBackupState(createLibraryBackup(args[0])),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',parsed):parsed;const retirement=await globalThis.GalacticPurchaseSync?.retirementPatch(area);
-        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
+        const parsed=restoreBackupState(createLibraryBackup(args[0])),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',parsed):parsed;const retirement=await globalThis.GalacticPurchaseSync?.restorationPatch(area,{humble:[replacement.humbleAccountId,...replacement.profileArchives.map(a=>a.backup.accountId)]});
+        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...retirement?.patch,...replacement,hclPurchaseFocus:null,[controlKey]:null,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       if(operation==='shareSnapshot'){
-        const [profileLabel]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);if(!profileLabel||state.humbleProfileLabel!==profileLabel)throw new Error('The active Humble profile changed. Refresh before sharing.');
-        const stored=await area.get({[shareScopeKey]:null});let scope=stored[shareScopeKey];
-        if(!scope||scope.profileLabel!==profileLabel){scope={profileLabel,salt:global.crypto.randomUUID(),revisionRef:global.crypto.randomUUID()};await area.set({[shareScopeKey]:scope});}
+        const [profileLabel,accountId]=args;const state=await area.get(LIBRARY_STATE_DEFAULTS);if((!profileLabel&&(!accountId||accountId!==state.humbleAccountId))||state.humbleProfileLabel!==profileLabel||accountId&&accountId!==state.humbleAccountId)throw new Error('The active Humble profile changed. Refresh before sharing.');
+        const stored=await area.get({[shareScopeKey]:null,hclEntitlementShareSalts:{}});let scope=stored[shareScopeKey];
+        if(!scope||scope.profileLabel!==profileLabel||scope.accountId&&scope.accountId!==state.humbleAccountId){const salt=stored.hclEntitlementShareSalts[state.humbleAccountId]??global.crypto.randomUUID();scope={profileLabel,accountId:state.humbleAccountId,salt,revisionRef:global.crypto.randomUUID()};}
+        if(JSON.stringify(scope)!==JSON.stringify(stored[shareScopeKey])||stored.hclEntitlementShareSalts[state.humbleAccountId]!==scope.salt)await area.set({[shareScopeKey]:scope,hclEntitlementShareSalts:{...stored.hclEntitlementShareSalts,[state.humbleAccountId]:scope.salt}});
         return {state,scope};
       }
       if(operation==='verifyShareSnapshot'){
-        const [scope,targetId]=args,stored=await area.get({[shareScopeKey]:null,galacticLibraryExtensionId:''});const active=stored[shareScopeKey];
-        if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||resolveGalacticId(stored.galacticLibraryExtensionId)!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
+        const [scope,targetId]=args,stored=await area.get({[shareScopeKey]:null,galacticLibraryExtensionId:'',humbleAccountId:null});const active=stored[shareScopeKey];
+        if(!active||active.salt!==scope.salt||active.revisionRef!==scope.revisionRef||active.profileLabel!==scope.profileLabel||scope.accountId&&stored.humbleAccountId!==scope.accountId||resolveGalacticId(stored.galacticLibraryExtensionId)!==targetId)throw new Error('Library or GL link changed while sharing. Refresh and send again.');return true;
       }
       if (operation === 'setMediaOverride') {
         const [targetItem, targetKind] = args;
