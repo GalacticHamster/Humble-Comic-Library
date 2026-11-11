@@ -5,6 +5,8 @@
   await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);
   await wait(()=>[...document.querySelectorAll('.hcl-status-button')].some(b=>b.dataset.state==='partial'));
   for(const state of ['owned','new','possible','partial'])check(document.querySelector(`.hcl-status-button[data-state="${state}"]`),`${state} badge uses production matcher`);
+  const framed=()=>[...document.querySelectorAll('[data-testid="bundle-item-card"]')].every(card=>getComputedStyle(card.closest('li')).borderTopWidth==='2px'&&getComputedStyle(card.closest('li')).borderTopStyle==='solid');
+  check(framed(),'computed full-card borders accompany matcher badges');
   const list=document.querySelector('[data-bundle-section] ul'),nodes=[...list.children];
   check(!document.querySelector('button button'),'badge actions are outside native dialog buttons');
   check(redesignNativeNodes.every((n,i)=>n===list.children[i]),'sorting preserves React keyed nodes and original DOM order');
@@ -14,13 +16,15 @@
   const old=list.children[0];old.replaceWith(old.cloneNode(true));
   // A framework replacement must not retain a copied annotation as fresh proof.
   clearBundleAnnotations();window.dispatchEvent(new PopStateEvent('popstate'));
-  await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);check(true,'provider rerender recovers annotations');
+  await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);check(framed(),'provider rerender recovers computed full-card borders');
   history.pushState({},'', '/store/unsupported');document.querySelector('h1').textContent='Store';
   await wait(()=>!document.querySelector('#hcl-summary')&&!document.querySelector('.hcl-status-button'));check(true,'client navigation clears old-route evidence');
+  check([...document.querySelectorAll('[data-testid="bundle-item-card"]')].every(card=>getComputedStyle(card.closest('li')).borderTopWidth==='0px'),'client navigation clears obsolete ownership borders');
   history.pushState({},'', '/games/next');document.querySelector('h1').textContent='Synthetic games';
   const grid=document.querySelector('[data-bundle-section]');grid.dataset.bundleSection='games';grid.querySelectorAll('[data-bundle-type]').forEach(n=>n.dataset.bundleType='games');
   grid.querySelectorAll('img').forEach((n,i)=>n.alt='Unowned sequel '+(i+1));
   await wait(()=>document.querySelectorAll('.hcl-status-button[data-state="new"]').length===4);check(true,'books-to-games navigation resets media and matches new titles');
+  check(framed(),'new media route restores computed full-card borders');
   check(collectBundleItems(bundleMediaContext('game')).every(i=>i.kind==='game'&&i.tier.price===null),'stale book Flight props cannot establish game tiers');
   history.pushState({},'', '/home/purchases');document.querySelector('h1').textContent='Purchases';await wait(()=>document.querySelector('#hcl-importer'));check(true,'SPA purchases navigation mounts one importer');
   check(document.querySelector('#hcl-importer output').textContent.includes('temporarily unavailable'),'unsupported acquisition is explained before scanning');

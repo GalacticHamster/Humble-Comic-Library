@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const firefox = process.argv.includes('--firefox');
 const importer = process.argv.includes('--importer');
-const redesign = process.argv.includes('--redesign');
+const ownershipBorders = process.argv.includes('--ownership-borders');
+const redesign = process.argv.includes('--redesign') || ownershipBorders;
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
@@ -55,6 +56,7 @@ const server = createServer(async (request, response) => {
     if(slowCentral&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=4500;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/slow-central-checks.js');
+    if(ownershipBorders&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/ownership-border-checks.js');
     if(pathname.endsWith('.html')){body=body.toString('utf8').replace('<link rel="stylesheet" href="/content.css">','<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/content.css"><link rel="stylesheet" href="/theme-overlays.css">').replace('<script src="/shared.js">','<script src="/theme.js"></script><script src="/shared.js">');if(themeMode)body=body.replace(/<script src="\/tests\/(presentation-parity-checks|advanced-parity-checks|browser-checks)\.js"><\/script>/g,'').replace('</body>','<script src="/tests/theme-overlay-checks.js"></script></body>');}
     response.end(body);
   } catch (error) { response.writeHead(404); response.end(error.message); }

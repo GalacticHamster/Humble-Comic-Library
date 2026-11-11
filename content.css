@@ -199,6 +199,24 @@
 .hcl-card-possible [class*="title" i], .hcl-card-possible h1, .hcl-card-possible h2, .hcl-card-possible h3, .hcl-card-possible h4 { color: var(--gh-possible-border) !important; }
 .hcl-card-partial [class*="title" i], .hcl-card-partial h1, .hcl-card-partial h2, .hcl-card-partial h3, .hcl-card-partial h4 { color: var(--gh-partial-border) !important; }
 
+/* Next.js clips the legacy image outline inside its native image wrapper.
+   Frame the complete visible card instead. Keep React's li/button tree and
+   the native button's independent hover/focus outline untouched. State order
+   matches annotateBundleItem: owned > elsewhere > partial > possible >
+   unchecked > new. The existing theme tokens remain authoritative. */
+.hcl-card-new { --hcl-product-border: var(--gh-new-border, #1769aa); }
+.hcl-card-unchecked { --hcl-product-border: var(--gh-neutral-fill, #666666); }
+.hcl-card-possible { --hcl-product-border: var(--gh-possible-border, #b06d00); }
+.hcl-card-partial { --hcl-product-border: var(--gh-partial-border, #7c3fb0); }
+.hcl-card-elsewhere { --hcl-product-border: var(--gh-elsewhere-border, #0f766e); }
+.hcl-card-owned { --hcl-product-border: var(--gh-owned-border, #0a7a42); }
+:is(.hcl-card-new, .hcl-card-unchecked, .hcl-card-possible, .hcl-card-partial, .hcl-card-elsewhere, .hcl-card-owned):has(
+  > button[aria-haspopup="dialog"] > [data-testid="bundle-item-card"]) {
+  box-sizing: border-box;
+  border: 2px solid var(--hcl-product-border) !important;
+  border-radius: 0.5rem;
+}
+
 /* This is the reliable visual fallback when Humble changes its card markup. */
 /* Current Humble book tiers render each visible item as this component. The
    left rail remains visible even when the carousel controls the cover/image
