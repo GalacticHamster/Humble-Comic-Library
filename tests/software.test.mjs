@@ -239,7 +239,7 @@ test('only explicitly labelled Software bundles reclassify generic third-party e
 });
 
 test('Software bundle and catalogue URLs are covered by the extension manifest and page gate', () => {
-  assert.ok(manifest.content_scripts[0].matches.includes('https://www.humblebundle.com/software*'));
+  assert.ok(manifest.content_scripts[0].matches.some(pattern => new RegExp('^' + pattern.replaceAll('.', '\\.').replaceAll('*', '.*') + '$').test('https://www.humblebundle.com/software/test')));
   extension.location.pathname = '/software';
   assert.equal(run('isBundleCataloguePage()'), true);
 });

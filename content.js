@@ -40,6 +40,8 @@ function finishGalacticRendering(diagnostic){
 (async function initialiseHumbleComicLibrary() {
   'use strict';
 
+  if (isRedesignedHumble()) { initialiseRedesignedHumble(); return; }
+
   if (location.pathname.startsWith('/home/purchases')) {
     ensurePurchaseImporter();
     schedulePurchaseFocus();
@@ -193,7 +195,118 @@ function finishGalacticRendering(diagnostic){
     attributeFilter: ['alt', 'class', 'data-tier', 'data-content-type', 'data-product-type', 'data-format', 'data-isbn', 'data-asin', 'data-edition', 'data-edition-id', 'data-language', 'data-series', 'data-series-id', 'data-run', 'data-run-id', 'data-volume', 'data-issue', 'data-author'] });
 }()).catch((error) => showComparisonFailure(error));
 
-const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt]';
+// November 2026 frontend adapter. Only public offer metadata is read here;
+// it is never acquisition evidence and cannot establish purchase coverage.
+function redesignedImportNotice() {
+  return 'Humble changed its purchase pages. Imports are temporarily unavailable while the new purchase source is verified. Your saved purchases, history and corrections were kept. Existing ownership checks still use your saved library. Check for a Humble Library compatibility update before retrying.';
+}
+
+function isRedesignedHumble() {
+  return Boolean(document.querySelector?.('script[src^="/_next/"], [data-testid="bundle-item-card"]'));
+}
+
+let redesignedBundleCache = null;
+function readRedesignedBundle() {
+  const texts=[...document.querySelectorAll('script:not([src])')].map(script=>script.textContent ?? '');
+  if(redesignedBundleCache?.route===location.pathname && texts.length===redesignedBundleCache.texts.length && texts.every((text,i)=>text===redesignedBundleCache.texts[i])) return redesignedBundleCache.value;
+  const value=parseRedesignedBundle(texts);
+  redesignedBundleCache={route:location.pathname,texts,value};
+  return value;
+}
+function parseRedesignedBundle(texts) {
+  // Parse the serialized Flight string without executing provider scripts or
+  // interpreting references. Only a concrete bundlePage object for this route
+  // is usable. Missing/stale streamed props deliberately provide no context.
+  let flight = '';
+  for (const text of texts) {
+    if (text.length > 2_000_000) continue;
+    const match = /^self\.__next_f\.push\((\[.*\])\)\s*;?$/su.exec(text.trim());
+    if (!match) continue;
+    try { const chunk = JSON.parse(match[1]); if (chunk[0] === 1 && typeof chunk[1] === 'string') flight += chunk[1]; } catch {}
+    if (flight.length > 4_000_000) return null;
+  }
+  const marker = '"bundlePage":';
+  let offset = 0;
+  while ((offset = flight.indexOf(marker, offset)) !== -1) {
+    offset += marker.length;
+    if (flight[offset] !== '{') continue;
+    let depth=0, quoted=false, escaped=false;
+    for (let end=offset; end<flight.length; end++) {
+      const char=flight[end];
+      if (quoted) { if (escaped) escaped=false; else if (char==='\\') escaped=true; else if (char==='"') quoted=false; continue; }
+      if (char==='"') { quoted=true; continue; }
+      if (char==='{') depth++;
+      if (char==='}' && --depth===0) {
+        try {
+          const value=JSON.parse(flight.slice(offset,end+1));
+          if (value.slug === location.pathname.split('/').filter(Boolean).at(-1)
+            && Array.isArray(value.tiers) && value.tiers.length <= 100
+            && value.tiers.every(tier => Array.isArray(tier.bundleItems) && tier.bundleItems.length <= 1000)) return value;
+        } catch {}
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+function redesignedItemTier(title) {
+  const bundle=readRedesignedBundle(), key=HumbleComicLibrary.titleKey(title);
+  const prices=(bundle?.tiers ?? []).filter(tier=>tier.bundleItems.some(item=>typeof item?.title==='string' && HumbleComicLibrary.titleKey(item.title)===key))
+    .map(tier=>tier.price).filter(price=>price?.currencyCode==='USD' && Number.isFinite(price.amount) && price.amount>=0 )
+    .map(price=>price.amount);
+  const price=prices.length ? Math.min(...prices) : null;
+  return {label:price===null?'Unresolved tier':`$${price.toFixed(2)} tier`,price};
+}
+
+function sortRedesignedBundleItems(items) {
+  // React owns the keyed li/button tree. Never move or replace those nodes.
+  const groups=new Map();
+  for (const item of items) {const card=item.element.closest('[data-testid="bundle-item-card"]')?.closest('li');if(!card)continue;const group=groups.get(card.parentElement)??[];group.push({card,title:item.title});groups.set(card.parentElement,group);}
+  for (const group of groups.values()) group.sort((a,b)=>naturalTitleCompare(a.title,b.title)).forEach(({card},i)=>card.style.order=String(i));
+  return {directGroups:groups.size,directCardsMoved:0,rowSections:0,rowCardsMoved:0,tierGroups:groups.size,sourceItems:items.length,distinctCards:items.length,directParents:groups.size};
+}
+
+function initialiseRedesignedHumble() {
+  let timer, revision=0, comparison=null, previousRoute='';
+  let catalogueFilters={};
+  const refresh=()=>{
+    clearTimeout(timer);const route=location.pathname, job=++revision;
+    if(comparison) comparison.job++;
+    // Clear old-route annotations immediately; asynchronous GL results cannot
+    // repopulate a new route because their comparison job is invalidated.
+    if(route!==previousRoute){clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
+    timer=setTimeout(async()=>{
+      if(/^\/home\/(?:purchases|library)(?:\/|$)/u.test(route)){ensurePurchaseImporter();return;}
+      if(isBundleCataloguePage()){
+        const stored=await chrome.storage.local.get({purchaseSummaries:[],showDiagnostics:false,catalogueFilters:{}});
+        if(job!==revision||route!==location.pathname)return;
+        catalogueFilters=normaliseCatalogueFilters(stored.catalogueFilters);
+        renderCataloguePurchaseMarkers(stored.purchaseSummaries,stored.showDiagnostics,catalogueFilters,next=>{HumbleComicLibrary.storageSet({catalogueFilters:normaliseCatalogueFilters(next)}).then(refresh).catch(showComparisonFailure);});return;
+      }
+      const kind=/^\/books\/[^/]+\/?$/u.test(route)?'book':/^\/games\/[^/]+\/?$/u.test(route)?'game':/^\/software\/[^/]+\/?$/u.test(route)?'software':null;
+      if(!kind)return;
+      try {
+        const stored=await chrome.storage.local.get({libraryItems:[],historicalLibraryItems:[],purchaseSummaries:[],customCollectionMappings:[],galacticLibraryExtensionId:'',showNewItemsOnly:false,showDiagnostics:false,wishlistItems:[],bundleSummaryPreferences:{}});
+        if(job!==revision||route!==location.pathname)return;
+        bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(stored.bundleSummaryPreferences);
+        comparison={job:1,startedAt:performance.now(),refreshes:1,emptyChecks:0,showNewItemsOnly:stored.showNewItemsOnly,showDiagnostics:stored.showDiagnostics,wishlistItems:stored.wishlistItems,galactic:createGalacticLookup(stored.galacticLibraryExtensionId)};
+        comparison.retryGalactic=refresh;comparison.refreshGalactic=refresh;
+        clearBundleAnnotations();
+        const records=stored.libraryItems.filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
+        await renderBundleComparison(createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems),kind,findCurrentBundlePurchases(stored.purchaseSummaries),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
+      }catch(error){if(job===revision)showComparisonFailure(error);}
+    },120);
+  };
+  new MutationObserver(records=>{if(location.pathname!==previousRoute||isBundleCataloguePage()&&records.some(record=>recordHasExternalAddition(record)||recordHasCatalogueTimingChange(record))||records.some(record=>recordHasUnannotatedCover(record)||recordHasBundleMetadataChange(record))||/^\/home\/(?:purchases|library)/u.test(location.pathname)&&!document.querySelector('#hcl-importer'))refresh();})
+    .observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['alt','aria-checked','aria-label','data-countdown']});
+  window.addEventListener('popstate',refresh);
+  window.addEventListener('hcl-refresh-central',refresh);
+  chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&['libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','bundleSummaryPreferences','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();});
+  refresh();
+}
+
+const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt], [data-testid="bundle-item-card"] [data-testid="bundle-item-native-image"] img[alt]';
 
 function isBundleCover(cover) {
   // This full-width sibling is Humble's expandable details carousel. Its
@@ -467,12 +580,13 @@ function catalogueTimingForOffer(link, card) {
 }
 
 function catalogueCountdownText(card, exact = false) {
+  const redesignedClock=card.querySelector('[data-testid="product-clock"]')?.textContent;
   const simple = card.querySelector('.js-simple-countdown-timer');
   const full = card.querySelector('.js-countdown-timer');
   const label = card.querySelector('[data-countdown]')?.getAttribute('data-countdown');
   const sources = exact
-    ? [full?.getAttribute('aria-label'), full?.textContent, simple?.textContent, label]
-    : [simple?.textContent, label, full?.getAttribute('aria-label'), full?.textContent];
+    ? [redesignedClock, full?.getAttribute('aria-label'), full?.textContent, simple?.textContent, label]
+    : [redesignedClock, simple?.textContent, label, full?.getAttribute('aria-label'), full?.textContent];
   // Humble renders both the simple badge and a hidden detailed countdown.
   // Read one countdown source, excluding marketing text and duplicate timers.
   return String(sources.find(text => typeof text === 'string' && text.trim()) ?? card.textContent ?? '').replace(/\s+/gu, ' ').toLowerCase();
@@ -693,6 +807,8 @@ function catalogueSortTitle(link, card) {
 }
 
 function catalogueCardContainer(link) {
+  const redesigned=link.closest('[data-testid="product-card"]');
+  if(redesigned)return redesigned;
   return link.closest('article, li, [class*="tile" i], [class*="card" i], [class*="product" i], [class*="entity" i]') ?? link;
 }
 
@@ -804,6 +920,7 @@ function catalogueTitleKey(title) {
 }
 
 function sortBundleItems(items) {
+  if (isRedesignedHumble()) return sortRedesignedBundleItems(items);
   const cardsByTier = new Map();
   for (const item of items) {
     // productContainer is intentionally broad for status annotation; on
@@ -836,6 +953,13 @@ function sortBundleItems(items) {
 }
 
 function sortVisibleCardGroups(entries, compare, allowDocumentBody = false, includeSingletonMosaicRows = false) {
+  if(isRedesignedHumble()){
+    const groups=new Map();
+    for(const entry of entries){if(!entry.element.matches('[data-testid="product-card"]'))continue;const parent=entry.element.parentElement;const group=groups.get(parent)??[];group.push(entry);groups.set(parent,group);}
+    for(const group of groups.values())group.sort(compare).forEach((entry,i)=>entry.element.style.order=String(i));
+    return {directGroups:groups.size,directCardsMoved:0,rowSections:0,rowCardsMoved:0,plannedCrossRowCards:0,inaccessibleCrossRowCards:0,cardSlots:entries.length,singletonRows:0};
+  }
+
   const result = { directGroups: 0, directCardsMoved: 0, rowSections: 0, rowCardsMoved: 0, plannedCrossRowCards: 0, inaccessibleCrossRowCards: 0, cardSlots: 0, singletonRows: 0 };
   const candidatesByParent = new Map();
   for (const entry of entries) {
@@ -1057,6 +1181,9 @@ function bundleMediaContext(baseKind = location.pathname.startsWith('/games/') ?
 
 function describeBundleItem(item, media) {
   let kind = media.defaultKind;
+  const cardKind = item.element?.closest?.('[data-testid="bundle-item-card"]')?.getAttribute('data-bundle-type');
+  if (cardKind==='games'||cardKind==='software') kind = {games:'game',software:'software'}[cardKind];
+  else if(cardKind==='books' && !['book','audiobook'].includes(kind)) kind='book';
   if (kind === 'book' || kind === 'audiobook') {
     // A local explicit format/type can distinguish identically named ebook and
     // audio cards in a mixed bundle; otherwise use unambiguous item metadata.
@@ -1443,7 +1570,7 @@ function yieldToBrowser() {
 }
 
 function annotateAllCoverCopies(matchesByTitleKey, media) {
-  for (const image of document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]')) {
+  for (const image of document.querySelectorAll(HCL_COVER_SELECTOR)) {
     if (!isBundleCover(image)) continue;
     const item = describeBundleItem({ title: image.alt, element: image, container: productContainer(image) }, media);
     const match = matchesByTitleKey.get(bundleItemKey(item));
@@ -1496,7 +1623,7 @@ function collectBundleItems(media = bundleMediaContext()) {
 
 function collectCoverImageItems(media = bundleMediaContext()) {
   const byKey = new Map();
-  const images = document.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
+  const images = document.querySelectorAll(HCL_COVER_SELECTOR);
   for (const image of images) {
     if (!isBundleCover(image)) continue;
     const title = String(image.alt ?? '').replace(/\s+/gu, ' ').trim();
@@ -1530,10 +1657,13 @@ function likelyItemTitle(element) {
 }
 
 function productContainer(element) {
+  const redesigned = element.closest('[data-testid="bundle-item-card"]');
+  if (redesigned) return redesigned.closest('li') ?? redesigned;
   return element.parentElement?.closest('[data-testid*="product" i], [data-testid*="item" i], [class*="product" i], [class*="item" i], [class*="entity" i], li, article') ?? element.parentElement;
 }
 
 function findTier(element) {
+  if (element.closest('[data-testid="bundle-item-card"]')) return redesignedItemTier(element.alt);
   const tierElement = findTierContainer(element);
   const price = tierElement ? extractTierPrice(tierElement) : null;
   const label = price === null ? 'Unresolved tier' : `$${price.toFixed(2)} tier`;
@@ -2112,9 +2242,11 @@ function applyVisibleCardStatus(card, state) {
 }
 
 function findSingleCoverCard(cover) {
+  const redesigned = cover.closest('[data-testid="bundle-item-card"]');
+  if (redesigned) return redesigned.closest('li') ?? redesigned;
   let candidate = null;
   for (let node = cover.parentElement; node && node !== document.body; node = node.parentElement) {
-    const covers = node.querySelectorAll('img.item-image[alt], img[class~="item-image"][alt]');
+    const covers = node.querySelectorAll(HCL_COVER_SELECTOR);
     if (covers.length !== 1) break;
     candidate = node;
   }
@@ -2664,6 +2796,17 @@ function downloadTierTitleList(tierTitles) {
 }
 
 async function tierTitlesFromPageData() {
+  if(isRedesignedHumble()){
+    const tiers=new Map(),bundle=readRedesignedBundle();
+    for(const [index,tier] of (bundle?.tiers??[]).entries()){
+      const price=tier.price;
+      if(price?.currencyCode!=='USD'||!Number.isFinite(price.amount)||price.amount<0)continue;
+      const titles=new Map(tier.bundleItems.filter(item=>typeof item?.title==='string'&&item.title.trim()).map(item=>[HumbleComicLibrary.titleKey(item.title),displayTitle(item.title)]));
+      if(titles.size)tiers.set(String(index),{label:`$${price.amount.toFixed(2)} tier`,price:price.amount,titles});
+    }
+    return tiers;
+  }
+
   // Some Humble page variants hydrate this JSON after the content script runs,
   // so read the DOM first and then use a same-origin page fetch as a fallback.
   let source = document.querySelector('#webpack-bundle-page-data')?.textContent?.trim();
@@ -2977,12 +3120,13 @@ function addPurchaseImporter() {
   const buttons = [...panel.querySelectorAll('[data-import-mode]')];
   const debugButtons = [...panel.querySelectorAll('[data-hcl-debug-action]')];
   const status = panel.querySelector('output');
+  if(isRedesignedHumble())status.textContent=redesignedImportNotice();
   chrome.storage.local.get({ showDiagnostics: false, keyReminderScan: null, humbleProfileLabel:'' })
     .then(({ showDiagnostics, keyReminderScan, humbleProfileLabel }) => {
       if(!panel.querySelector('[data-profile-label]').value)panel.querySelector('[data-profile-label]').value=humbleProfileLabel;
       debugButtons.forEach((button) => { button.hidden = !showDiagnostics; });
       const reminderNotice = keyReminderSyncNotice(keyReminderScan);
-      if (reminderNotice) status.textContent = reminderNotice;
+      if (reminderNotice && !isRedesignedHumble()) status.textContent = reminderNotice;
     })
     .catch(() => {});
   for (const button of buttons) button.addEventListener('click', async () => {
@@ -3037,6 +3181,9 @@ function addPurchaseImporter() {
 }
 
 async function importPurchases(report, { fullRescan = false, profileLabel='', confirmed=false, switchProfile=false, useSavedAccount=false } = {}) {
+  // The redesigned account pages no longer establish the legacy list contract.
+  // Never begin a scan, change accounts or reconcile absence using guessed data.
+  if (isRedesignedHumble()) throw new Error(redesignedImportNotice());
   const account=useSavedAccount?(await HumbleComicLibrary.storageRequest('syncAccounts')).find(a=>a.active):null;
   const scan=await HumbleComicLibrary.storageRequest('begin',{fullRescan,profileLabel:useSavedAccount?account?.label??'':profileLabel,confirmed,switchProfile,...(account?{reuseAccount:true,accountId:account.stableId}:{})});
   try {
@@ -3792,6 +3939,7 @@ async function fetchJson(path) {
     headers: { Accept: 'application/json' }
   });
   if (response.status === 401 || response.status === 403) throw Object.assign(new Error('Your Humble login has expired. Sign in and try again. Your saved library was kept.'), {code:'HB_AUTH_REQUIRED'});
+  if (response.status === 404 || response.status === 410) throw new Error('Humble changed its purchase service. Imports are temporarily unavailable. Your saved purchases, history and corrections were kept.');
   if (!response.ok) throw new Error(`Humble responded with ${response.status}.`);
   return response.json();
 }

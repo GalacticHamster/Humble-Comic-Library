@@ -6,6 +6,14 @@ Your library and purchase history stay in browser-local extension storage. Impor
 
 [Privacy policy](PRIVACY.md) | [Import guide](#import-your-purchases) | [Galactic Library setup](docs/companion-pairing.md) | [Report an issue](https://github.com/GalacticHamster/Humble-Comic-Library/issues)
 
+## November 2026 website compatibility
+
+Humble's redesigned bundle pages use a new frontend. This source includes compatibility fixes for bundle ownership labels, visible-tier summaries, sorting and filtering using your saved library. The content script loads throughout humblebundle.com so those features can start when you navigate from the homepage without reloading. It does not import purchases from public offer data.
+
+**Purchase imports on the redesigned account pages are temporarily unavailable.** The new authenticated purchase source and complete-history traversal still need verification. The importer explains this before scanning and preserves saved purchases, history, corrections and account mappings. Existing saved-library checks, backups and local companion sharing remain available. Legacy purchase-page support is retained; a missing legacy purchase service produces an explicit failure instead of replacing saved data.
+
+Prices and tier summaries require concrete metadata belonging to the current offer. When navigation has not supplied usable metadata, the extension leaves tiers unresolved rather than inferring them from unrelated prices. This compatibility work does not add individual Humble Store product-page badges.
+
 ## Installation and availability
 
 - **Chrome:** Humble Library has an existing Chrome Web Store listing. The owner confirms **1.0.1 is published**; **1.0.2 is a local release candidate** and has not been submitted by this preparation. A verified listing URL is not yet included in this README.

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const firefox = process.argv.includes('--firefox');
 const importer = process.argv.includes('--importer');
+const redesign = process.argv.includes('--redesign');
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
@@ -37,7 +38,7 @@ const server = createServer(async (request, response) => {
       response.setHeader('Content-Type','text/html; charset=utf-8');
       response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/purchase-snapshot.js"></script><script src="/purchase-adapters.js"></script><script src="/purchase-sync.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
     }
-    if (pathname === '/books/test' || pathname === '/games/test') pathname = tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
+    if (pathname === '/books/test' || pathname === '/games/test') pathname = redesign ? '/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
     if (pathname === '/books') pathname = '/tests/catalogue-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }

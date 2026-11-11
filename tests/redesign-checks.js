@@ -1,0 +1,48 @@
+(async()=>{
+ const checks=[],check=(value,label)=>{if(!value)throw Error(label);checks.push(label);};
+ const wait=async condition=>{for(let n=0;n<200;n++){if(condition())return;await new Promise(r=>setTimeout(r,25));}throw Error('Redesign lifecycle did not settle');};
+ try{
+  await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);
+  await wait(()=>[...document.querySelectorAll('.hcl-status-button')].some(b=>b.dataset.state==='partial'));
+  for(const state of ['owned','new','possible','partial'])check(document.querySelector(`.hcl-status-button[data-state="${state}"]`),`${state} badge uses production matcher`);
+  const list=document.querySelector('[data-bundle-section] ul'),nodes=[...list.children];
+  check(!document.querySelector('button button'),'badge actions are outside native dialog buttons');
+  check(redesignNativeNodes.every((n,i)=>n===list.children[i]),'sorting preserves React keyed nodes and original DOM order');
+  check(nodes.find(n=>n.textContent.includes('Brand new book')).style.order==='0','visual sorting uses CSS order');
+  applyBundleNewItemsOnlyFilter(true);check(document.querySelectorAll('.hcl-bundle-filtered').length===1,'hide owned filters the complete li');applyBundleNewItemsOnlyFilter(false);
+  check(collectBundleItems().every(i=>i.tier.price===10),'tier prices come from concrete public offer metadata');
+  const old=list.children[0];old.replaceWith(old.cloneNode(true));
+  // A framework replacement must not retain a copied annotation as fresh proof.
+  clearBundleAnnotations();window.dispatchEvent(new PopStateEvent('popstate'));
+  await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);check(true,'provider rerender recovers annotations');
+  history.pushState({},'', '/store/unsupported');document.querySelector('h1').textContent='Store';
+  await wait(()=>!document.querySelector('#hcl-summary')&&!document.querySelector('.hcl-status-button'));check(true,'client navigation clears old-route evidence');
+  history.pushState({},'', '/games/next');document.querySelector('h1').textContent='Synthetic games';
+  const grid=document.querySelector('[data-bundle-section]');grid.dataset.bundleSection='games';grid.querySelectorAll('[data-bundle-type]').forEach(n=>n.dataset.bundleType='games');
+  grid.querySelectorAll('img').forEach((n,i)=>n.alt='Unowned sequel '+(i+1));
+  await wait(()=>document.querySelectorAll('.hcl-status-button[data-state="new"]').length===4);check(true,'books-to-games navigation resets media and matches new titles');
+  check(collectBundleItems(bundleMediaContext('game')).every(i=>i.kind==='game'&&i.tier.price===null),'stale book Flight props cannot establish game tiers');
+  history.pushState({},'', '/home/purchases');document.querySelector('h1').textContent='Purchases';await wait(()=>document.querySelector('#hcl-importer'));check(true,'SPA purchases navigation mounts one importer');
+  check(document.querySelector('#hcl-importer output').textContent.includes('temporarily unavailable'),'unsupported acquisition is explained before scanning');
+  document.querySelector('[data-import-mode="new"]').click();await wait(()=>document.querySelector('#hcl-importer output').textContent.startsWith('Import failed:'));check(!fixtureStored.lastImport,'blocked import publishes no checkpoint');
+  document.querySelector('#hcl-importer').remove();document.querySelector('h1').textContent='Purchases hydrated';await wait(()=>document.querySelectorAll('#hcl-importer').length===1);check(true,'hydration remounts one importer');
+  history.pushState({},'', '/bundles');
+  fixtureStored.purchaseSummaries=[{sourceBundle:'Owned bundle',purchaseKey:'synthetic-order'}];
+  document.querySelector('#provider-items').innerHTML='<div id="catalogue-grid" style="display:grid;grid-template-columns:repeat(2,1fr)"><div data-testid="product-card"><a href="/books/owned"><div class="product-title">Owned bundle</div></a></div><div data-testid="product-card"><a href="/games/another"><div class="product-title">Another bundle</div></a></div></div>';
+  const catalogueNodes=[...document.querySelector('#catalogue-grid').children];
+  await wait(()=>document.querySelector('#hcl-catalog-filters'));
+  check(document.querySelectorAll('.hcl-catalog-purchased').length===1,'redesigned catalogue retains purchase markers');
+  check(catalogueNodes[1].style.order==='0'&&catalogueNodes.every((n,i)=>document.querySelector('#catalogue-grid').children[i]===n),'catalogue sorting preserves React nodes');
+  check(document.querySelectorAll('#hcl-catalog-filters').length===1,'one catalogue filter control after SPA navigation');
+  const clock=document.createElement('a');clock.href='/books/owned';clock.dataset.testid='product-clock';clock.textContent='9 days left';catalogueNodes[0].append(clock);
+  await wait(()=>catalogueNodes[0].style.order==='0');
+  clock.firstChild.nodeValue='0:01:30:00';
+  await wait(()=>catalogueEndsInMinutes(catalogueNodes[0])===90);check(true,'new countdown is read without unrelated card prose');
+  const filters=document.querySelectorAll('#hcl-catalog-filters input');filters[1].checked=true;filters[1].dispatchEvent(new Event('change',{bubbles:true}));
+  await wait(()=>catalogueNodes[1].classList.contains('hcl-catalog-filtered'));
+  clock.firstChild.nodeValue='9 days left';
+  await wait(()=>catalogueNodes[0].classList.contains('hcl-catalog-filtered'));check(true,'hydrated countdown text updates ending-soon filter');
+  window.redesignResult={checks};
+ }catch(error){window.redesignResult={checks,error:error.stack??String(error)};}
+ await fetch('/test-result',{method:'POST',body:JSON.stringify(window.redesignResult)});
+})();
