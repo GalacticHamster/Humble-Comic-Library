@@ -213,6 +213,7 @@
 :is(.hcl-card-new, .hcl-card-unchecked, .hcl-card-possible, .hcl-card-partial, .hcl-card-elsewhere, .hcl-card-owned):has(
   > button[aria-haspopup="dialog"] > [data-testid="bundle-item-card"]) {
   box-sizing: border-box;
+  align-self: start; /* Fit each card, rather than stretching to its grid row. */
   border: 2px solid var(--hcl-product-border) !important;
   border-radius: 0.5rem;
 }

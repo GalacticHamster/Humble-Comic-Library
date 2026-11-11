@@ -1284,7 +1284,7 @@ function clearBundleAnnotations() {
     item.style.removeProperty('color');
     item.style.removeProperty('font-weight');
   });
-  document.querySelectorAll('.hcl-related-titles').forEach(node=>{if(node.parentElement.matches('li'))return;node.nextElementSibling?.matches('details[data-hcl-related]')&&node.nextElementSibling.remove();node.remove();});
+  document.querySelectorAll('.hcl-related-titles').forEach(node=>{if(node.closest('.hcl-title-list'))return;node.nextElementSibling?.matches('details[data-hcl-related]')&&node.nextElementSibling.remove();node.remove();});
 }
 
 async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases = [], collectionMappings = [], comparison = null, job = 0) {
@@ -2084,6 +2084,12 @@ function annotateBundleItem(bundleItem, match) {
   // The image wrapper scales on Humble hover, which turns a label attached to
   // it into a giant pill. Anchor the status to the stable item card instead.
   const badgeHost = bundleItem.container ?? bundleItem.element.parentElement;
+  const redesignedCard = Boolean(bundleItem.element.closest('[data-testid="bundle-item-card"]'));
+  // React owns the card tree. Replace only our direct controls; old card captions
+  // must not survive local/final comparison phases or framework reannotation.
+  if (redesignedCard && badgeHost) for (const node of [...badgeHost.children]) {
+    if (node.matches('.hcl-status-button, .hcl-related-titles, details[data-hcl-related]')) node.remove();
+  }
   const provenance = matchProvenance(match);
   const purchaseCount = matchPurchaseCount(match);
   const ownedLabel=HumbleOwnership.presentation.status(bundleItem,match);
@@ -2092,7 +2098,7 @@ function annotateBundleItem(bundleItem, match) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchaseCount > 1 ? `${ownedLabel} \u00d7${purchaseCount}` : ownedLabel
       : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Check incomplete' : 'New';
-    if (provenance) badgeHost.title = provenance;
+    if (provenance && !redesignedCard) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
     const button = document.createElement('button');
     button.type = 'button';
@@ -2104,11 +2110,11 @@ function annotateBundleItem(bundleItem, match) {
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      showMatchInspector(match.offered ? match : { ...match, offered: bundleItem });
+      showMatchInspector(match.offered ? match : { ...match, offered: bundleItem }, button);
     });
     badgeHost.classList.add('hcl-interactive-badge');
     badgeHost.append(button);
-    if(isPossible||isPartial){const noteHost=bundleItem.container??badgeHost;appendRelatedTitles(noteHost,match);}
+    if(!redesignedCard&&(isPossible||isPartial)){const noteHost=bundleItem.container??badgeHost;appendRelatedTitles(noteHost,match);}
   }
   const stateClass = isOwned ? 'owned' : isElsewhere ? 'elsewhere' : isPartial ? 'partial' : isPossible ? 'possible' : isUnchecked ? 'unchecked' : 'new';
   bundleItem.container?.classList.add(`hcl-${stateClass}-item`);

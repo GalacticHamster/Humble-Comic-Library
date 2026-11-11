@@ -17,8 +17,10 @@
   // A framework replacement must not retain a copied annotation as fresh proof.
   clearBundleAnnotations();window.dispatchEvent(new PopStateEvent('popstate'));
   await wait(()=>document.querySelectorAll('.hcl-status-button').length===4);check(framed(),'provider rerender recovers computed full-card borders');
+  check(!list.querySelector('.hcl-related-titles'),'provider rerender leaves no persistent card captions');
   history.pushState({},'', '/store/unsupported');document.querySelector('h1').textContent='Store';
   await wait(()=>!document.querySelector('#hcl-summary')&&!document.querySelector('.hcl-status-button'));check(true,'client navigation clears old-route evidence');
+  check(!list.querySelector('.hcl-related-titles'),'SPA navigation leaves no stale card captions');
   check([...document.querySelectorAll('[data-testid="bundle-item-card"]')].every(card=>getComputedStyle(card.closest('li')).borderTopWidth==='0px'),'client navigation clears obsolete ownership borders');
   history.pushState({},'', '/games/next');document.querySelector('h1').textContent='Synthetic games';
   const grid=document.querySelector('[data-bundle-section]');grid.dataset.bundleSection='games';grid.querySelectorAll('[data-bundle-type]').forEach(n=>n.dataset.bundleType='games');
