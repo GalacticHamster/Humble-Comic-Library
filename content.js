@@ -1275,6 +1275,8 @@ function clearBundleAnnotations() {
     cover.style.removeProperty('box-shadow');
   });
   document.querySelectorAll('.hcl-owned-item, .hcl-unchecked-item, .hcl-elsewhere-item, .hcl-new-item, .hcl-possible-item, .hcl-partial-item, .hcl-badge-host, .hcl-card-owned, .hcl-card-unchecked, .hcl-card-elsewhere, .hcl-card-new, .hcl-card-possible, .hcl-card-partial, .hcl-cover-owned, .hcl-cover-unchecked, .hcl-cover-elsewhere, .hcl-cover-new, .hcl-cover-possible, .hcl-cover-partial').forEach((item) => {
+    // Discard our inherited tooltip when a card is cleared or leaves this route.
+    if (item.classList.contains('hcl-badge-host')) item.removeAttribute('title');
     item.classList.remove('hcl-owned-item', 'hcl-elsewhere-item', 'hcl-new-item', 'hcl-possible-item', 'hcl-partial-item', 'hcl-badge-host', 'hcl-card-owned', 'hcl-card-elsewhere', 'hcl-card-new', 'hcl-card-possible', 'hcl-card-partial', 'hcl-cover-owned', 'hcl-cover-elsewhere', 'hcl-cover-new', 'hcl-cover-possible', 'hcl-cover-partial');
     delete item.dataset.hclBadge;
     item.classList.remove('hcl-unchecked-item', 'hcl-card-unchecked', 'hcl-cover-unchecked');
@@ -2098,7 +2100,7 @@ function annotateBundleItem(bundleItem, match) {
     badgeHost.dataset.hclBadge = isOwned
       ? purchaseCount > 1 ? `${ownedLabel} \u00d7${purchaseCount}` : ownedLabel
       : isElsewhere ? 'Owned elsewhere' : isPartial ? `Partial (${match.range.owned}/${match.range.total})` : isPossible ? (match.ownershipReview ? 'Check ownership' : 'Possible') : isUnchecked ? 'Check incomplete' : 'New';
-    if (provenance && !redesignedCard) badgeHost.title = provenance;
+    if (provenance) badgeHost.title = provenance;
     else badgeHost.removeAttribute('title');
     const button = document.createElement('button');
     button.type = 'button';

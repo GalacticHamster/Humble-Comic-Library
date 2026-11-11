@@ -29,9 +29,10 @@
   for(let n=0;n<3;n++){clearBundleAnnotations();annotateBundleItem(possibleItem,possibleMatch);annotateBundleItem(possibleItem,possibleMatch);}
   check(!possibleHost.querySelector('.hcl-related-titles'),'redesigned cards have no persistent explanation captions');
   check(possibleHost.querySelectorAll('.hcl-status-button').length===1,'reannotation is idempotent for explanation controls');
-  check(!possibleHost.hasAttribute('title'),'card hover cannot repeat the detailed explanation as a native tooltip');
+  check(possibleHost.title===matchProvenance(possibleMatch)&&possibleHost.title.includes('Dune, 1st Edition'),'native card tooltip retains the original candidate explanation');
   for(let n=0;n<5;n++){possibleHost.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));possibleHost.dispatchEvent(new MouseEvent('mouseout',{bubbles:true}));}
   check(!possibleHost.querySelector('.hcl-related-titles')&&possibleHost.querySelectorAll('.hcl-status-button').length===1,'repeated hover does not accumulate explanations');
+  check(possibleHost.title===matchProvenance(possibleMatch),'repeated hover does not append tooltip content');
   const trigger=possibleHost.querySelector('.hcl-status-button');trigger.focus();trigger.click();
   check(document.querySelectorAll('#hcl-match-inspector[open]').length===1,'pointer/touch activation opens exactly one explanation dialog');
   check(document.querySelector('#hcl-match-inspector').textContent.includes('Dune, 1st Edition'),'on-demand explanation retains candidate information');
@@ -39,6 +40,15 @@
   check(document.activeElement===trigger,'closing explanation restores keyboard focus to its trigger');
   const stale=document.createElement('small');stale.className='hcl-related-titles';stale.textContent='stale';possibleHost.append(stale);
   clearBundleAnnotations();check(!stale.isConnected,'cleanup removes stale card captions even inside li hosts');
+  check(!possibleHost.hasAttribute('title'),'clearing annotations removes obsolete hover explanations');
+  for(const state of ['owned','elsewhere','possible','partial']){
+   const record={title:'Matched purchased edition',kind:'book',source:'humble',sourceBundle:'Synthetic purchase'};
+   const match={state,offered:item,item:record,candidates:[record],externalMatches:state==='elsewhere'?[{provider:'kindle',title:record.title,ownership:'owned'}]:[],range:{owned:1,total:2,items:[record]}};
+   clearBundleAnnotations();annotateBundleItem(item,match);annotateBundleItem(item,match);
+   check(li.title===matchProvenance(match)&&li.title.includes(record.title),state+' tooltip preserves original matched title and source semantics');
+   check(li.querySelectorAll('.hcl-status-button').length===1&&!li.querySelector('.hcl-related-titles'),state+' tooltip uses no second persistent explanation renderer');
+   check(new Set(li.title.split('\n')).size===li.title.split('\n').length,state+' tooltip has no duplicated explanation lines');
+  }
   annotateBundleItem(item,{state:'owned',offered:item});
   const originalNodes=[...li.childNodes].filter(n=>n!==li.querySelector('.hcl-status-button'));
   // Humble clips cover outlines and provides its own native-button focus ring.

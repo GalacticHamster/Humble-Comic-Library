@@ -21,6 +21,7 @@
   history.pushState({},'', '/store/unsupported');document.querySelector('h1').textContent='Store';
   await wait(()=>!document.querySelector('#hcl-summary')&&!document.querySelector('.hcl-status-button'));check(true,'client navigation clears old-route evidence');
   check(!list.querySelector('.hcl-related-titles'),'SPA navigation leaves no stale card captions');
+  check([...list.children].every(n=>!n.hasAttribute('title')),'SPA navigation removes obsolete ownership tooltips');
   check([...document.querySelectorAll('[data-testid="bundle-item-card"]')].every(card=>getComputedStyle(card.closest('li')).borderTopWidth==='0px'),'client navigation clears obsolete ownership borders');
   history.pushState({},'', '/games/next');document.querySelector('h1').textContent='Synthetic games';
   const grid=document.querySelector('[data-bundle-section]');grid.dataset.bundleSection='games';grid.querySelectorAll('[data-bundle-type]').forEach(n=>n.dataset.bundleType='games');
