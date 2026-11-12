@@ -16,23 +16,23 @@ Same-title/different-ID observations remain separate. Identical observation cand
 
 Validated observations are backed up even while disabled. Older backups lacking the optional field restore an empty collection. Replacement restore and Clear library replace/clear it; saved profile archives retain it. The existing backup format/version is unchanged; older extensions cannot preserve this new optional field, so restore pilot observations with the current code.
 
-## Admission rules
+## Purchased admission policy
 
-Raw observations are distinct from ownership admission. For supported `download_drm_free` and `steam` namespaces, qualifying evidence requires:
+Validated membership in the authenticated Purchased Library establishes Purchased evidence: account-bound native individual ID, exact row/detail identity and authenticated parent membership. Optional delivery metadata does not need to prove the purchase again. Ordinary storefront, bundle and claimed Choice items qualify. A Choice option offered only in a redemption group, without a matching individual Purchased child, is not imported.
 
-- Authenticated Purchased row and exact individual ID/title/type in its authenticated parent detail.
-- Same principal before/after traversal, pinned Library user ID on every row and matching parent route/account.
-- Explicit parent type `bundle`, parent preorder false and an explicit empty redemptionGroups array.
-- giftStatus `unassigned`; expired, preOrdered and outOfStock explicitly false; redeemable explicitly true.
-- unavailableBefore and unavailableAfter explicitly null. Missing or finite dates do not qualify in this first rule.
+Only affirmative exclusions with defined semantics withhold Purchased matching: individual giftStatus = gifted, or an explicit boolean revoked:true / temporaryAccess:true. These last two named access fields are supported and tested synthetic exclusion inputs, not claims that the live samples exposed them. Evidence is projected from the exact listing row/child and detail child; explicit parent revocation/temporary-access flags also apply. Malformed access flags become unresolved, not assumed false. Unknown metadata stays unknown, but does not veto validated Purchased membership. A parent subscription/Choice label alone does not mean temporary access.
 
-Steam additionally requires directRedeem explicitly false and keyIntegrationId explicitly null. Missing integration/group/preorder fields do not default to false/none. Subscription/Choice/Vault, gifted, expired/unavailable, preorder, choice-group and unknown states remain observation-only.
+An omitted field on refresh does not clear a previously explicit exclusion for that same native identity. A known false revocation/temporary flag or a known non-gifted status can clear the corresponding exclusion. This merge runs inside the existing atomic observation upsert; legacy purchase history and corrections remain separate.
 
-Qualified Steam entries enter local matching as **Purchased**, with “Humble Library key entitlement — activation not confirmed.” Existing matching safeguards remain. Humble redeemedAt is non-secret provider evidence, not purchase date or Steam activation. Activation is always unknown.
+Expiry, stock availability, preorders, redeemability, directRedeem, integration IDs, missing redemptionGroups, and past/future availability boundaries describe delivery/redemption. They do not erase purchase evidence. Dates remain stored as observed metadata; no original purchase date is invented.
 
-Qualified DRM-free records receive personal-entitlement admission, but media type remains **unknown**: the verified source does not establish whether every DRM-free file is a book, game or software. They are stored but not supplied to media-specific matching. There is no default-to-book or title classification. This is a production activation limitation.
+Admission retains separate key/DRM-free provenance and a generic Purchased class for other native namespaces. purchaseStatus is recomputed from validated source evidence on writes and backup restore; caller-supplied admission/status cannot override exclusions. New exclusion flags are optional in the existing version-1 observation validator. Old observations retain their IDs and metadata and are re-evaluated under this admission policy; no legacy purchases/corrections are migrated or changed.
 
-keyFormatted, externalAccountName, gameKey, signed URLs, download payloads and instructions are never projected/persisted. No reveal, redeem, download or grant-refresh action is invoked. The actual live samples have unknown fields under these strict rules and are not promised matching admission.
+Steam enters matching as **Purchased**, with Humble key-entitlement provenance and activation **Unknown**. Humble redemption timestamps and key availability never establish Steam account ownership or activation.
+
+DRM-free and other unclassified purchases retain **Purchased ? Media: Unknown**. They are available through the generic account-scoped purchase view and the disabled pilot's saved-items disclosure (at most 50 rows). Distinct native copies remain separate there. Unknown-media purchases are withheld only from media-specific matching; lack of classification is not an admission failure. There is no default-to-book or title heuristic.
+
+Secret key fields, signed URLs and download payloads are not projected, persisted or displayed. No reveal, redeem, download or grant-refresh action is invoked.
 
 ## Bounded acquisition and recovery
 
@@ -56,9 +56,11 @@ Unit fixtures exercise actual acquisition, projection and serialized persistence
 
 Installed tests exercise collector → message → worker → storage → reload in disposable Chrome/Firefox profiles with synthetic provider transport. They also click the pilot panel and explicitly observe started/completed states. Separate default builds test that acquisition and worker writes are blocked. These are not live authenticated imports or real disk-failure tests.
 
-Before activation, validate live bounded acquisition and missing/negative eligibility; separate-copy semantics; account-switch/recovery; DRM-free media classification; and any compatible GL observation transport. Preserve legacy purchases/corrections throughout. Do not relax missing fields to obtain Owned badges.
+Before normal-user activation, review the bounded scan UX and supported source coverage, retaining the tested account/persistence/preservation guarantees. Isolated real DRM-free and Steam acquisition and Purchased admission now pass. Media-specific classification and a compatible GL transport are separate capabilities, not prerequisites for generic Purchased records. Missing optional delivery fields do not block Purchased; explicit exclusions still do.
 
-### November 12 live-pilot follow-up
+### November 12 live-pilot follow-up (historical strict-policy findings)
+
+The eligibility rejections below describe the initial strict policy and are superseded by the Purchased policy above. The acquisition/identity evidence remains relevant.
 
 The memory-only pilot uses the production collector/parser in the existing Humble page, with the guard enabled only in an isolated diagnostic copy. It has no extension messaging or persistent storage adapter. Only aggregate diagnostics are exported.
 
@@ -77,3 +79,7 @@ That Steam observation remains observation-only: directRedeem and parentPreOrder
 No admission predicates or media classifications changed. Public frontend handling of absent redemption groups is a rendering default, not independent proof of eligibility. `download_drm_free` describes delivery, not media; no default-to-book rule is authorized. The source guard and redesigned purchase-history importer remain disabled.
 
 Commands: `node --test tests/library-entitlements.test.mjs`; `node tests/runtime.mjs --library-entitlements [--firefox]`; `node tests/runtime.mjs --library-entitlements-disabled [--firefox]`. Packages are staged only in disposable temporary directories.
+
+### Practical-policy live validation
+
+With the revised source in an isolated in-memory adapter, the two-page unfiltered pilot admitted all nine distinct DRM-free observations as Purchased (one duplicate overlap, no conflicts/unresolved items). Repeated targeted runs admitted the exact Steam native entitlement as Purchased, with stable identities and activation Unknown. Both retain historicalComplete false and reconciliationAuthority none. No installed-extension storage was written. Full-history/migration completeness is deliberately unclaimed.

@@ -13,6 +13,7 @@
   const id = v => { text(v, 250); if (v.startsWith('$')) throw Error('Unresolved Library identity.'); return v; };
   const enumeration = v => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,64}$/u.test(v) ? v : 'unknown';
   const boolean = v => typeof v === 'boolean' ? v : null;
+  const accessFlag = v => { if (v !== undefined && v !== null && typeof v !== 'boolean') throw Error('Invalid Library access evidence.'); return boolean(v); };
   const date = v => {
     if (v === undefined) return { state: 'unknown', value: null };
     if (v === null) return { state: 'none', value: null };
@@ -30,6 +31,10 @@
       if (raw[name] !== null && typeof raw[name] !== 'boolean') throw Error('Invalid Library eligibility flag.');
       result[name] = raw[name];
     }
+    for (const name of ['revoked','temporaryAccess']) {
+      if (raw[name] !== undefined && raw[name] !== null && typeof raw[name] !== 'boolean') throw Error('Invalid Library access evidence.');
+      result[name] = boolean(raw[name]);
+    }
     for (const name of ['giftStatus','parentType','integration','redemptionGroups']) result[name] = enumeration(raw[name]);
     for (const name of ['unavailableBefore','unavailableAfter','redeemedAt']) {
       const v = raw[name];
@@ -40,13 +45,11 @@
   }
   function admission(r) {
     const e = r.eligibility;
-    if (!['download_drm_free','steam'].includes(r.namespace)) return 'observation-only';
-    if (e.parentType !== 'bundle' || e.parentPreOrder !== false || e.redemptionGroups !== 'none'
-      || e.giftStatus !== 'unassigned' || e.expired !== false || e.preOrdered !== false
-      || e.outOfStock !== false || e.redeemable !== true || e.unavailableBefore.state !== 'none'
-      || e.unavailableAfter.state !== 'none') return 'observation-only';
-    if (r.namespace === 'steam' && (e.directRedeem !== false || e.integration !== 'none')) return 'observation-only';
-    return r.namespace === 'steam' ? 'humble-key-entitlement' : 'personal-drm-free-entitlement';
+    // Every observation comes from an account-checked Purchased row and exact
+    // native child in its authenticated parent. Redemption capability is not
+    // purchase evidence, and optional metadata cannot undo that membership.
+    if (e.giftStatus === 'gifted' || e.revoked === true || e.temporaryAccess === true) return 'observation-only';
+    return r.namespace === 'steam' ? 'humble-key-entitlement' : r.namespace === 'download_drm_free' ? 'personal-drm-free-entitlement' : 'humble-purchased-entitlement';
   }
   function observation(raw) {
     if (!object(raw) || !object(raw.scope) || raw.source !== 'authenticated-humble-library') throw Error('Invalid Library observation.');
@@ -58,7 +61,26 @@
     // No title-based media inference. DRM-free files may be books, games or software.
     r.mediaType = r.namespace === 'steam' ? 'game' : 'unknown';
     r.admission = admission(r); r.activationStatus = 'unknown';
+    r.purchaseStatus = r.admission === 'observation-only' ? 'excluded' : 'purchased';
     return r;
+  }
+  function purchaseViews(state) {
+    if (!ENABLED) return [];
+    return collection(state.libraryEntitlements).scopes.filter(s => s.localAccountId === state.humbleAccountId).flatMap(s => s.observations.map(r => ({
+      itemRef: identity(r), title: r.title, mediaType: r.mediaType,
+      status: r.eligibility.revoked === true ? 'Revoked' : r.eligibility.giftStatus === 'gifted' ? 'Gifted away' : r.eligibility.temporaryAccess === true ? 'Temporary access' : 'Purchased',
+      activationStatus: 'unknown'
+    })));
+  }
+  function refreshObservation(previous, raw) {
+    const next = observation(raw);
+    if (!previous) return next;
+    const old = observation(previous);
+    if (identity(old) !== identity(next) || old.observedAt > next.observedAt) throw Error('Stale or foreign Library observation.');
+    const evidence = {...next.eligibility};
+    for (const field of ['revoked','temporaryAccess']) if (evidence[field] === null && old.eligibility[field] === true) evidence[field] = true;
+    if (evidence.giftStatus === 'unknown' && old.eligibility.giftStatus === 'gifted') evidence.giftStatus = 'gifted';
+    return observation({...next,eligibility:evidence});
   }
   function scan(raw) {
     if (raw == null) return null;
@@ -124,7 +146,7 @@
       for (const r of s.observations) {
         const bytes = await global.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([salt, identity(r)])));
         records.push({ itemRef: [...new Uint8Array(bytes)].map(v => v.toString(16).padStart(2,'0')).join(''), title: r.title,
-          mediaType: r.mediaType, evidenceSource: r.source, admission: r.admission, activationStatus: 'unknown', observedAt: r.observedAt });
+          mediaType: r.mediaType, evidenceSource: r.source, admission: r.admission, purchaseStatus: r.purchaseStatus, activationStatus: 'unknown', observedAt: r.observedAt });
       }
     }
     return { format: 'humble-library-entitlement-observations', version: 1, coverage: 'unverified', historicalComplete: false, records };
@@ -279,9 +301,14 @@
     if (id(t(row.id)) !== id(t(child.id)) || t(child.title) !== t(row.title) || enumeration(t(row.type)) !== namespace) throw Error('Library row/detail identity conflict.');
     const groups = t(parent.entitlements?.redemptionGroups);
     const integrationId = t(child.keyIntegrationId), directRedeem = boolean(t(child.directRedeem));
+    const listing = row.listingEvidence.filter(c => c.id === row.id && c.type === namespace);
+    const revoked = [row.revoked, ...listing.map(c=>c.revoked), accessFlag(t(parent.revoked)), accessFlag(t(child.revoked))];
+    const temporary = [row.temporaryAccess, ...listing.map(c=>c.temporaryAccess), accessFlag(t(parent.temporaryAccess)), accessFlag(t(child.temporaryAccess))];
+    const gifted = row.giftStatus === 'gifted' || listing.some(c=>c.giftStatus === 'gifted');
     return observation({ scope, nativeId: t(child.id), namespace, title: t(child.title), parentId: t(row.productEntitlementId), source: 'authenticated-humble-library', observedAt: checkedAt,
       eligibility: { expired: boolean(t(child.expired)), preOrdered: boolean(t(child.preOrdered)), outOfStock: boolean(t(child.outOfStock)), redeemable: boolean(t(child.redeemable)), directRedeem,
-        parentPreOrder: boolean(t(parent.preOrder)), parentType, giftStatus: enumeration(t(child.giftStatus)),
+        revoked: revoked.includes(true) ? true : boolean(t(child.revoked)), temporaryAccess: temporary.includes(true) ? true : boolean(t(child.temporaryAccess)),
+        parentPreOrder: boolean(t(parent.preOrder)), parentType, giftStatus: gifted ? 'gifted' : enumeration(t(child.giftStatus)),
         integration: integrationId === null && directRedeem === false ? 'none' : 'unknown',
         redemptionGroups: Array.isArray(groups) ? groups.length ? 'choices' : 'none' : 'unknown',
         unavailableBefore: date(t(child.unavailableBefore)), unavailableAfter: date(t(child.unavailableAfter)), redeemedAt: date(t(child.redeemedAt)) } });
@@ -322,8 +349,10 @@
           try {
             if (typeof f.resolve(raw.userId) !== 'string' || f.resolve(raw.userId) !== first.scope.userId) throw Object.assign(Error('Library account changed or could not be verified.'), { fatalScope: true });
             const row = { id: id(f.resolve(raw.id)), type: enumeration(f.resolve(raw.type)), title: text(f.resolve(raw.title)), productEntitlementId: id(f.resolve(raw.productEntitlementId)) };
+            row.revoked = accessFlag(f.resolve(raw.revoked)); row.temporaryAccess = accessFlag(f.resolve(raw.temporaryAccess)); row.giftStatus = enumeration(f.resolve(raw.giftStatus));
             row.listingEvidence = [...(f.resolve(raw.entitlements?.keys) ?? []), ...(f.resolve(raw.entitlements?.downloads) ?? [])].map(c => ({
               id: id(f.resolve(c.id)), type: enumeration(f.resolve(c.type)), giftStatus: enumeration(f.resolve(c.giftStatus)),
+              revoked: accessFlag(f.resolve(c.revoked)), temporaryAccess: accessFlag(f.resolve(c.temporaryAccess)),
               expired: boolean(f.resolve(c.expired)), preOrdered: boolean(f.resolve(c.preOrdered)), outOfStock: boolean(f.resolve(c.outOfStock)), redeemable: boolean(f.resolve(c.redeemable)) }));
             ref = JSON.stringify([row.type,row.id]);
             if (!first.groupMap.has(row.productEntitlementId)) throw Error('Unsupported Library parent.');
@@ -375,9 +404,24 @@
     for (const n of [1,5,10]) { const o = document.createElement('option'); o.value = String(n); o.textContent = `Up to ${n} ${n === 1 ? 'page' : 'pages'}`; pages.append(o); } pages.value = '5';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Check Library entitlements';
     const status = document.createElement('p'); status.setAttribute('role','status');
+    const savedItems = document.createElement('details'), savedHeading = document.createElement('summary'), savedList = document.createElement('ul');
+    savedItems.hidden = true; savedItems.append(savedHeading, savedList);
     let expectedContext;
+    const refreshSavedItems = async () => {
+      const state = await global.chrome.storage.local.get({ libraryEntitlements: {version:1,scopes:[]}, humbleAccountId: null });
+      if (state.humbleAccountId !== expectedContext?.accountId) { savedItems.hidden = true; return; }
+      const views = purchaseViews(state); savedList.replaceChildren();
+      for (const item of views.slice(0,50)) {
+        const row = document.createElement('li');
+        row.textContent = `${item.title} — ${item.status} · Media: ${item.mediaType === 'unknown' ? 'Unknown' : item.mediaType}`;
+        savedList.append(row);
+      }
+      savedHeading.textContent = views.length > 50 ? 'Saved Library items (first 50)' : 'Saved Library items';
+      savedItems.hidden = views.length === 0;
+    };
     global.HumbleComicLibrary.storageRequest('entitlementContext').then(value => {
       expectedContext = value; description.textContent += ' Saved account: ' + (value.profileLabel || 'unnamed') + '.';
+      refreshSavedItems().catch(() => {});
     }, () => { status.textContent = 'The saved account is unavailable. Open Extension options before checking.'; });
     button.addEventListener('click', async () => {
       if (!confirm.checked) { status.textContent = 'Confirm the signed-in account before checking. Your records are unchanged.'; return; }
@@ -387,10 +431,12 @@
         const value = await collect({ fetcher, expectedContext, store: (operation,...args) => global.HumbleComicLibrary.storageRequest(operation,...args), confirmed: true, pageLimit: Number(pages.value),
           progress: p => { status.textContent = `Checked ${p.pagesRead} pages; ${p.verifiedItems} entitlement observations read.`; } });
         status.textContent = `Saved ${value.saved.toLocaleString()} entitlement observations. ${value.scan.unresolvedItems ? `${value.scan.unresolvedItems.toLocaleString()} items remain unresolved. ` : ''}${value.scan.coverage === 'incomplete' ? 'The check was interrupted; readable observations were kept.' : 'This was a limited Library check.'} Historical purchases were kept. This does not establish complete history or Steam activation.`;
+        try { await refreshSavedItems(); }
+        catch { status.textContent += ' Saved items could not be displayed. Reopen Extension options to check them.'; }
       } catch { status.textContent = 'The Library check could not be saved. Existing records were kept. Check the signed-in and saved accounts, then try again.'; }
       finally { button.disabled = false; pages.disabled = false; }
     });
-    panel.append(heading, description, label, pages, button, status); document.body.append(panel);
+    panel.append(heading, description, label, pages, button, status, savedItems); document.body.append(panel);
   }
-  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, collection, observation, identity, scopeKey, admission, scan, matchingItems, projectForGL, flight, collect, installPanel });
+  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, collection, observation, refreshObservation, identity, scopeKey, admission, scan, matchingItems, purchaseViews, projectForGL, flight, collect, installPanel });
 })(globalThis);

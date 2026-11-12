@@ -28,7 +28,7 @@ export function fixture(options={}) {
     if(path==='/_next/static/chunks/synthetic-library.js')return response(`(0,r.createServerReference)("${'a'.repeat(40)}",r.callServer,void 0,r.findSourceMapURL,"filterUserLibrary")`,200,'text/javascript');
     if(path==='/home/library'&&init.method!=='POST'){
       envelopes++;const principal=options.changedAccount&&envelopes>1?'principal-B':'principal-A';
-      return response(frames([{name:'AuthProvider',props:{user:{id:principal}}},{name:'UserLibrary',props:{bundleItems:(options.groupIds??['parent-A']).map((parent,i)=>({id:'group-'+i,productEntitlementId:parent,userId:'hub-A',type:'bundle'}))}}]));
+      return response(frames([{name:'AuthProvider',props:{user:{id:principal}}},{name:'UserLibrary',props:{bundleItems:(options.groupIds??['parent-A']).map((parent,i)=>({id:'group-'+i,productEntitlementId:parent,userId:'hub-A',type:options.parentType??'bundle'}))}}]));
     }
     if(path==='/home/library'&&init.method==='POST'){
       const page=Number(init.body.get('_1_page'));

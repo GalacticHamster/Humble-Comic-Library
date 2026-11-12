@@ -897,7 +897,7 @@
         for(const raw of data.observations){const row=E.observation(raw),id=E.identity(row);if(E.scopeKey(row.scope)!==E.scopeKey(control)||incoming.has(id)||row.observedAt!==scan.checkedAt)throw Error('Duplicate, stale or foreign Library observation.');incoming.set(id,row);}
         const collection=E.collection(current.libraryEntitlements),previous=collection.scopes.find(s=>E.scopeKey(s)===E.scopeKey(control));
         const observations=new Map((previous?.observations??[]).map(r=>[E.identity(r),r]));
-        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');observations.set(id,row);}
+        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');observations.set(id,E.refreshObservation(old,row));}
         const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan}]});
         // One atomic write; no legacy arrays, corrections, scan checkpoints or reminders are touched.
         await area.set({libraryEntitlements:next,[key]:null});return {saved:incoming.size,scan};

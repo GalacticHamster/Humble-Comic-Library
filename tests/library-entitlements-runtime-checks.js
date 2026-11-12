@@ -16,10 +16,11 @@ async function installedEntitlementChecks(disabled=false) {
   await store('replace',baseline);
   const committedBaseline=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
   const row=n=>({id:'native-'+n,title:'Synthetic game '+n,type:'steam',userId:'hub-A',productEntitlementId:'parent-A'});
-  const rows=Array.from({length:8},(_,n)=>row(n));let failPage=false,foreign=false,malformed=false,reads=0,liveShape=false;
+  const rows=Array.from({length:8},(_,n)=>row(n));let failPage=false,foreign=false,malformed=false,reads=0,liveShape=false,excludedShape=false,omitExclusion=false;
   const frames=components=>components.map((c,i)=>`${(i+1).toString(16)}:I${JSON.stringify([i+1,c.name==='UserLibrary'?['static/chunks/synthetic-library.js']:[],c.name])}`).join('\n')+'\n0:'+JSON.stringify(components.map((c,i)=>['$','$L'+(i+1).toString(16),null,c.props]))+'\n';
   const response=(body,status=200,type='text/x-component')=>({ok:status===200,status,headers:{get:()=>type},text:async()=>type==='text/x-component'&&status===200?'f0:X\nf0:{"ui":"synthetic stream"}\nf0:C\nf1:E{"digest":"synthetic unrelated UI error"}\n'+body:body});
   const htmlResponse=components=>response('<!doctype html><script>self.__next_f.push('+JSON.stringify([1,frames([...components,components[0]])])+')</script>',200,'text/html');
+  const entitlement=r=>({...r,giftStatus:'unassigned',revoked:omitExclusion?undefined:excludedShape,expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:liveShape?undefined:false,keyIntegrationId:liveShape?'synthetic-integration':null,unavailableBefore:null,unavailableAfter:liveShape?'2099-01-01T00:00:00.000Z':null,redeemedAt:liveShape?'2020-01-01T00:00:00.000Z':null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}});
   const fetcher=async(path,init={})=>{
     if(path==='/_next/static/chunks/synthetic-library.js')return response(`(0,r.createServerReference)("${'a'.repeat(40)}",r.callServer,void 0,r.findSourceMapURL,"filterUserLibrary")`,200,'text/javascript');
     if(path==='/home/library'&&init.method!=='POST')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]);
@@ -28,7 +29,7 @@ async function installedEntitlementChecks(disabled=false) {
       if(failPage&&page===2)return response('',503);
       return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*5,page*5).map(r=>({...r,userId:foreign?'foreign-hub':r.userId})),pagination:{page,totalPages:2,totalDocs:8}})+(malformed?'':'\n'));
     }
-    if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:liveShape?undefined:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:liveShape?undefined:false,keyIntegrationId:liveShape?'synthetic-integration':null,unavailableBefore:null,unavailableAfter:liveShape?'2099-01-01T00:00:00.000Z':null,redeemedAt:liveShape?'2020-01-01T00:00:00.000Z':null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}}))}}}}]);
+    if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:liveShape?undefined:false,entitlements:{redemptionGroups:[],downloads:rows.filter(r=>r.type==='download_drm_free').map(entitlement),keys:rows.filter(r=>r.type!=='download_drm_free').map(entitlement)}}}}]);
     throw Error('Unexpected fixture request');
   };
   const acquire=pageLimit=>E.collect({fetcher,store,confirmed:true,pageLimit});
@@ -52,9 +53,17 @@ async function installedEntitlementChecks(disabled=false) {
   check(complete.scan.historicalComplete===false&&complete.scan.reconciliationAuthority==='none','installed accessible traversal has no historical or deletion authority');
   liveShape=true;const liveResult=await acquire(2);const liveState=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
   check(liveResult.saved===8&&liveResult.scan.unresolvedItems===0,'installed live-shaped Steam records persist as observations without parser rejection');
-  check(E.matchingItems(liveState).length===0&&liveState.libraryEntitlements.scopes[0].observations.every(r=>r.admission==='observation-only'&&r.activationStatus==='unknown'),'installed missing integration/preorder evidence and future availability never gain ownership or activation');
-  const liveRestored=H.restoreBackupState(H.createLibraryBackup(liveState));check(liveRestored.libraryEntitlements.scopes[0].observations.every(r=>r.admission==='observation-only')&&JSON.stringify(liveRestored.mediaTypeOverrides)===JSON.stringify(committedBaseline.mediaTypeOverrides),'installed live-shaped backup retains conservative status and historical corrections');
-  liveShape=false;await store('replace',state);
+  check(E.matchingItems(liveState).length===8&&liveState.libraryEntitlements.scopes[0].observations.every(r=>r.purchaseStatus==='purchased'&&r.activationStatus==='unknown'),'installed missing optional fields and redemption boundaries retain Purchased without Steam activation');
+  const liveRestored=H.restoreBackupState(H.createLibraryBackup(liveState));check(liveRestored.libraryEntitlements.scopes[0].observations.every(r=>r.purchaseStatus==='purchased')&&JSON.stringify(liveRestored.mediaTypeOverrides)===JSON.stringify(committedBaseline.mediaTypeOverrides),'installed live-shaped backup retains Purchased status and historical corrections');
+  excludedShape=true;await acquire(2);const excluded=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
+  check(E.matchingItems(excluded).length===0&&E.purchaseViews(excluded).every(r=>r.status==='Revoked'),'installed explicit revocation excludes matching while retaining individual observations');
+  omitExclusion=true;excludedShape=false;await acquire(2);check(E.matchingItems(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS)).length===0,'installed refresh cannot erase prior revocation by omitting its optional flag');
+  omitExclusion=false;await acquire(2);check(E.matchingItems(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS)).length===8,'installed explicit revocation clearing restores Purchased without changing native identity');
+  await store('replace',excluded);
+  excludedShape=false;for(const r of rows)r.type='download_drm_free';await acquire(2);const generic=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
+  check(E.purchaseViews(generic).filter(r=>r.status==='Purchased'&&r.mediaType==='unknown').length===8&&E.matchingItems(generic).length===0,'installed unknown-media DRM purchases remain visible and outside media-specific matching');
+  const genericBackup=H.restoreBackupState(H.createLibraryBackup(generic));check(E.purchaseViews(genericBackup).length===16&&JSON.stringify(genericBackup.mediaTypeOverrides)===JSON.stringify(committedBaseline.mediaTypeOverrides),'installed backup preserves separate native namespaces, excluded copies and corrections');
+
   try{
     E.installPanel({fetcher});const panel=document.getElementById('hcl-library-entitlement-pilot');
     check(!!panel,'installed pilot exposes a separate explicitly labeled collector panel');
@@ -66,6 +75,7 @@ async function installedEntitlementChecks(disabled=false) {
     const deadline=Date.now()+15000;
     while(button.disabled&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,20));
     check(!button.disabled&&/^Saved 5 entitlement observations/.test(status.textContent),'installed actual panel click completes acquisition through the guarded worker');
-  }finally{document.getElementById('hcl-library-entitlement-pilot')?.remove();}
+    check([...panel.querySelectorAll('details li')].some(li=>/Purchased.*Media: Unknown/.test(li.textContent)),'installed generic Purchased display supports unknown media without a book/game guess');
+  }finally{document.getElementById('hcl-library-entitlement-pilot')?.remove();await store('replace',state);}
   return {checks};
 }

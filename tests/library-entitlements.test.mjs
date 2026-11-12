@@ -20,13 +20,13 @@ test('actual acquisition -> serialized writer is additive, stable and preserves 
 test('DRM-free admission is explicit; unknown media cannot become a book by default',async()=>{
   const f=fixture({rows:[row('drm','Synthetic DRM','download_drm_free')]});await f.collect();assert.equal(observations(f)[0].admission,'personal-drm-free-entitlement');assert.equal(observations(f)[0].mediaType,'unknown');assert.equal(f.E.matchingItems(f.stored).length,0);
 });
-for(const [field,value]of [['expired',true],['preOrdered',true],['outOfStock',true],['redeemable',false],['giftStatus','gifted'],['directRedeem',true],['directRedeem',undefined],['keyIntegrationId','unverified'],['unavailableAfter','2099-01-01T00:00:00.000Z'],['expired',undefined]])test(`unknown/restricted ${field}:${value} stays observation-only`,async()=>{
-  const c=child('a');if(value===undefined)delete c[field];else c[field]=value;const f=fixture({rows:[row('a')],children:[c]});await f.collect();assert.equal(observations(f)[0].admission,'observation-only');
+for(const [field,value]of [['expired',true],['preOrdered',true],['outOfStock',true],['redeemable',false],['giftStatus',undefined],['directRedeem',true],['directRedeem',undefined],['keyIntegrationId','unverified'],['unavailableAfter','2099-01-01T00:00:00.000Z'],['expired',undefined]])test(`redemption/optional ${field}:${value} does not erase Purchased membership`,async()=>{
+  const c=child('a');if(value===undefined)delete c[field];else c[field]=value;const f=fixture({rows:[row('a')],children:[c]});await f.collect();assert.equal(observations(f)[0].admission,'humble-key-entitlement');assert.equal(observations(f)[0].activationStatus,'unknown');
 });
-for(const parent of [{preOrder:true},{preOrder:undefined}])test('unknown or true parent preorder stays observation-only',async()=>{const f=fixture({parent});await f.collect();assert(observations(f).every(r=>r.admission==='observation-only'));});
-test('choices, missing group evidence and subscription scopes do not gain Owned authority',async()=>{
-  for(const entitlements of [{redemptionGroups:[{state:'AVAILABLE'}]},{redemptionGroups:undefined}]){const f=fixture({entitlements});await f.collect();assert(observations(f).every(r=>r.admission==='observation-only'));}
-  const f=fixture({rows:[row('s','Subscription','subscriptioncontent')]});await f.collect();assert.equal(observations(f)[0].admission,'observation-only');
+for(const parent of [{preOrder:true},{preOrder:undefined}])test('unknown or true parent preorder preserves a Purchased preorder',async()=>{const f=fixture({parent});await f.collect();assert(observations(f).every(r=>r.purchaseStatus==='purchased'));});
+test('Purchased Choice items and missing group metadata qualify; explicit temporary access does not',async()=>{
+  for(const entitlements of [{redemptionGroups:[{state:'AVAILABLE'}]},{redemptionGroups:undefined}]){const f=fixture({entitlements});await f.collect();assert(observations(f).every(r=>r.purchaseStatus==='purchased'));}
+  const f=fixture({rows:[row('s','Subscription','subscriptioncontent')],children:[{...child('s','Subscription','subscriptioncontent'),temporaryAccess:true}]});await f.collect();assert.equal(observations(f)[0].admission,'observation-only');
 });
 test('same title distinct IDs are preserved, presentation grouped, identifiers never title-derived',async()=>{
   const f=fixture({rows:[row('a'),row('b')]});await f.collect();assert.equal(observations(f).length,2);const matches=f.E.matchingItems(f.stored);assert.equal(matches.length,1);assert.equal(matches[0].libraryObservationRefs.length,2);assert(!matches[0].purchaseKey);
@@ -70,7 +70,7 @@ test('shipped ownership path labels admitted keys Purchased, groups explanations
   assert.equal(result.match.state,'owned');assert.equal(m.context.HumbleOwnership.presentation.status(m.context.offered,result.match),'Purchased');
   const views=m.context.HumbleOwnership.presentation.candidateViews(m.context.offered,result.match);
   assert.equal(views.length,1);assert(views[0].annotations.some(v=>/copy relationship/.test(v)));assert.match(views[0].access,/activation not confirmed/);
-  const unknown=fixture({rows:[row('a')],children:[{...child('a'),expired:undefined}]});await unknown.collect();assert.equal(unknown.E.matchingItems(unknown.stored).length,0);
+  const unknown=fixture({rows:[row('a')],children:[{...child('a'),expired:undefined}]});await unknown.collect();assert.equal(unknown.E.matchingItems(unknown.stored).length,1);
 });
 test('worker refuses foreign tab, stale clock, contradictory coverage and oversized scans',async()=>{
   const f=fixture();const begin=await f.store('entitlementBegin',{confirmed:true,scope:{principalId:'principal-A',userId:'hub-A'}});
@@ -83,7 +83,7 @@ test('worker refuses foreign tab, stale clock, contradictory coverage and oversi
 });
 test('backup cannot bind two provider scopes to one local account or admit a forged status',async()=>{
   const f=fixture();await f.collect();const b=f.H.createLibraryBackup(f.stored),scope=copy(b.libraryEntitlements.scopes[0]);scope.principalId='foreign';scope.userId='foreign-hub';scope.observations=[];b.libraryEntitlements.scopes.push(scope);assert.throws(()=>f.H.restoreBackupState(b),/binding/);
-  b.libraryEntitlements.scopes.pop();b.libraryEntitlements.scopes[0].observations[0].eligibility.expired=null;b.libraryEntitlements.scopes[0].observations[0].admission='humble-key-entitlement';assert.equal(f.H.restoreBackupState(b).libraryEntitlements.scopes[0].observations[0].admission,'observation-only');
+  b.libraryEntitlements.scopes.pop();b.libraryEntitlements.scopes[0].observations[0].eligibility.giftStatus='gifted';b.libraryEntitlements.scopes[0].observations[0].admission='humble-key-entitlement';assert.equal(f.H.restoreBackupState(b).libraryEntitlements.scopes[0].observations[0].admission,'observation-only');
 });
 test('Flight truncation, cycles, duplicate frames and unsupported text lengths are rejected',()=>{
   const {E}=fixture();for(const body of ['0:{"results":[]}','0:"$0"\n','0:{}\n0:{}\n','0:Tff,short']){
@@ -196,17 +196,61 @@ test('dependency-rich modules keep the eight-asset ceiling and require a unique 
   }
 });
 
-test('live-shaped Steam metadata remains a valid observation without ownership or activation authority',async()=>{
+test('live-shaped Steam metadata establishes Purchased but never Steam activation',async()=>{
   const c=child('native-steam');delete c.directRedeem;c.keyIntegrationId='synthetic-integration';c.unavailableAfter='2099-01-01T00:00:00.000Z';c.redeemedAt='2020-01-01T00:00:00.000Z';
   const f=fixture({initial:legacy,rows:[row(c.id)],children:[c],parent:{preOrder:undefined}});
   const result=await f.collect();assert.equal(result.saved,1);assert.equal(result.scan.unresolvedItems,0);
-  const [r]=observations(f);assert.equal(r.admission,'observation-only');assert.equal(r.mediaType,'game');assert.equal(r.activationStatus,'unknown');assert.equal(r.eligibility.parentPreOrder,null);assert.equal(r.eligibility.directRedeem,null);assert.equal(r.eligibility.integration,'unknown');assert.equal(r.eligibility.unavailableAfter.state,'date');
-  assert.equal(f.E.matchingItems(f.stored).length,0);assert.equal((await f.E.projectForGL(f.stored,'synthetic-salt')).records[0].admission,'observation-only');
-  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(restored.libraryEntitlements.scopes[0].observations[0].admission,'observation-only');assert.deepEqual(copy(restored.mediaTypeOverrides),legacy.mediaTypeOverrides);
+  const [r]=observations(f);assert.equal(r.admission,'humble-key-entitlement');assert.equal(r.purchaseStatus,'purchased');assert.equal(r.mediaType,'game');assert.equal(r.activationStatus,'unknown');assert.equal(r.eligibility.parentPreOrder,null);assert.equal(r.eligibility.directRedeem,null);assert.equal(r.eligibility.integration,'unknown');assert.equal(r.eligibility.unavailableAfter.state,'date');
+  assert.equal(f.E.matchingItems(f.stored).length,1);assert.equal((await f.E.projectForGL(f.stored,'synthetic-salt')).records[0].purchaseStatus,'purchased');
+  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(restored.libraryEntitlements.scopes[0].observations[0].purchaseStatus,'purchased');assert.deepEqual(copy(restored.mediaTypeOverrides),legacy.mediaTypeOverrides);
 });
 
-test('live-shaped DRM-free metadata stays unknown-media observation-only rather than failing acquisition',async()=>{
+test('live-shaped DRM-free metadata is Purchased with unknown media and no media-specific matching',async()=>{
   const c=child('native-drm','Synthetic DRM','download_drm_free');delete c.directRedeem;delete c.keyIntegrationId;
   const f=fixture({rows:[row(c.id,c.title,c.type)],children:[c],parent:{preOrder:undefined}});const result=await f.collect();assert.equal(result.saved,1);assert.equal(result.scan.unresolvedItems,0);
-  const [r]=observations(f);assert.equal(r.mediaType,'unknown');assert.equal(r.admission,'observation-only');assert.equal(r.eligibility.redemptionGroups,'none');assert.equal(f.E.matchingItems(f.stored).length,0);
+  const [r]=observations(f);assert.equal(r.mediaType,'unknown');assert.equal(r.admission,'personal-drm-free-entitlement');assert.equal(r.purchaseStatus,'purchased');assert.equal(f.E.purchaseViews(f.stored)[0].status,'Purchased');assert.equal(r.eligibility.redemptionGroups,'none');assert.equal(f.E.matchingItems(f.stored).length,0);
+});
+
+for(const location of ['child','parent','row','listing-child'])for(const field of ['revoked','temporaryAccess','giftStatus']){
+if(location==='parent'&&field==='giftStatus')continue; // Gifts are individual copies, not parent groups.
+test(`explicit ${field} at ${location} excludes Purchased matching`,async()=>{
+  const value=field==='giftStatus'?'gifted':true,c=child('excluded'),r=row(c.id);
+  const options={initial:legacy,rows:[r],children:[c]};
+  if(location==='child')c[field]=value;
+  else if(location==='parent'){
+    options.parent={[field]:value};
+  }else if(location==='row')r[field]=value;
+  else r.entitlements={keys:[{...c,[field]:value}]};
+  const f=fixture(options);await f.collect();assert.equal(observations(f)[0].purchaseStatus,'excluded');assert.equal(f.E.matchingItems(f.stored).length,0);
+  assert.notEqual(f.E.purchaseViews(f.stored)[0].status,'Purchased');
+  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(restored.libraryEntitlements.scopes[0].observations[0].purchaseStatus,'excluded');assert.deepEqual(f.stored.libraryItems,legacy.libraryItems);
+});
+}
+
+test('storefront and claimed Choice membership qualify independently of optional parent metadata',async()=>{
+  for(const parentType of ['storefront','subscriptioncontent']){
+    const f=fixture({parentType,parent:{preOrder:undefined},entitlements:{redemptionGroups:[{state:'AVAILABLE'}]}});await f.collect();assert(observations(f).every(r=>r.purchaseStatus==='purchased'));assert.equal(f.E.matchingItems(f.stored).length,8);
+  }
+  const r=row('unclaimed'),f=fixture({rows:[r],children:[],entitlements:{redemptionGroups:[{state:'AVAILABLE',options:[child(r.id)]}]}});
+  const result=await f.collect();assert.equal(result.saved,0);assert.equal(result.scan.unresolvedItems,1);
+});
+
+test('generic Purchased display preserves unknown media, native copies and account isolation',async()=>{
+  const f=fixture({rows:[row('a','Same title','download_drm_free'),row('b','Same title','download_drm_free'),row('c','Other key','gog')]});await f.collect();
+  const views=f.E.purchaseViews(f.stored);assert.equal(views.length,3);assert.equal(new Set(views.map(r=>r.itemRef)).size,3);assert(views.every(r=>r.status==='Purchased'&&r.mediaType==='unknown'&&r.activationStatus==='unknown'));assert.equal(f.E.matchingItems(f.stored).length,0);
+  assert.equal(f.E.purchaseViews({...f.stored,humbleAccountId:'22222222-2222-4222-8222-222222222222'}).length,0);
+  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(f.E.purchaseViews(restored).length,3);
+});
+
+test('malformed exclusion evidence is unresolved and backup admission cannot override explicit exclusions',async()=>{
+  const f=fixture({rows:[row('a')],children:[{...child('a'),revoked:'false'}]});const result=await f.collect();assert.equal(result.saved,0);assert.equal(result.scan.unresolvedItems,1);
+  const g=fixture({rows:[row('b')],children:[{...child('b'),revoked:true}]});await g.collect();const backup=g.H.createLibraryBackup(g.stored),r=backup.libraryEntitlements.scopes[0].observations[0];r.purchaseStatus='purchased';r.admission='humble-key-entitlement';
+  assert.equal(g.H.restoreBackupState(backup).libraryEntitlements.scopes[0].observations[0].purchaseStatus,'excluded');r.eligibility.temporaryAccess='false';assert.throws(()=>g.H.restoreBackupState(backup),/access evidence/);
+});
+
+for(const field of ['giftStatus','revoked','temporaryAccess'])test(`refresh preserves explicit ${field} when omitted and accepts explicit clearing evidence`,async()=>{
+  const c=child('remembered');c[field]=field==='giftStatus'?'gifted':true;const first=fixture({initial:legacy,rows:[row(c.id)],children:[c]});await first.collect();
+  const missing=child(c.id);delete missing[field];const second=fixture({initial:first.stored,rows:[row(c.id)],children:[missing]});await second.collect();assert.equal(observations(second)[0].purchaseStatus,'excluded');assert.deepEqual(second.stored.libraryItems,legacy.libraryItems);
+  const clear=child(c.id);clear[field]=field==='giftStatus'?'unassigned':false;const third=fixture({initial:second.stored,rows:[row(c.id)],children:[clear]});await third.collect();assert.equal(observations(third)[0].purchaseStatus,'purchased');
+  const record=observations(third)[0];assert.throws(()=>third.E.refreshObservation(record,{...record,nativeId:'other'}),/foreign/);
 });
