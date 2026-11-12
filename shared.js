@@ -866,11 +866,13 @@
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
     async function operate(operation,args){
-      const invalidateEntitlements=(await area.get({hclLibraryEntitlementControl:null})).hclLibraryEntitlementControl?{hclLibraryEntitlementControl:null}:{};
-      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort'].includes(operation)){
+      // Account changes, restore, clear and legacy scans end both the pending batch and the tab's sync lease.
+      const pendingEntitlements=await area.get({hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null});
+      const invalidateEntitlements=pendingEntitlements.hclLibraryEntitlementControl||pendingEntitlements.hclLibraryEntitlementLease?{hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null}:{};
+      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort','entitlementSync'].includes(operation)){
         const E=global.HumbleLibraryEntitlements;
         if(!E?.ENABLED)throw Error('Library entitlement collection is not enabled.');
-        const current=await area.get(LIBRARY_STATE_DEFAULTS),key='hclLibraryEntitlementControl';
+        const current=await area.get(LIBRARY_STATE_DEFAULTS),key='hclLibraryEntitlementControl',leaseKey='hclLibraryEntitlementLease',lease=pendingEntitlements[leaseKey];
         if(operation==='entitlementContext')return {accountId:current.humbleAccountId,profileLabel:current.humbleProfileLabel};
         if(operation==='entitlementBegin'){
           const [options,tabId]=args;
@@ -882,9 +884,22 @@
           if(bound.some(s=>E.scopeKey(s)!==E.scopeKey(options.scope)))throw Error('This saved account is bound to a different Humble Library. Select the correct saved account first.');
           const existing=collection.scopes.find(s=>E.scopeKey(s)===E.scopeKey(options.scope));
           if(existing&&existing.localAccountId!==current.humbleAccountId)throw Error('This Humble Library belongs to another saved account.');
+          const sync=options.sync===undefined?null:E.syncBegin(options.sync,existing?.sync??null,lease);
           const token=global.crypto.randomUUID();
-          await area.set({[key]:{token,tabId,principalId:scope[0],userId:scope[1],localAccountId:current.humbleAccountId,profileLabel:current.humbleProfileLabel,startedAt:new Date().toISOString()}});
+          await area.set({[key]:{token,tabId,principalId:scope[0],userId:scope[1],localAccountId:current.humbleAccountId,profileLabel:current.humbleProfileLabel,startedAt:new Date().toISOString(),...(sync?{sync}:{})},
+            ...(options.sync?.claim?{[leaseKey]:{id:sync.lease,syncId:sync.id,tabId}}:{})});
           return {token};
+        }
+        if(operation==='entitlementSync'){
+          // Pause/cancel/stop between batches. Only the active account's checkpoint, at the expected revision.
+          const [q]=args,collection=E.collection(current.libraryEntitlements),scope=collection.scopes.find(s=>s.localAccountId!==null&&s.localAccountId===current.humbleAccountId&&s.sync?.id===q?.id);
+          if(!['paused','cancelled','stopped'].includes(q?.status)||!Number.isSafeInteger(q.revision))throw Error('Invalid Library sync request.');
+          if(!scope)return null;
+          if(scope.sync.revision!==q.revision)throw Error('Library sync superseded by another tab, account change, clear or restore.');
+          if(!['running','paused','stopped'].includes(scope.sync.status)||q.status==='paused'&&scope.sync.status==='stopped')return scope.sync;
+          const sync=E.settle(scope.sync,q.status,q.reason,new Date().toISOString());
+          const next=E.collection({version:1,scopes:collection.scopes.map(s=>s===scope?{...s,sync}:s)}),pending=(await area.get({[key]:null}))[key];
+          await area.set({libraryEntitlements:next,...(lease?.syncId===q.id?{[leaseKey]:null}:{}),...(pending?.sync?.id===q.id?{[key]:null}:{})});return sync;
         }
         const control=(await area.get({[key]:null}))[key];
         const tabId=operation==='entitlementCommit'?args[2]:args[1];
@@ -896,11 +911,18 @@
         if(!scan||scan.verifiedItems!==data.observations.length||scan.checkedAt<control.startedAt||Date.parse(scan.checkedAt)>Date.now()+60000)throw Error('Invalid Library scan admission.');
         for(const raw of data.observations){const row=E.observation(raw),id=E.identity(row);if(E.scopeKey(row.scope)!==E.scopeKey(control)||incoming.has(id)||row.observedAt!==scan.checkedAt)throw Error('Duplicate, stale or foreign Library observation.');incoming.set(id,row);}
         const collection=E.collection(current.libraryEntitlements),previous=collection.scopes.find(s=>E.scopeKey(s)===E.scopeKey(control));
-        const observations=new Map((previous?.observations??[]).map(r=>[E.identity(r),r]));
-        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');observations.set(id,E.refreshObservation(old,row));}
-        const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan}]});
+        const observations=new Map((previous?.observations??[]).map(r=>[E.identity(r),r]));let added=0;
+        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');if(!old)added++;observations.set(id,E.refreshObservation(old,row));}
+        let sync=previous?.sync??null;
+        if(control.sync){
+          // The checkpoint advances only in this write, after this tab's lease and the expected revision are re-checked.
+          const cp=previous?.sync??null,same=cp?.id===control.sync.id?cp:null;
+          if(lease?.id!==control.sync.lease||lease.syncId!==control.sync.id||(control.sync.revision?same?.revision!==control.sync.revision:same))throw Error('Library sync superseded by another tab, account change, clear or restore.');
+          sync=E.advance({previous:same,carried:same?null:cp,run:{...control.sync,startedAt:control.startedAt},scan,request:data.sync,added,refreshed:incoming.size-added,at:new Date().toISOString()});
+        }
+        const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan,sync}]});
         // One atomic write; no legacy arrays, corrections, scan checkpoints or reminders are touched.
-        await area.set({libraryEntitlements:next,[key]:null});return {saved:incoming.size,scan};
+        await area.set({libraryEntitlements:next,[key]:null,...(control.sync&&sync.status!=='running'?{[leaseKey]:null}:{})});return {saved:incoming.size,scan,...(control.sync?{sync}:{})};
       }
       if(['syncAccounts','begin','selectProfile','renameProfile'].includes(operation))await globalThis.GalacticPurchaseSync?.migrateAccounts(area,'hb');
       if(operation==='syncAccounts'){
@@ -1153,7 +1175,7 @@
         const clear=keys.includes('libraryItems');
         if(!clear&&keys.some(key=>!['hclPurchaseFocus','galacticLibraryExtensionId'].includes(key)))throw new Error('Unsupported removal.');
         const retirement=clear?await globalThis.GalacticPurchaseSync?.retirementPatch(area):null;
-        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey,'hclLibraryEntitlementControl']:keys);Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
+        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey,'hclLibraryEntitlementControl','hclLibraryEntitlementLease']:keys);Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       throw new Error('Unsupported library operation.');
     }

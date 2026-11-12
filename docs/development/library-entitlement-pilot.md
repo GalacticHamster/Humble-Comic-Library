@@ -38,11 +38,48 @@ Secret key fields, signed URLs and download payloads are not projected, persiste
 
 Read the authenticated Library HTML envelope, parse only literal embedded Flight bootstrap strings without executing scripts, resolve the current public UserLibrary `filterUserLibrary` action without executing code, then use the observed native FormData encoding. GET requests accept HTML; action POSTs accept Flight. Redirects are refused. No fixed deployment action hash is shipped. Unknown Flight/action encodings fail closed. All account-provider components must contain the same valid principal; conflicting or missing principals abort acquisition.
 
-Default five Purchased pages; maximum ten, five rows each. Additional ceilings: twenty distinct parent reads, eight public assets, two account-envelope reads. HTML bootstrap module lists include shared dependencies; discovery examines at most eight trailing module chunks and fails if no unique exact action reference is found. Failed parents are cached as unresolved. No automatic retries, periodic scans, full-history traversal, resumable checkpoints or known-ID early stops. Network deadlines and response/framing/reference bounds apply.
+A single bounded check reads five Purchased pages by default, ten at most, with five rows per page. Additional per-check ceilings: twenty distinct parent reads, eight public assets, two account-envelope reads. HTML bootstrap module lists include shared dependencies; discovery examines at most eight trailing module chunks and fails if no unique exact action reference is found. Failed parents are cached as unresolved. There are no known-ID early stops or periodic scans. Network deadlines and response/framing/reference bounds apply. Full traversal uses the resumable sync below, which is made of these same bounded checks.
+
+Requests never follow redirects (`redirect: 'manual'`). A redirect, 401 or 403 means sign-in is required, and the account scope becomes fatal. A 429, or a 503 with Retry-After, means the provider asked for fewer requests; the sync stops without retrying around it. Network failures, timeouts, 408 and other 5xx responses are transient. A transient parent-detail failure rolls back that whole page, so a retry reads it again rather than recording it as unresolved.
+
+## Resumable full-Library sync
+
+The user explicitly starts a sync from the pilot panel on the signed-in Library page and confirms the account. It runs only in that tab while the page is open; nothing runs in the background or on a timer. A runner (`createSync`) executes sequential batches. Each batch is one `collect` call: envelope → begin → pages → envelope → commit. Defaults: ten pages per batch, at least one second between provider requests (all request types share one gate), ten seconds between batches, three retries for transient no-progress batches (15 s, 60 s, 180 s), and session limits of 12,000 requests or eight hours. After a session limit the sync pauses and the user resumes it. Settings validation enforces floors (≥ 500 ms spacing, ≥ 2 s between batches, ≥ 5 s per retry delay, ≤ 10 pages per batch), so settings cannot make the sync aggressive. Within a session the runner reuses the discovered action and account-checked parent details (at most 300, for at most 20 minutes); each batch still verifies the account before and after reading.
+
+### Checkpoint
+
+Each provider scope may carry one version-1 `sync` checkpoint. It records:
+
+- `id`, `mode` (`full` or `refresh`) and `revision`
+- `status` (`running`, `paused`, `completed`, `cancelled` or `stopped`) and `reason`
+- page position: `nextPage`, `targetPages`, reported pages/total, and the native IDs of the last page read
+- cumulative pages, batches, and added / refreshed / unresolved / conflicting / duplicate counts
+- uncertainty codes, `lastFull`, and constant `historicalComplete:false` and `reconciliationAuthority:'none'`
+
+The worker computes the checkpoint (`advance`) inside the same atomic write as that batch's observations. A failed write therefore leaves the earlier checkpoint and observations unchanged. Caller-supplied progress is checked against the validated scan (`nextPage = firstPage + pagesRead`). Caller evidence can add uncertainty but never remove it. Batch scans carry `firstPage`; older scans default to page one.
+
+A tab-bound lease (`hclLibraryEntitlementLease`) identifies the runner that owns the sync. Begin and commit check that lease and the expected revision. Restore, clear, profile switch/rename and legacy scans clear the lease along with the pending token. Another tab claiming the sync also clears it. A superseded runner stops without writing. Pause, cancel and stop between batches use the `entitlementSync` operation. It updates only the active local account's checkpoint, at the expected revision. A new run cannot silently replace a running, paused or stopped checkpoint.
+
+The checkpoint is part of `libraryEntitlements`, so it is included in backups and profile archives and is replaced or cleared together with the observations. Older backups without it restore no checkpoint. After a restore, the restored checkpoint matches the restored observations and can be resumed explicitly. After a browser or extension restart, a checkpoint still marked `running` is shown as interrupted, and only an explicit Resume continues it.
+
+### Pagination instability
+
+Page position is progress, not proof of observation. Each later batch first re-reads the previous batch's last page and compares its native IDs with the checkpoint (`ordering-changed`). The other uncertainty codes are:
+
+- `totals-changed`: totals changed between or within batches
+- `pagination-loop`: a repeated page
+- `items-unresolved`: unresolved items
+- `duplicate-conflict`: conflicting duplicates
+
+A full sync's target follows the latest reported page count. A full sync completes as `accessible-pages-traversed` only when it has no uncertainty; otherwise it completes as `incomplete`. Empty or short pages that contradict reported totals never advance the checkpoint. Observations absent from later pages are never removed.
+
+### Refresh
+
+**Check recent purchases** reads the six most recent pages (sort `mostRecent`). It widens to `ceil(growth / 5) + 2` pages, at most 40, when the reported total has grown since the previous run. It continues through that whole range even when it sees known IDs, and completes as `recent-pages`, which never claims full coverage. The last full-sync result (`lastFull`) is kept. Users can run the full sync again at any time.
 
 Identical overlaps deduplicate by scoped native identity. Conflicting duplicates are withheld, retaining any previously saved record. Whole-page loops, changing totals, inconsistent ranges, malformed/truncated responses and later failures are reported incomplete. Independently verified earlier records may commit; auth/account uncertainty aborts the batch. Unknown parent sources remain unresolved.
 
-Coverage is `bounded`, `incomplete` or `accessible-pages-traversed`. The latter refers only to the response's explicit accessible range within the bound, always with `historicalComplete:false` and `reconciliationAuthority:'none'`. It does not prove omission-free migrated history.
+Coverage is `bounded`, `incomplete` or `accessible-pages-traversed`. The latter refers only to the response's explicit accessible range within the bound, always with `historicalComplete:false` and `reconciliationAuthority:'none'`. It does not prove omission-free migrated history. A batch that starts after page one is never `accessible-pages-traversed` by itself; only a completed sync checkpoint can carry that coverage, under the same limits.
 
 ## Companion boundary
 
@@ -78,7 +115,23 @@ That Steam observation remains observation-only: directRedeem and parentPreOrder
 
 No admission predicates or media classifications changed. Public frontend handling of absent redemption groups is a rendering default, not independent proof of eligibility. `download_drm_free` describes delivery, not media; no default-to-book rule is authorized. The source guard and redesigned purchase-history importer remain disabled.
 
-Commands: `node --test tests/library-entitlements.test.mjs`; `node tests/runtime.mjs --library-entitlements [--firefox]`; `node tests/runtime.mjs --library-entitlements-disabled [--firefox]`. Packages are staged only in disposable temporary directories.
+Commands: `node --test tests/library-entitlements.test.mjs tests/library-sync.test.mjs`; `node tests/runtime.mjs --library-entitlements [--firefox]`; `node tests/runtime.mjs --library-entitlements-disabled [--firefox]`. Packages are staged only in disposable temporary directories.
+
+Sync unit tests cover:
+
+- multi-batch traversal and atomic batch writes
+- pause and resume; resume after a simulated reload or worker restart
+- network and parent-detail retries; retry exhaustion
+- redirects and 401 sign-in expiry; 429 rate limits
+- account changes, profile switching, restore and clear during a sync
+- storage-write failure and rollback
+- overlap, duplicates and conflicts
+- changed totals and ordering; pagination loops; empty or short pages
+- request pacing and backoff, settings floors and session limits
+- cancellation; previously collected observations; explicit exclusions
+- refresh widening; forged checkpoints and progress; concurrent tabs; the disabled gate
+
+Installed Chrome and Firefox checks drive the real panel through Start, Pause, Resume and completion. They run sync scenarios against the real worker and storage, and leave an interrupted sync behind. The harness then reloads the page and restarts the extension (stops the Chrome service worker; reloads the Firefox temporary add-on), and the resumed sync must complete without duplicates or legacy changes. These remain synthetic-provider tests. No live full-Library traversal has been performed.
 
 ### Practical-policy live validation
 

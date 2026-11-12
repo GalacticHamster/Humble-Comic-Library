@@ -398,3 +398,8 @@
   font: 14px/1.45 system-ui, sans-serif;
 }
 #hcl-library-entitlement-pilot select, #hcl-library-entitlement-pilot button { margin: 8px 8px 0 0; }
+#hcl-library-entitlement-pilot .hcl-sync-actions { display: flex; flex-wrap: wrap; }
+#hcl-library-entitlement-pilot progress { display: block; width: 100%; margin-top: 10px; }
+#hcl-library-entitlement-pilot progress[hidden], #hcl-library-entitlement-pilot [hidden] { display: none; }
+#hcl-library-entitlement-pilot .hcl-sync-facts { margin: 6px 0; padding-left: 18px; }
+#hcl-library-entitlement-pilot .hcl-sync-note { color: #fde68a; }

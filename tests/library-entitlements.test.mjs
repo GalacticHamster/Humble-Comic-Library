@@ -155,7 +155,7 @@ test('Flight streams and errors cannot supply required evidence or bypass framin
 const bootstrap = body => '<!doctype html><script>globalThis.UNSAFE_BOOTSTRAP_EXECUTED=true</script><script>self.__next_f.push('+JSON.stringify([1,body])+')</script>';
 const htmlTransport = (f,transform=body=>body) => async(path,init)=>{
   if(path.startsWith('/_next/'))return f.fetcher(path,init);
-  assert.equal(init.headers.RSC,undefined);assert.equal(init.redirect,'error');assert.equal(init.cache,'no-store');
+  assert.equal(init.headers.RSC,undefined);assert.equal(init.redirect,'manual');assert.equal(init.cache,'no-store');
   const r=await f.fetcher(path,init);
   if(init.method==='POST'){assert.equal(init.headers.Accept,'text/x-component');return r;}
   assert.equal(init.headers.Accept,'text/html');

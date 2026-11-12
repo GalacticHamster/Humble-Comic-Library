@@ -4,8 +4,15 @@
 (function (global) {
   'use strict';
   const ENABLED = false; // Activation requires the documented live-validation gate.
-  const MAX_RECORDS = 100000, MAX_PAGES = 10, MAX_PARENTS = 20;
+  const MAX_RECORDS = 100000, MAX_PAGES = 10, MAX_PARENTS = 20, MAX_REFRESH_PAGES = 40;
+  const SYNC_STATUSES = ['running','paused','completed','cancelled','stopped'];
+  const SYNC_REASONS = ['user','rate-limited','signed-out','account','superseded','failed','incompatible','session-limit'];
+  const UNCERTAINTY = ['totals-changed','ordering-changed','items-unresolved','duplicate-conflict','pagination-loop'];
+  // Conservative defaults. Validation enforces floors so settings cannot make the scan aggressive.
+  const SYNC_DEFAULTS = Object.freeze({ batchPages: 10, refreshPages: 6, requestSpacingMs: 1000, batchDelayMs: 10000, retryDelaysMs: Object.freeze([15000, 60000, 180000]), maxSessionRequests: 12000, maxSessionMs: 8 * 3600 * 1000 });
   const object = v => v && typeof v === 'object' && !Array.isArray(v);
+  const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(v);
+  const count = v => { if (!Number.isSafeInteger(v) || v < 0 || v > 1000000) throw Error('Invalid Library sync count.'); return v; };
   const text = (v, max = 500) => {
     if (typeof v !== 'string' || !v.trim() || v.length > max || /[\u0000-\u001f]/u.test(v)) throw Error('Invalid Library observation text.');
     return v;
@@ -92,14 +99,90 @@
       if (!Number.isSafeInteger(raw[k]) || raw[k] < 0 || raw[k] > 1000000) throw Error('Invalid Library scan count.');
       r[k] = raw[k];
     }
+    // Resumable batches start later in the range. Older records lack the field and began at page one.
+    r.firstPage = raw.firstPage ?? 1;
+    if (!Number.isSafeInteger(r.firstPage) || r.firstPage < 1 || r.firstPage > 1000000) throw Error('Invalid Library scan count.');
     const codes = new Set(['page-failed','item-unresolved','duplicate-conflict','pagination-loop','pagination-inconsistent','request-bound','unsupported-parent']);
     if (!Array.isArray(raw.failures) || raw.failures.length > 20 || raw.failures.some(v => !codes.has(v))) throw Error('Invalid Library failure code.');
     r.failures = [...new Set(raw.failures)];
     if (r.pagesRead > MAX_PAGES || r.verifiedItems > r.pagesRead * 5 || r.conflictingItems > r.unresolvedItems || (r.failures.length || r.unresolvedItems) && r.acquisition !== 'partial'
-      || r.coverage === 'accessible-pages-traversed' && (r.pagesRead !== r.reportedPages || r.acquisition !== 'finished')
-      || r.coverage === 'bounded' && r.pagesRead >= r.reportedPages
+      || r.coverage === 'accessible-pages-traversed' && (r.firstPage !== 1 || r.pagesRead !== r.reportedPages || r.acquisition !== 'finished')
+      || r.coverage === 'bounded' && (r.firstPage === 1 ? r.pagesRead >= r.reportedPages : r.firstPage - 1 + r.pagesRead > r.reportedPages)
       || r.acquisition === 'partial' && r.coverage !== 'incomplete') throw Error('Contradictory Library scan evidence.');
     return r;
+  }
+  // Resumable sync checkpoint. Page position is progress, never proof that earlier
+  // entitlements were all observed; coverage never grants deletion authority.
+  function checkpoint(raw) {
+    if (raw == null) return null;
+    if (!object(raw) || raw.version !== 1 || !uuid(raw.id) || !['full','refresh'].includes(raw.mode) || !SYNC_STATUSES.includes(raw.status)
+      || raw.reason !== null && !SYNC_REASONS.includes(raw.reason) || !['in-progress','accessible-pages-traversed','recent-pages','incomplete'].includes(raw.coverage)) throw Error('Invalid Library sync checkpoint.');
+    const r = { version: 1, id: raw.id, mode: raw.mode, status: raw.status, reason: raw.reason, coverage: raw.coverage, historicalComplete: false, reconciliationAuthority: 'none',
+      startedAt: date(raw.startedAt).value, updatedAt: date(raw.updatedAt).value, lastProgressAt: raw.lastProgressAt === null ? null : date(raw.lastProgressAt).value };
+    if (!r.startedAt || !r.updatedAt || r.lastProgressAt === undefined) throw Error('Invalid Library sync checkpoint.');
+    for (const k of ['revision','nextPage','targetPages','reportedPages','reportedTotal','initialTotal','pagesRead','batches','added','refreshed','unresolved','conflicts','duplicates']) r[k] = count(raw[k]);
+    r.baselineTotal = raw.baselineTotal === null ? null : count(raw.baselineTotal);
+    if (!Array.isArray(raw.uncertainty) || raw.uncertainty.some(v => !UNCERTAINTY.includes(v))) throw Error('Invalid Library sync checkpoint.');
+    r.uncertainty = [...new Set(raw.uncertainty)];
+    if (raw.lastSignature !== null && (!Array.isArray(raw.lastSignature) || raw.lastSignature.length > 5 || raw.lastSignature.some(v => !Array.isArray(v) || v.length !== 2))) throw Error('Invalid Library sync checkpoint.');
+    r.lastSignature = raw.lastSignature && raw.lastSignature.map(([n, t]) => [id(n), enumeration(t)]);
+    if (raw.lastFull !== null && (!object(raw.lastFull) || !['accessible-pages-traversed','incomplete'].includes(raw.lastFull.coverage))) throw Error('Invalid Library sync checkpoint.');
+    r.lastFull = raw.lastFull && { completedAt: date(raw.lastFull.completedAt).value, coverage: raw.lastFull.coverage, reportedTotal: count(raw.lastFull.reportedTotal) };
+    if (r.lastFull && !r.lastFull.completedAt) throw Error('Invalid Library sync checkpoint.');
+    const unfinished = ['running','paused'].includes(r.status);
+    if (r.revision < 1 || r.nextPage < 1 || ['running','completed'].includes(r.status) !== (r.reason === null)
+      || r.status === 'completed' && (r.nextPage <= r.targetPages || r.coverage === 'in-progress') || unfinished !== (r.coverage === 'in-progress')
+      || r.coverage === 'accessible-pages-traversed' && (r.mode !== 'full' || r.uncertainty.length) || r.coverage === 'recent-pages' && r.mode !== 'refresh'
+      || r.mode === 'refresh' && r.targetPages > MAX_REFRESH_PAGES) throw Error('Contradictory Library sync checkpoint.');
+    return r;
+  }
+  // Validates a batch request against the stored checkpoint and the tab's lease.
+  function syncBegin(q, cp, lease) {
+    if (!object(q) || !uuid(q.id) || !uuid(q.lease) || !Number.isSafeInteger(q.revision) || q.revision < 0 || !Number.isSafeInteger(q.startPage) || q.startPage < 1
+      || !['full','refresh'].includes(q.mode) || typeof q.claim !== 'boolean') throw Error('Invalid Library sync request.');
+    const superseded = () => Error('Library sync superseded by another tab, account change, clear or restore.');
+    if (!q.claim && (lease?.id !== q.lease || lease?.syncId !== q.id)) throw superseded();
+    if (q.revision === 0) {
+      if (q.startPage !== 1 || cp?.id === q.id || q.mode === 'refresh' && (!Number.isInteger(q.targetPages) || q.targetPages < 1 || q.targetPages > MAX_REFRESH_PAGES)) throw Error('Invalid Library sync request.');
+      if (q.claim && cp && ['running','paused','stopped'].includes(cp.status) && q.replace !== true) throw Error('An unfinished Library sync exists. Resume or cancel it first.');
+      return { id: q.id, revision: 0, mode: q.mode, startPage: 1, targetPages: q.mode === 'refresh' ? q.targetPages : 0, lease: q.lease };
+    }
+    if (!cp || cp.id !== q.id || cp.revision !== q.revision || cp.nextPage !== q.startPage || cp.mode !== q.mode || !(q.claim ? ['running','paused','stopped'] : ['running']).includes(cp.status)) throw superseded();
+    return { id: q.id, revision: q.revision, mode: q.mode, startPage: q.startPage, targetPages: cp.targetPages, lease: q.lease };
+  }
+  // Worker-side checkpoint advance. Counters come from validated scan/upsert results;
+  // caller-supplied evidence can only add uncertainty, never remove it.
+  function advance({ previous, carried, run, scan: s, request: q, added, refreshed, at }) {
+    if (!object(q) || !['running','paused','cancelled','stopped'].includes(q.status) || s.firstPage !== run.startPage || q.nextPage !== s.firstPage + s.pagesRead
+      || q.reason !== null && !SYNC_REASONS.includes(q.reason) || typeof q.orderingChanged !== 'boolean' || !Array.isArray(q.uncertainty) || q.uncertainty.some(v => !UNCERTAINTY.includes(v))) throw Error('Invalid Library sync progress.');
+    const uncertainty = new Set([...(previous?.uncertainty ?? []), ...q.uncertainty]), known = s.reportedPages > 0;
+    if (q.orderingChanged) uncertainty.add('ordering-changed');
+    if (s.unresolvedItems) uncertainty.add('items-unresolved');
+    if (s.conflictingItems) uncertainty.add('duplicate-conflict');
+    if (s.failures.includes('pagination-loop')) uncertainty.add('pagination-loop');
+    if (s.failures.includes('pagination-inconsistent') || known && previous?.reportedTotal && previous.reportedTotal !== s.reportedTotal) uncertainty.add('totals-changed');
+    const reportedPages = known ? s.reportedPages : previous?.reportedPages ?? 0, reportedTotal = known ? s.reportedTotal : previous?.reportedTotal ?? 0;
+    const baselineTotal = previous ? previous.baselineTotal : carried?.reportedTotal || null;
+    let targetPages = reportedPages;
+    if (run.mode === 'refresh') {
+      // New purchases push older rows later, so widen a refresh by the observed growth (bounded).
+      const growth = baselineTotal !== null && reportedTotal > baselineTotal ? Math.ceil((reportedTotal - baselineTotal) / 5) + 2 : 0;
+      targetPages = Math.min(MAX_REFRESH_PAGES, Math.max(previous?.targetPages ?? run.targetPages, growth));
+      if (known) targetPages = Math.min(targetPages, reportedPages);
+    }
+    const completed = reportedPages > 0 && q.nextPage > targetPages, status = completed ? 'completed' : q.status;
+    const coverage = completed ? run.mode === 'refresh' ? 'recent-pages' : uncertainty.size ? 'incomplete' : 'accessible-pages-traversed' : ['running','paused'].includes(status) ? 'in-progress' : 'incomplete';
+    return checkpoint({ version: 1, id: run.id, mode: run.mode, status, reason: completed || status === 'running' ? null : q.reason ?? 'user', coverage,
+      startedAt: previous?.startedAt ?? run.startedAt, updatedAt: at, lastProgressAt: s.pagesRead ? at : previous?.lastProgressAt ?? null,
+      revision: (previous?.revision ?? 0) + 1, nextPage: q.nextPage, targetPages, reportedPages, reportedTotal, initialTotal: previous?.initialTotal || reportedTotal, baselineTotal,
+      pagesRead: (previous?.pagesRead ?? 0) + s.pagesRead, batches: (previous?.batches ?? 0) + 1, added: (previous?.added ?? 0) + added, refreshed: (previous?.refreshed ?? 0) + refreshed,
+      unresolved: (previous?.unresolved ?? 0) + s.unresolvedItems, conflicts: (previous?.conflicts ?? 0) + s.conflictingItems, duplicates: (previous?.duplicates ?? 0) + s.duplicateItems,
+      uncertainty: [...uncertainty], lastSignature: s.pagesRead ? q.signature : previous?.lastSignature ?? null,
+      lastFull: completed && run.mode === 'full' ? { completedAt: at, coverage, reportedTotal } : previous?.lastFull ?? carried?.lastFull ?? null });
+  }
+  // Local status changes (pause/cancel/stop) without new observations.
+  function settle(cp, status, reason, at) {
+    return checkpoint({ ...cp, status, reason: status === 'cancelled' ? 'user' : reason ?? 'user', coverage: status === 'paused' ? 'in-progress' : 'incomplete', updatedAt: at, revision: cp.revision + 1 });
   }
   function collection(raw = { version: 1, scopes: [] }) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.scopes) || raw.scopes.length > 100) throw Error('Invalid Library observation collection.');
@@ -116,7 +199,7 @@
         seen.add(ref); return r;
       });
       if (typeof s.profileLabel !== 'string' || s.profileLabel.length > 100) throw Error('Invalid Library profile label.');
-      return { ...scope, localAccountId: s.localAccountId, profileLabel: s.profileLabel, observations, lastScan: scan(s.lastScan) };
+      return { ...scope, localAccountId: s.localAccountId, profileLabel: s.profileLabel, observations, lastScan: scan(s.lastScan), sync: checkpoint(s.sync) };
     }) };
   }
   function matchingItems(state) {
@@ -249,11 +332,24 @@
     if (ids.size !== 1) throw Object.assign(Error('Conflicting Library accounts.'), { fatalScope: true });
     return [...ids][0];
   }
+  function retryAfter(r) {
+    const v = r.headers?.get?.('retry-after');
+    if (typeof v !== 'string') return null;
+    if (/^\d{1,6}$/u.test(v.trim())) return Number(v) * 1000;
+    const at = /\d{4}|GMT/u.test(v) ? Date.parse(v) : NaN;
+    return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+  }
   async function read(fetcher, path, options = {}) {
     const action = options.method === 'POST';
-    const r = await fetcher(path, { credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(12000), ...options,
-      headers: { Accept: action ? 'text/x-component' : 'text/html', ...options.headers } });
-    if ([401,403].includes(r.status)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true });
+    let r;
+    // Redirects are never followed; a manual redirect identifies an expired sign-in.
+    try { r = await fetcher(path, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(12000), ...options,
+      headers: { Accept: action ? 'text/x-component' : 'text/html', ...options.headers } }); }
+    catch { throw Object.assign(Error('Humble Library could not be reached.'), { transient: true }); }
+    if (r.type === 'opaqueredirect' || [301,302,303,307,308,401,403].includes(r.status)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true, signin: true });
+    // The provider asked for fewer requests: stop rather than retry around it.
+    if (r.status === 429 || r.status === 503 && retryAfter(r) !== null) throw Object.assign(Error('Humble asked for fewer requests.'), { rateLimited: true, retryAfter: retryAfter(r) });
+    if (r.status === 408 || r.status >= 500) throw Object.assign(Error('Unreadable Library response.'), { transient: true });
     const type = r.headers.get('content-type') ?? '';
     if (!r.ok) throw Error('Unreadable Library response.');
     if (!action && /^text\/html(?:;|$)/iu.test(type)) return htmlFlight(await r.text());
@@ -313,37 +409,65 @@
         redemptionGroups: Array.isArray(groups) ? groups.length ? 'choices' : 'none' : 'unknown',
         unavailableBefore: date(t(child.unavailableBefore)), unavailableAfter: date(t(child.unavailableAfter)), redeemedAt: date(t(child.redeemedAt)) } });
   }
-  async function collect({ fetcher = global.fetch.bind(global), store, pageLimit = 5, confirmed = false, expectedContext, progress = () => {} } = {}) {
+  const halts = error => error.fatalScope || error.rateLimited;
+  async function collect({ fetcher = global.fetch.bind(global), store, pageLimit = 5, confirmed = false, expectedContext, progress = () => {},
+    startPage = 1, overlap = null, parentLimit = MAX_PARENTS, parentCache = null, action: knownAction = null, shouldStop = () => false, sync } = {}) {
     if (!ENABLED) throw Error('Library entitlement collection is not enabled.');
     if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > MAX_PAGES || !confirmed) throw Error('Confirm the account and choose a bounded Library check.');
+    if (!Number.isSafeInteger(startPage) || startPage < 1 || !Number.isInteger(parentLimit) || parentLimit < 1 || parentLimit > MAX_PAGES * 5) throw Error('Choose a bounded Library check.');
     if (typeof store !== 'function') throw Error('Library storage is unavailable.');
     const context = expectedContext ?? await store('entitlementContext');
-    const first = await envelope(fetcher), started = await store('entitlementBegin', { scope: first.scope, confirmed, expectedAccountId: context.accountId, expectedProfileLabel: context.profileLabel }), token = started.token;
+    const first = await envelope(fetcher), started = await store('entitlementBegin', { scope: first.scope, confirmed, expectedAccountId: context.accountId, expectedProfileLabel: context.profileLabel, ...(sync ? { sync } : {}) }), token = started.token;
     let finished = false;
     try {
-      const action = await actionFromModule(fetcher, first), rows = new Map(), seenRows = new Map(), conflicted = new Set(), parents = new Map(), pageSignatures = new Set();
-      const result = { acquisition: 'finished', coverage: 'bounded', historicalComplete: false, reconciliationAuthority: 'none', checkedAt: new Date().toISOString(),
+      const action = knownAction ?? await actionFromModule(fetcher, first), rows = new Map(), seenRows = new Map(), conflicted = new Set(), parents = new Map(), pageSignatures = new Set();
+      const result = { acquisition: 'finished', coverage: 'bounded', historicalComplete: false, reconciliationAuthority: 'none', checkedAt: new Date().toISOString(), firstPage: startPage,
         pagesRead: 0, reportedTotal: 0, reportedPages: 0, verifiedItems: 0, unresolvedItems: 0, duplicateItems: 0, conflictingItems: 0, failures: [] };
+      const batch = { action, pageError: null, orderingChanged: false, signature: null, requested: null };
       const fail = code => { result.acquisition = 'partial'; result.coverage = 'incomplete'; if (!result.failures.includes(code)) result.failures.push(code); };
-      for (let page = 1; page <= pageLimit; page++) {
+      let parentReads = 0, totalsKnown = false;
+      const requestPage = async page => {
+        const body = new FormData();
+        for (const [k,v] of Object.entries({ requestId: 'hcl-entitlement-' + page, query: '', sort: 'mostRecent', cursor: String(5 * page), page: String(page), limit: '5', hideRevealed: 'false', hideExpired: 'false', dateExpires: '' })) body.append('_1_' + k, v);
+        body.append('0', JSON.stringify([{ results: [], pagination: { page: 1, totalPages: 1, totalDocs: 0 }, success: true }, '$K1']));
+        const f = await read(fetcher, '/home/library', { method: 'POST', headers: { 'Next-Action': action }, body });
+        const found = [...f.models.values()].filter(v => object(v) && Object.hasOwn(v,'results') && Object.hasOwn(v,'pagination'));
+        if (found.length !== 1) throw Error('Unsupported Library page.');
+        return { f, data: found[0] };
+      };
+      // Reads and validates one page; returns null after recording why the batch must stop.
+      const readPage = async page => {
         let f, data;
-        try {
-          const body = new FormData();
-          for (const [k,v] of Object.entries({ requestId: 'hcl-entitlement-' + page, query: '', sort: 'mostRecent', cursor: String(5 * page), page: String(page), limit: '5', hideRevealed: 'false', hideExpired: 'false', dateExpires: '' })) body.append('_1_' + k, v);
-          body.append('0', JSON.stringify([{ results: [], pagination: { page: 1, totalPages: 1, totalDocs: 0 }, success: true }, '$K1']));
-          f = await read(fetcher, '/home/library', { method: 'POST', headers: { 'Next-Action': action }, body });
-          const found = [...f.models.values()].filter(v => object(v) && Object.hasOwn(v,'results') && Object.hasOwn(v,'pagination'));
-          if (found.length !== 1) throw Error('Unsupported Library page.'); data = found[0];
-          const p = data.pagination;
-          if (data.success !== true || !Array.isArray(data.results) || data.results.length > 5 || !object(p) || p.page !== page
-            || !Number.isSafeInteger(p.totalPages) || p.totalPages < page || p.totalPages > 1000000 || !Number.isSafeInteger(p.totalDocs) || p.totalDocs < 0 || p.totalDocs > 1000000
-            || p.totalPages !== Math.max(1,Math.ceil(p.totalDocs/5)) || data.results.length !== Math.min(5,Math.max(0,p.totalDocs - (page-1)*5))) { fail('pagination-inconsistent'); break; }
-          if (page > 1 && (result.reportedPages !== p.totalPages || result.reportedTotal !== p.totalDocs)) { fail('pagination-inconsistent'); break; }
-          result.reportedPages = p.totalPages; result.reportedTotal = p.totalDocs;
-          const signature = JSON.stringify(data.results.map(r => [f.resolve(r.id),f.resolve(r.type)]));
-          if (data.results.length && pageSignatures.has(signature)) { fail('pagination-loop'); break; } pageSignatures.add(signature);
-        } catch (error) { if (error.fatalScope) throw error; fail('page-failed'); break; }
-        result.pagesRead++;
+        try { ({ f, data } = await requestPage(page)); }
+        catch (error) { if (halts(error)) throw error; batch.pageError = error.transient ? 'transient' : 'incompatible'; fail('page-failed'); return null; }
+        const p = data.pagination;
+        if (data.success !== true || !Array.isArray(data.results) || data.results.length > 5 || !object(p) || p.page !== page
+          || !Number.isSafeInteger(p.totalPages) || p.totalPages < page || p.totalPages > 1000000 || !Number.isSafeInteger(p.totalDocs) || p.totalDocs < 0 || p.totalDocs > 1000000
+          || p.totalPages !== Math.max(1,Math.ceil(p.totalDocs/5)) || data.results.length !== Math.min(5,Math.max(0,p.totalDocs - (page-1)*5))
+          || totalsKnown && (result.reportedPages !== p.totalPages || result.reportedTotal !== p.totalDocs)) { batch.pageError = 'changed'; fail('pagination-inconsistent'); return null; }
+        result.reportedPages = p.totalPages; result.reportedTotal = p.totalDocs; totalsKnown = true;
+        const pairs = data.results.map(r => [f.resolve(r.id),f.resolve(r.type)]), signature = JSON.stringify(pairs);
+        if (data.results.length && pageSignatures.has(signature)) { batch.pageError = 'loop'; fail('pagination-loop'); return null; }
+        pageSignatures.add(signature);
+        let safe = null;
+        try { safe = pairs.map(([n,t]) => [id(n), enumeration(t)]); } catch {}
+        return { f, data, pairs: safe };
+      };
+      // Pages are not assumed stable between batches: re-read the previous batch's last
+      // page and record reordering as coverage uncertainty, never as proof of absence.
+      let ready = true;
+      if (startPage > 1 && Array.isArray(overlap)) {
+        const prior = await readPage(startPage - 1);
+        if (!prior) ready = false;
+        else batch.orderingChanged = JSON.stringify(prior.pairs) !== JSON.stringify(overlap);
+      }
+      for (let page = startPage; ready && page < startPage + pageLimit; page++) {
+        const current = await readPage(page);
+        if (!current) break;
+        const { f, data } = current;
+        // A transient parent failure rolls back the whole page so a retry re-reads it.
+        const snapshot = { rows: new Map(rows), seenRows: new Map(seenRows), conflicted: new Set(conflicted), unresolvedItems: result.unresolvedItems, duplicateItems: result.duplicateItems, conflictingItems: result.conflictingItems, failures: [...result.failures], acquisition: result.acquisition, coverage: result.coverage };
+        let transient = false;
         for (const raw of data.results) {
           let ref;
           try {
@@ -365,15 +489,25 @@
             }
             seenRows.set(ref, row);
             let detail = parents.get(row.productEntitlementId);
+            if (!detail && !parents.has(row.productEntitlementId)) {
+              // Same-session reuse of an account-checked parent detail. The batch still
+              // re-verifies the account before committing.
+              const cached = parentCache?.get(row.productEntitlementId);
+              if (cached && Date.now() - cached.at < 20 * 60 * 1000 && cached.principalId === first.scope.principalId) { detail = cached; parents.set(row.productEntitlementId, cached); }
+            }
             if (!detail) {
               if (parents.has(row.productEntitlementId)) throw Error('Library parent remains unresolved.');
-              if (parents.size >= MAX_PARENTS) { fail('request-bound'); throw Error('Parent bound'); }
-              parents.set(row.productEntitlementId, null);
+              if (parentReads >= parentLimit) { fail('request-bound'); throw Error('Parent bound'); }
+              parentReads++; parents.set(row.productEntitlementId, null);
               const df = await read(fetcher, '/home/library/' + encodeURIComponent(row.productEntitlementId));
               if (principal(df) !== first.scope.principalId) throw Object.assign(Error('Library detail account changed.'), { fatalScope: true });
               const cs = df.components.filter(c => c.name === 'ProductKeysDownloads');
               if (cs.length !== 1 || df.resolve(cs[0].props?.productEntitlementId) !== row.productEntitlementId) throw Error('Library parent identity changed.');
               detail = { f: df, parent: df.resolve(cs[0].props.userLibraryItem) }; parents.set(row.productEntitlementId, detail);
+              if (parentCache) {
+                parentCache.delete(row.productEntitlementId); parentCache.set(row.productEntitlementId, { ...detail, principalId: first.scope.principalId, at: Date.now() });
+                if (parentCache.size > 300) parentCache.delete(parentCache.keys().next().value);
+              }
             }
             const children = [...(detail.f.resolve(detail.parent.entitlements?.keys) ?? []), ...(detail.f.resolve(detail.parent.entitlements?.downloads) ?? [])];
             if (children.length > 10000) throw Error('Excessive Library children.');
@@ -381,62 +515,240 @@
             if (matches.length !== 1) throw Error('Ambiguous Library child.');
             const value = projectChild(detail.f, row, detail.parent, matches[0], first.scope, first.groupMap.get(row.productEntitlementId), result.checkedAt);
             rows.set(ref, { row, value });
-          } catch (error) { if (error.fatalScope) throw error; result.unresolvedItems++; fail('item-unresolved'); }
+          } catch (error) { if (halts(error)) throw error; if (error.transient) { transient = true; break; } result.unresolvedItems++; fail('item-unresolved'); }
         }
+        if (transient) {
+          for (const [target, source] of [[rows, snapshot.rows], [seenRows, snapshot.seenRows]]) { target.clear(); for (const [k,v] of source) target.set(k,v); }
+          conflicted.clear(); for (const v of snapshot.conflicted) conflicted.add(v);
+          Object.assign(result, { unresolvedItems: snapshot.unresolvedItems, duplicateItems: snapshot.duplicateItems, conflictingItems: snapshot.conflictingItems, failures: snapshot.failures, acquisition: snapshot.acquisition, coverage: snapshot.coverage });
+          batch.pageError = 'transient'; fail('page-failed'); break;
+        }
+        result.pagesRead++; batch.signature = current.pairs;
         progress({ pagesRead: result.pagesRead, verifiedItems: rows.size, unresolvedItems: result.unresolvedItems });
-        if (page === result.reportedPages) { if (!result.failures.length) result.coverage = 'accessible-pages-traversed'; break; }
+        if (page === result.reportedPages) { if (!result.failures.length && startPage === 1) result.coverage = 'accessible-pages-traversed'; break; }
+        const stop = shouldStop();
+        if (stop) { batch.requested = stop; break; }
       }
       const final = await envelope(fetcher);
-      if (scopeKey(final.scope) !== scopeKey(first.scope)) throw Error('The Humble account changed. No observations were saved.');
+      if (scopeKey(final.scope) !== scopeKey(first.scope)) throw Object.assign(Error('The Humble account changed. No observations were saved.'), { fatalScope: true });
       result.verifiedItems = rows.size;
-      const saved = await store('entitlementCommit', token, { scope: final.scope, observations: [...rows.values()].map(v => v.value), scan: result });
-      finished = true; return saved;
+      const progressData = sync ? { sync: { nextPage: startPage + result.pagesRead, signature: result.pagesRead ? batch.signature : null, orderingChanged: batch.orderingChanged, uncertainty: [],
+        status: batch.requested ?? 'running', reason: batch.requested ? 'user' : null } } : {};
+      const saved = await store('entitlementCommit', token, { scope: final.scope, observations: [...rows.values()].map(v => v.value), scan: result, ...progressData });
+      finished = true; return { ...saved, batch };
     } finally { if (!finished) await store('entitlementAbort', token).catch(() => {}); }
   }
-  function installPanel({ fetcher = global.fetch.bind(global) } = {}) {
-    if (!ENABLED || document.getElementById('hcl-library-entitlement-pilot')) return;
-    const panel = document.createElement('section'); panel.id = 'hcl-library-entitlement-pilot';
-    const heading = document.createElement('strong'); heading.textContent = 'Humble Library — entitlement pilot';
-    const description = document.createElement('p'); description.textContent = 'Read a limited part of your signed-in Library. Historical purchases and corrections stay unchanged. This does not check your complete purchase history.';
-    const label = document.createElement('label'), confirm = document.createElement('input'); confirm.type = 'checkbox';
-    label.append(confirm, ' I checked that this signed-in Humble account belongs to the selected saved account.');
-    const pages = document.createElement('select'); pages.setAttribute('aria-label','Maximum Library pages');
-    for (const n of [1,5,10]) { const o = document.createElement('option'); o.value = String(n); o.textContent = `Up to ${n} ${n === 1 ? 'page' : 'pages'}`; pages.append(o); } pages.value = '5';
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Check Library entitlements';
-    const status = document.createElement('p'); status.setAttribute('role','status');
-    const savedItems = document.createElement('details'), savedHeading = document.createElement('summary'), savedList = document.createElement('ul');
-    savedItems.hidden = true; savedItems.append(savedHeading, savedList);
-    let expectedContext;
-    const refreshSavedItems = async () => {
-      const state = await global.chrome.storage.local.get({ libraryEntitlements: {version:1,scopes:[]}, humbleAccountId: null });
-      if (state.humbleAccountId !== expectedContext?.accountId) { savedItems.hidden = true; return; }
-      const views = purchaseViews(state); savedList.replaceChildren();
-      for (const item of views.slice(0,50)) {
-        const row = document.createElement('li');
-        row.textContent = `${item.title} — ${item.status} · Media: ${item.mediaType === 'unknown' ? 'Unknown' : item.mediaType}`;
-        savedList.append(row);
+  function syncSettings(raw = {}) {
+    const c = { ...SYNC_DEFAULTS, ...raw };
+    if (!Number.isInteger(c.batchPages) || c.batchPages < 1 || c.batchPages > MAX_PAGES || !Number.isInteger(c.refreshPages) || c.refreshPages < 1 || c.refreshPages > MAX_REFRESH_PAGES
+      || !(c.requestSpacingMs >= 500) || !(c.batchDelayMs >= 2000) || !Array.isArray(c.retryDelaysMs) || c.retryDelaysMs.length > 5 || c.retryDelaysMs.some(v => !(v >= 5000))
+      || !Number.isInteger(c.maxSessionRequests) || c.maxSessionRequests < 1 || c.maxSessionRequests > 50000 || !(c.maxSessionMs > 0 && c.maxSessionMs <= 24 * 3600 * 1000)) throw Error('Invalid Library sync settings.');
+    return c;
+  }
+  function failureKind(error) {
+    if (error?.signin) return 'signed-out';
+    if (error?.rateLimited) return 'rate-limited';
+    if (error?.fatalScope) return 'account';
+    const message = String(error?.message ?? '');
+    if (/superseded|unfinished Library sync/iu.test(message)) return 'superseded';
+    if (/saved account|Humble Library belongs|different Humble Library|account changed/iu.test(message)) return 'account';
+    if (/not enabled|read-only Library action|Unsupported Library action/iu.test(message)) return 'incompatible';
+    return 'transient';
+  }
+  // User-started, tab-bound sync: bounded batches, each committed atomically with its
+  // checkpoint. No timers survive the page; an interrupted sync waits for Resume.
+  function createSync({ fetcher = global.fetch.bind(global), store, settings, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now } = {}) {
+    if (!ENABLED) throw Error('Library entitlement collection is not enabled.');
+    if (typeof store !== 'function') throw Error('Library storage is unavailable.');
+    const config = syncSettings(settings), listeners = new Set();
+    let view = { phase: 'idle', mode: null, checkpoint: null, error: null, retry: null, retryAfter: null, pageRange: null }, stop = null, wake = () => {}, running = null;
+    const emit = patch => { view = { ...view, ...patch }; for (const fn of listeners) { try { fn(view); } catch {} } };
+    const wait = ms => new Promise(resolve => { wake = resolve; sleep(ms).then(resolve); });
+    const settleRemote = async (cp, status, reason) => {
+      if (!cp) return null;
+      try { return await store('entitlementSync', { id: cp.id, revision: cp.revision, status, reason }); } catch { return null; }
+    };
+    async function loop({ mode, resume, context, replace }) {
+      let cp = resume, id = cp?.id ?? global.crypto.randomUUID(), revision = cp?.revision ?? 0, startPage = cp?.nextPage ?? 1, overlap = cp?.lastSignature ?? null;
+      let claim = true, failures = 0, action = null, requests = 0, last = -Infinity;
+      const lease = global.crypto.randomUUID(), began = now(), parentCache = new Map();
+      // Every provider request, including parent details and assets, shares one pacing gate.
+      const paced = async (path, init) => { const delay = last + config.requestSpacingMs - now(); if (delay > 0) await sleep(delay); last = now(); requests++; return fetcher(path, init); };
+      const finish = (phase, patch = {}) => emit({ phase, retry: null, pageRange: null, ...patch });
+      const retry = async (kind, error) => {
+        const delay = config.retryDelaysMs[failures - 1];
+        emit({ phase: 'retrying', retry: { attempt: failures, of: config.retryDelaysMs.length, at: now() + delay }, error: kind });
+        await wait(delay);
+      };
+      while (true) {
+        if (stop) { const saved = await settleRemote(revision ? cp : null, stop, 'user'); return finish(stop, { checkpoint: saved ?? cp, error: null }); }
+        if (requests >= config.maxSessionRequests || now() - began >= config.maxSessionMs) { const saved = await settleRemote(revision ? cp : null, 'paused', 'session-limit'); return finish('paused', { checkpoint: saved ?? cp, error: 'session-limit' }); }
+        const target = cp?.mode === mode && cp.targetPages || (mode === 'refresh' ? config.refreshPages : 0);
+        const pageLimit = mode === 'refresh' ? Math.max(1, Math.min(config.batchPages, target - startPage + 1)) : config.batchPages;
+        emit({ phase: 'reading', retry: null, pageRange: [startPage, startPage + pageLimit - 1] });
+        let result;
+        try {
+          result = await collect({ fetcher: paced, store, confirmed: true, expectedContext: context, pageLimit, startPage, overlap, parentLimit: pageLimit * 5, parentCache, action,
+            shouldStop: () => stop, sync: { id, revision, mode, startPage, lease, claim, replace: replace === true, ...(revision === 0 && mode === 'refresh' ? { targetPages: config.refreshPages } : {}) } });
+        } catch (error) {
+          const kind = failureKind(error);
+          action = null;
+          if (kind === 'transient' && ++failures <= config.retryDelaysMs.length) { await retry('transient'); continue; }
+          const reason = kind === 'transient' ? 'failed' : kind;
+          // A superseded tab never writes into a checkpoint it no longer owns.
+          const saved = reason === 'superseded' ? null : await settleRemote(revision ? cp : null, 'stopped', reason);
+          return finish('stopped', { checkpoint: saved ?? cp, error: reason, retryAfter: error.retryAfter ?? null });
+        }
+        claim = false; replace = false; cp = result.sync; id = cp.id; revision = cp.revision; action = result.batch.action;
+        emit({ checkpoint: cp });
+        if (cp.status !== 'running') return finish(cp.status, { checkpoint: cp, error: cp.reason === 'user' ? null : cp.reason });
+        const progressed = cp.nextPage > startPage;
+        startPage = cp.nextPage; overlap = cp.lastSignature;
+        if (!progressed) {
+          action = null;
+          if (++failures > config.retryDelaysMs.length) {
+            const reason = result.batch.pageError === 'incompatible' ? 'incompatible' : 'failed', saved = await settleRemote(cp, 'stopped', reason);
+            return finish('stopped', { checkpoint: saved ?? cp, error: reason });
+          }
+          await retry(result.batch.pageError === 'transient' ? 'transient' : 'changed'); continue;
+        }
+        failures = 0;
+        emit({ phase: 'waiting', pageRange: null });
+        await wait(config.batchDelayMs);
       }
+    }
+    return {
+      get view() { return view; },
+      subscribe(fn) { listeners.add(fn); fn(view); return () => listeners.delete(fn); },
+      active: () => Boolean(running),
+      start({ mode = 'full', resume = null, context, confirmed = false, replace = false } = {}) {
+        if (running) throw Error('A Library sync is already running in this tab.');
+        if (confirmed !== true || !context) throw Error('Confirm the signed-in Humble account before syncing.');
+        const prior = resume && checkpoint(resume);
+        if (!['full','refresh'].includes(mode) || prior && prior.mode !== mode) throw Error('Invalid Library sync request.');
+        stop = null;
+        emit({ phase: 'starting', mode, checkpoint: prior, error: null, retry: null, retryAfter: null });
+        running = loop({ mode, resume: prior, context, replace })
+          .catch(error => { const kind = failureKind(error); emit({ phase: 'stopped', error: kind === 'transient' ? 'failed' : kind }); })
+          .finally(() => { running = null; emit({}); });
+        return running;
+      },
+      pause() { if (running && !stop) { stop = 'paused'; emit({ phase: 'pausing' }); wake(); } return running; },
+      cancel() { if (running) { stop = 'cancelled'; emit({ phase: 'cancelling' }); wake(); } return running; }
+    };
+  }
+  function syncView(state) {
+    const s = collection(state.libraryEntitlements).scopes.find(v => v.localAccountId !== null && v.localAccountId === state.humbleAccountId);
+    if (!s) return { checkpoint: null, saved: 0, found: 0 };
+    return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0 };
+  }
+  const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
+    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page' };
+  const STOP_TEXT = {
+    'rate-limited': 'Humble asked for fewer requests, so the sync stopped. Progress is saved; resume later.',
+    'signed-out': 'You appear to be signed out of Humble. Sign in, reload this page, then resume. Progress is saved.',
+    account: 'The signed-in Humble account does not match the saved account, or it changed during the sync. Nothing from a different account was saved. Check both accounts, then resume.',
+    superseded: 'This tab stopped syncing because the sync continued in another tab, or saved accounts were switched, restored or cleared. Saved progress was kept.',
+    failed: 'Humble’s Library could not be read after several tries. Progress is saved; resume later.',
+    incompatible: 'Humble’s Library changed in a way this version cannot read, so no further pages were read. Progress is saved.',
+    'session-limit': 'Paused after a long session to keep requests to Humble modest.'
+  };
+  let sharedSync = null;
+  function installPanel({ fetcher = global.fetch.bind(global), settings } = {}) {
+    if (!ENABLED || document.getElementById('hcl-library-entitlement-pilot')) return;
+    const make = (tag, props = {}) => Object.assign(document.createElement(tag), props);
+    const panel = make('section', { id: 'hcl-library-entitlement-pilot' });
+    const heading = make('strong', { textContent: 'Humble Library sync (pilot)' });
+    const description = make('p', { textContent: 'Reads your signed-in Humble Library a few pages at a time and saves each purchase it can verify. Existing purchases, corrections and history are never removed or replaced.' });
+    const label = make('label'), confirm = make('input', { type: 'checkbox' });
+    label.append(confirm, ' This signed-in Humble account belongs to the saved account named above.');
+    const actions = make('div', { className: 'hcl-sync-actions' });
+    const button = (action, text) => { const b = make('button', { type: 'button', textContent: text }); b.dataset.action = action; actions.append(b); return b; };
+    const startFull = button('full', 'Sync full Library'), refresh = button('refresh', 'Check recent purchases'), pause = button('pause', 'Pause'), resume = button('resume', 'Resume'), cancel = button('cancel', 'Cancel');
+    const bar = make('progress', { max: 1, value: 0 }); bar.setAttribute('aria-label', 'Library pages read');
+    const status = make('p'); status.setAttribute('role', 'status');
+    const facts = make('ul', { className: 'hcl-sync-facts' }), note = make('p', { className: 'hcl-sync-note' });
+    const savedItems = make('details'), savedHeading = make('summary'), savedList = make('ul');
+    savedItems.hidden = true; savedItems.append(savedHeading, savedList);
+    const store = (operation, ...args) => global.HumbleComicLibrary.storageRequest(operation, ...args);
+    sharedSync ??= createSync({ fetcher, settings, store });
+    let context, stored = { checkpoint: null, saved: 0, found: 0 }, message = '';
+    const number = v => v.toLocaleString();
+    const render = () => {
+      if (!panel.isConnected && panel.dataset.installed) return;
+      const v = sharedSync.view, live = sharedSync.active(), cp = stored.checkpoint;
+      const unfinished = !live && cp && ['running','paused','stopped'].includes(cp.status);
+      startFull.hidden = live || unfinished; refresh.hidden = live || unfinished; resume.hidden = !unfinished;
+      pause.hidden = !live || ['pausing','cancelling'].includes(v.phase); cancel.hidden = !(live || unfinished) || v.phase === 'cancelling';
+      startFull.textContent = cp?.lastFull ? 'Run full sync again' : 'Sync full Library';
+      bar.hidden = !cp; if (cp) { bar.max = Math.max(1, cp.targetPages); bar.value = Math.min(cp.nextPage - 1, cp.targetPages); }
+      facts.replaceChildren(...(cp ? [
+        `Pages read: ${number(Math.min(cp.nextPage - 1, cp.targetPages))} of ${number(cp.targetPages)}${cp.mode === 'refresh' ? ' recent pages' : ' that Humble reports'}`,
+        `Purchases found in this sync: ${number(stored.found)} (${number(cp.added)} new, ${number(cp.refreshed)} already saved)`,
+        ...(cp.lastProgressAt ? [`Last progress: ${new Date(cp.lastProgressAt).toLocaleString()}`] : []),
+        `Saved Library items for this account: ${number(stored.saved)}`
+      ] : []).map(text => make('li', { textContent: text })));
+      const from = cp ? ` Resume to continue from page ${number(cp.nextPage)}.` : '';
+      let text;
+      if (message) text = message;
+      else if (live) text = { starting: 'Starting…', pausing: 'Pausing after the current page…', cancelling: 'Cancelling after the current page… Purchases already found stay saved.',
+        waiting: 'Syncing… pausing briefly between pages to keep requests to Humble modest.',
+        retrying: v.retry ? `Humble did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds (attempt ${v.retry.attempt} of ${v.retry.of}). Progress so far is saved.` : 'Trying again…'
+      }[v.phase] ?? `${v.mode === 'refresh' ? 'Checking recent purchases' : 'Syncing'}… reading pages ${number(v.pageRange?.[0] ?? 1)}–${number(v.pageRange?.[1] ?? 1)}.`;
+      else if (v.phase === 'stopped' && v.error === 'superseded') text = STOP_TEXT.superseded;
+      else if (!cp) text = 'Not synced yet. A full sync of a large Library can take a few hours. You can pause and continue later, even after closing the browser.';
+      else if (cp.status === 'running') text = 'The sync was interrupted (the page closed or the browser restarted).' + from + ' If it is still running in another Humble tab, resuming here stops it there.';
+      else if (cp.status === 'paused') text = (cp.reason === 'session-limit' ? STOP_TEXT['session-limit'] : 'Paused.') + from;
+      else if (cp.status === 'stopped') text = (STOP_TEXT[cp.reason] ?? STOP_TEXT.failed) + (v.retryAfter ? ` Humble suggested waiting about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes.` : '');
+      else if (cp.status === 'cancelled') text = 'Sync cancelled. Purchases already found stay saved.';
+      else if (cp.mode === 'refresh') text = `Checked your ${number(cp.targetPages)} most recent Library pages. Older pages were not checked; run a full sync to check everything.`;
+      else if (cp.coverage === 'accessible-pages-traversed') text = `Finished: read all ${number(cp.reportedPages)} pages your Humble Library currently shows. This reflects what the Library shows today, not proof of your complete purchase history. Existing purchases were kept.`;
+      else text = 'Finished reading to the last page, but some purchases may have been missed. Existing purchases were kept. Run the full sync again later to check.';
+      status.textContent = text;
+      const doubts = (cp?.uncertainty ?? []).map(code => UNCERTAINTY_TEXT[code]);
+      note.textContent = doubts.length ? `Why this may be incomplete: ${doubts.join('; ')}.` : '';
+      note.hidden = !doubts.length;
+    };
+    const refreshStored = async () => {
+      const state = await global.chrome.storage.local.get({ libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null });
+      const own = context && state.humbleAccountId === context.accountId;
+      stored = own ? syncView(state) : { checkpoint: null, saved: 0, found: 0 };
+      const views = own ? purchaseViews(state) : [];
+      savedList.replaceChildren(...views.slice(0, 50).map(item => make('li', { textContent: `${item.title} — ${item.status} · Media: ${item.mediaType === 'unknown' ? 'Unknown' : item.mediaType}` })));
       savedHeading.textContent = views.length > 50 ? 'Saved Library items (first 50)' : 'Saved Library items';
       savedItems.hidden = views.length === 0;
+      render();
     };
-    global.HumbleComicLibrary.storageRequest('entitlementContext').then(value => {
-      expectedContext = value; description.textContent += ' Saved account: ' + (value.profileLabel || 'unnamed') + '.';
-      refreshSavedItems().catch(() => {});
-    }, () => { status.textContent = 'The saved account is unavailable. Open Extension options before checking.'; });
-    button.addEventListener('click', async () => {
-      if (!confirm.checked) { status.textContent = 'Confirm the signed-in account before checking. Your records are unchanged.'; return; }
-      if (!expectedContext) { status.textContent = 'Wait for the saved account to load, then confirm it before checking.'; return; }
-      button.disabled = true; pages.disabled = true; status.textContent = 'Checking Library entitlements…';
-      try {
-        const value = await collect({ fetcher, expectedContext, store: (operation,...args) => global.HumbleComicLibrary.storageRequest(operation,...args), confirmed: true, pageLimit: Number(pages.value),
-          progress: p => { status.textContent = `Checked ${p.pagesRead} pages; ${p.verifiedItems} entitlement observations read.`; } });
-        status.textContent = `Saved ${value.saved.toLocaleString()} entitlement observations. ${value.scan.unresolvedItems ? `${value.scan.unresolvedItems.toLocaleString()} items remain unresolved. ` : ''}${value.scan.coverage === 'incomplete' ? 'The check was interrupted; readable observations were kept.' : 'This was a limited Library check.'} Historical purchases were kept. This does not establish complete history or Steam activation.`;
-        try { await refreshSavedItems(); }
-        catch { status.textContent += ' Saved items could not be displayed. Reopen Extension options to check them.'; }
-      } catch { status.textContent = 'The Library check could not be saved. Existing records were kept. Check the signed-in and saved accounts, then try again.'; }
-      finally { button.disabled = false; pages.disabled = false; }
+    const unsubscribe = sharedSync.subscribe(() => { if (!panel.isConnected && panel.dataset.installed) { unsubscribe?.(); return; } message = ''; refreshStored().catch(render); });
+    const changed = (changes, area) => {
+      if (!panel.isConnected) { global.chrome.storage.onChanged?.removeListener(changed); return; }
+      if (area === 'local' && (changes.libraryEntitlements || changes.humbleAccountId)) refreshStored().catch(() => {});
+    };
+    global.chrome.storage.onChanged?.addListener(changed);
+    const begin = (mode, prior) => {
+      if (!confirm.checked) { message = 'Confirm the signed-in account first. Nothing was read or changed.'; render(); return; }
+      if (!context) { message = 'Wait for the saved account to load, then try again.'; render(); return; }
+      try { message = ''; sharedSync.start({ mode, resume: prior, context, confirmed: true }); }
+      catch { message = 'The sync could not start. Your records are unchanged. Reload this page and try again.'; render(); }
+    };
+    startFull.addEventListener('click', () => begin('full', null));
+    refresh.addEventListener('click', () => begin('refresh', null));
+    resume.addEventListener('click', () => { const cp = stored.checkpoint; if (cp) begin(cp.mode, cp); });
+    pause.addEventListener('click', () => sharedSync.pause());
+    cancel.addEventListener('click', async () => {
+      if (sharedSync.active()) { sharedSync.cancel(); return; }
+      const cp = stored.checkpoint; if (!cp) return;
+      try { await store('entitlementSync', { id: cp.id, revision: cp.revision, status: 'cancelled', reason: 'user' }); message = ''; }
+      catch { message = 'The sync could not be cancelled because it changed elsewhere. Reload this page to see the current progress.'; }
+      await refreshStored().catch(render);
     });
-    panel.append(heading, description, label, pages, button, status, savedItems); document.body.append(panel);
+    store('entitlementContext').then(value => {
+      context = value; description.textContent += ' Saved account: ' + (value.profileLabel || 'unnamed') + '.';
+      refreshStored().catch(render);
+    }, () => { message = 'The saved account is unavailable. Open Extension options before syncing.'; render(); });
+    panel.append(heading, description, label, actions, bar, status, facts, note, savedItems);
+    document.body.append(panel); panel.dataset.installed = 'true'; render();
   }
-  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, collection, observation, refreshObservation, identity, scopeKey, admission, scan, matchingItems, purchaseViews, projectForGL, flight, collect, installPanel });
+  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
+    matchingItems, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel });
 })(globalThis);

@@ -2,7 +2,7 @@
 
 Status: authenticated discovery is verified; production replacement remains blocked on purchase-to-entitlement identity mapping. This note concerns Humble's November 2026 redesign. It does not enable imports or authorize historical reconciliation.
 
-Implementation follow-up: a separate [Library entitlement pilot](../development/library-entitlement-pilot.md) now implements bounded additive observations behind a disabled source-level flag. It does not resolve the order/legacy bridge or enable the purchase importer. See the pilot document for strict admission, media-classification and activation limits; the evidence below remains the historical investigation.
+Implementation follow-up: a separate [Library entitlement pilot](../development/library-entitlement-pilot.md) now implements bounded additive observations, plus a user-started resumable Library sync built from the same bounded checks, behind a disabled source-level flag. It does not resolve the order/legacy bridge or enable the purchase importer. See the pilot document for strict admission, media-classification and activation limits; the evidence below remains the historical investigation.
 
 ## Verified read paths
 
