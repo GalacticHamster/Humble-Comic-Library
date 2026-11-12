@@ -2,6 +2,8 @@
 
 Status: authenticated discovery is verified; production replacement remains blocked on purchase-to-entitlement identity mapping. This note concerns Humble's November 2026 redesign. It does not enable imports or authorize historical reconciliation.
 
+Implementation follow-up: a separate [Library entitlement pilot](../development/library-entitlement-pilot.md) now implements bounded additive observations behind a disabled source-level flag. It does not resolve the order/legacy bridge or enable the purchase importer. See the pilot document for strict admission, media-classification and activation limits; the evidence below remains the historical investigation.
+
 ## Verified read paths
 
 The authenticated browser can read `GET /home/purchases?page=N` with `RSC: 1` and `Accept: text/x-component`, using its ordinary same-origin session. The inspected frontend exports `OrderHistory`; its `data` contains `results` and `pagination` with `page`, `totalPages` and `totalDocs`. Distinct reported pages were independently read and checked. These describe accessible migrated orders, not independently verified complete historical coverage.

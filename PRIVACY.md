@@ -1,6 +1,6 @@
 # Privacy Policy for Humble Library
 
-Last updated: November 7, 2026
+Last updated: November 12, 2026
 
 Humble Library is an unofficial browser extension for comparing a person's Humble Bundle purchase library with Humble Bundle book, comic, and game listings. It is not affiliated with or endorsed by Humble Bundle.
 
@@ -15,6 +15,8 @@ When the user chooses to import from Humble, the extension accesses the user's s
 - for Humble third-party entitlements that are not yet revealed, the title, source purchase, entitlement type, and Humble-reported expiry status used for local reminders; and
 - optional custom issue-to-collection mapping rules that the user imports; and
 - profile labels/archives, media-type corrections, wishlist/planning information, preferences, and companion connection state.
+
+A separate authenticated Library entitlement collector is implemented as a disabled development pilot. If enabled in a test build and explicitly started, it stores provider-account scope, native entitlement/type and parent identifiers, titles, non-secret eligibility metadata and observation times separately from purchase history. These observations are included in backups and replaced by restore or Clear library. They do not invent purchase dates or destination-platform activation, and are not sent through existing companion purchase/reminder channels. The pilot does not reveal or redeem keys, prepare downloads, or store key values, account-link values, instructions or signed download URLs.
 
 After imports, previously observed Humble item provenance and purchase summaries are retained in a separate local history archive. A fully successful rescan reconciles the current Humble snapshot; historical evidence remains available for history-only match warnings and backups, but does not establish current ownership or active reminders. Failed rescans retain previous entries. Manual titles are protected during reconciliation. The archive contains the same types of purchase data listed above, with no redemption-key values or raw API responses, and is included in backup export/restore. Manual title import and **Clear library** clear the archive too.
 

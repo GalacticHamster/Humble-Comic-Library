@@ -6,6 +6,7 @@
       "purchase-sync.js",
       "purchase-adapters.js",
       "theme.js",
+      "library-entitlements.js",
       "shared.js",
       "collection-mappings.js",
       "entitlement-share.js",

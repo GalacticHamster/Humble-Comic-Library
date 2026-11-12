@@ -391,3 +391,10 @@
 :is(#hcl-summary, #hcl-match-inspector) :is(h2,p,strong,summary) { overflow-wrap:anywhere; }
 
 .library-import-profile > summary { grid-column:1 / -1; cursor:pointer; }
+#hcl-library-entitlement-pilot {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483646;
+  max-width: min(360px, calc(100vw - 32px)); padding: 14px;
+  background: #1f2937; color: #f9fafb; border: 1px solid #64748b; border-radius: 8px;
+  font: 14px/1.45 system-ui, sans-serif;
+}
+#hcl-library-entitlement-pilot select, #hcl-library-entitlement-pilot button { margin: 8px 8px 0 0; }

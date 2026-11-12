@@ -33,6 +33,7 @@
       ],
       "js": [
         "theme.js",
+        "library-entitlements.js",
         "shared.js",
         "collection-mappings.js",
         "ownership.js",

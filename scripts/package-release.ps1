@@ -34,6 +34,7 @@ $releaseFiles = @(
   'LICENSE',
   'NOTICE',
   'shared.js',
+  'library-entitlements.js',
   'background.js',
   'entitlement-share.js',
   'collection-mappings.js',

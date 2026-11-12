@@ -14,6 +14,7 @@ const runtimeFiles = [
   'LICENSE',
   'NOTICE',
   'shared.js',
+  'library-entitlements.js',
 
   'background.js',
   'entitlement-share.js',

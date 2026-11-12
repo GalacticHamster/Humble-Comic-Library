@@ -567,6 +567,7 @@
   }
   function access(record, local=false) {
     const evidence=record.evidence||{};
+    if(local&&record.libraryObservation)return record.entitlement==='third-party-key'?'Humble Library key entitlement — activation not confirmed':'Authenticated Humble Library entitlement';
     if(record.historical)return 'Previously recorded — current access needs review';
     if(evidence.ownershipBasis==='user-assumed-owned')return 'Treated as owned by your preference';
     const origins=record.provenance?.length?record.provenance:[record];
@@ -619,6 +620,7 @@
         const bundle=origin.sourceBundle||origin.bundle?.title||record.sourceBundle||record.bundle?.title||'';
         const context=[bundle,purchaseDate?'Purchased '+purchaseDate:''].filter(Boolean).join(' · ');
         const annotations=[];
+        if(record.libraryObservation)annotations.push('Independent authenticated Library evidence; no historical purchase or copy relationship is inferred.'+(record.libraryObservationRefs?.length>1?' '+record.libraryObservationRefs.length+' native observations are grouped here for display.':''));
         if(!isLocal && record.provider===localProvider)annotations.push('Central copy; compare with this extension’s current purchases.');
         if(isLocal && record.provenance?.length>1)annotations.push('Additional purchase context is in Match details.');
         if(record.evidence?.ownershipBasis==='user-assumed-owned' && record.evidence.observedOwnership)annotations.push('Original access: '+access({ownership:record.evidence.observedOwnership}));

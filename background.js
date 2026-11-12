@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Galactic Hamster
 /* Opening review uses Chrome's trusted options route, not a page-supplied URL. */
-if (typeof importScripts === 'function') importScripts('purchase-snapshot.js','purchase-transfer.js','purchase-sync.js','purchase-adapters.js','theme.js','shared.js','collection-mappings.js','entitlement-share.js');
+if (typeof importScripts === 'function') importScripts('purchase-snapshot.js','purchase-transfer.js','purchase-sync.js','purchase-adapters.js','theme.js','library-entitlements.js','shared.js','collection-mappings.js','entitlement-share.js');
 const libraryStore=HumbleComicLibrary.createSyncStore(chrome.storage.local,{onInvalidated:events=>purchaseSync.notifyInvalidated(events)});
 const appearanceService=GalacticHamsterTheme.createService({runtime:chrome.runtime,companion:true,
   read:async()=>{const value=await chrome.storage.local.get({galacticHamsterAppearance:null});return value.galacticHamsterAppearance;},
@@ -25,12 +25,15 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const extensionPage=own&&typeof sender.url==='string'&&sender.url.startsWith(chrome.runtime.getURL(''));
   let humble=false;try{humble=own&&new URL(sender.url).origin==='https://www.humblebundle.com';}catch{}
   if(!extensionPage&&!humble){respond({ok:false,error:'Untrusted library request.'});return false;}
+  if(message.operation?.startsWith('entitlement')&&!extensionPage&&!(humble&&/^\/home\/library(?:\/|$)/u.test(new URL(sender.url).pathname)&&Number.isInteger(sender.tab?.id))){respond({ok:false,error:'Open Humble Library to check entitlements.'});return false;}
   if(['replace','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
   if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&new URL(sender.url).pathname.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options or the purchase importer.'});return false;}
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
   if(message.operation==='commit')args[2]=sender.tab?.id??null;
   if(message.operation==='abort')args[1]=sender.tab?.id??null;
+  if(message.operation==='entitlementBegin'||message.operation==='entitlementAbort')args[1]=sender.tab?.id??null;
+  if(message.operation==='entitlementCommit')args[2]=sender.tab?.id??null;
   libraryStore.execute(message.operation,args).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:error.message}));return true;
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{

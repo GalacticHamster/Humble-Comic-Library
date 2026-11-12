@@ -40,6 +40,8 @@ function finishGalacticRendering(diagnostic){
 (async function initialiseHumbleComicLibrary() {
   'use strict';
 
+  if (globalThis.HumbleLibraryEntitlements?.ENABLED && location.pathname.startsWith('/home/library')) { if(isRedesignedHumble())initialiseRedesignedHumble();else HumbleLibraryEntitlements.installPanel(); return; }
+
   if (isRedesignedHumble()) { initialiseRedesignedHumble(); return; }
 
   if (location.pathname.startsWith('/home/purchases')) {
@@ -82,7 +84,7 @@ function finishGalacticRendering(diagnostic){
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storageDefaults = { libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
+  const storageDefaults = { libraryEntitlements: {version:1,scopes:[]}, humbleAccountId:null, humbleProfileLabel:'', libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
   // Subscribe before the first await. An import/profile restore can finish
   // while a cold storage read is still returning its older snapshot.
   let storageRevision = 0;
@@ -105,7 +107,7 @@ function finishGalacticRendering(diagnostic){
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
-  let libraryItems = storage.libraryItems.filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic')));
+  let libraryItems = entitlementMatchingRecords(storage).filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
@@ -141,7 +143,7 @@ function finishGalacticRendering(diagnostic){
     if(area==='local'&&changes.showDiagnostics){comparison.showDiagnostics=Boolean(changes.showDiagnostics.newValue);comparison.renderSummary?.();}
     if (area === 'local' && changes.wishlistItems) { comparison.wishlistItems=HumbleComicLibrary.normalizeWishlist(changes.wishlistItems.newValue||[]); comparison.renderSummary?.(); }
     if(area==='local'&&changes.bundleSummaryPreferences){bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));}
-    if (area !== 'local' || !['libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
+    if (area !== 'local' || !['libraryEntitlements','humbleAccountId','libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
     const revision = ++libraryRevision;
     ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
     comparison.summaryView = changes.humbleProfileLabel ? null
@@ -152,7 +154,7 @@ function finishGalacticRendering(diagnostic){
     (async () => {
       const latest = await readCurrentStorage();
       if (revision !== libraryRevision) return;
-      libraryItems = latest.libraryItems.filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
+      libraryItems = entitlementMatchingRecords(latest).filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
       currentBundlePurchases = findCurrentBundlePurchases(latest.purchaseSummaries);
       collectionMappings = [...HumbleCollectionMappings.builtIn, ...latest.customCollectionMappings];
@@ -275,8 +277,9 @@ function initialiseRedesignedHumble() {
     if(comparison) comparison.job++;
     // Clear old-route annotations immediately; asynchronous GL results cannot
     // repopulate a new route because their comparison job is invalidated.
-    if(route!==previousRoute){clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
+    if(route!==previousRoute){document.querySelector('#hcl-library-entitlement-pilot')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
     timer=setTimeout(async()=>{
+      if(globalThis.HumbleLibraryEntitlements?.ENABLED&&route.startsWith('/home/library')){HumbleLibraryEntitlements.installPanel();return;}
       if(/^\/home\/(?:purchases|library)(?:\/|$)/u.test(route)){ensurePurchaseImporter();return;}
       if(isBundleCataloguePage()){
         const stored=await chrome.storage.local.get({purchaseSummaries:[],showDiagnostics:false,catalogueFilters:{}});
@@ -287,13 +290,13 @@ function initialiseRedesignedHumble() {
       const kind=/^\/books\/[^/]+\/?$/u.test(route)?'book':/^\/games\/[^/]+\/?$/u.test(route)?'game':/^\/software\/[^/]+\/?$/u.test(route)?'software':null;
       if(!kind)return;
       try {
-        const stored=await chrome.storage.local.get({libraryItems:[],historicalLibraryItems:[],purchaseSummaries:[],customCollectionMappings:[],galacticLibraryExtensionId:'',showNewItemsOnly:false,showDiagnostics:false,wishlistItems:[],bundleSummaryPreferences:{}});
+        const stored=await chrome.storage.local.get({libraryEntitlements:{version:1,scopes:[]},humbleAccountId:null,humbleProfileLabel:'',libraryItems:[],historicalLibraryItems:[],purchaseSummaries:[],customCollectionMappings:[],galacticLibraryExtensionId:'',showNewItemsOnly:false,showDiagnostics:false,wishlistItems:[],bundleSummaryPreferences:{}});
         if(job!==revision||route!==location.pathname)return;
         bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(stored.bundleSummaryPreferences);
         comparison={job:1,startedAt:performance.now(),refreshes:1,emptyChecks:0,showNewItemsOnly:stored.showNewItemsOnly,showDiagnostics:stored.showDiagnostics,wishlistItems:stored.wishlistItems,galactic:createGalacticLookup(stored.galacticLibraryExtensionId)};
         comparison.retryGalactic=refresh;comparison.refreshGalactic=refresh;
         clearBundleAnnotations();
-        const records=stored.libraryItems.filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
+        const records=entitlementMatchingRecords(stored).filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
         await renderBundleComparison(createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems),kind,findCurrentBundlePurchases(stored.purchaseSummaries),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
       }catch(error){if(job===revision)showComparisonFailure(error);}
     },120);
@@ -302,7 +305,7 @@ function initialiseRedesignedHumble() {
     .observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['alt','aria-checked','aria-label','data-countdown']});
   window.addEventListener('popstate',refresh);
   window.addEventListener('hcl-refresh-central',refresh);
-  chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&['libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','bundleSummaryPreferences','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();});
+  chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&['libraryEntitlements','humbleAccountId','libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','bundleSummaryPreferences','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();});
   refresh();
 }
 
@@ -1227,6 +1230,8 @@ function completeBundleMatchContext(rows, media) {
       && actual.length === keys.length && actual.every(key => keys.includes(key));
   } catch { return false; }
 }
+
+function entitlementMatchingRecords(state) { return [...state.libraryItems, ...(globalThis.HumbleLibraryEntitlements?.matchingItems(state) ?? [])]; }
 
 function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   // Storage supplies only the active profile's archive. Other profile archives
