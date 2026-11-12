@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fixture,row,child,copy,accountId} from './library-entitlements-fixture.mjs';
+import {fixture,row,child,copy,accountId,frames} from './library-entitlements-fixture.mjs';
 import {fixture as matchingFixture} from './matching-fixture.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -148,6 +148,50 @@ test('Flight streams and errors cannot supply required evidence or bypass framin
   await assert.rejects(f.collect({fetcher:async(path,init)=>{
     const r=await f.fetcher(path,init);if(path!=='/home/library'||init.method==='POST')return r;
     return {...r,text:async()=> (await r.text()).replace('"id":"principal-A"','"id":"$f1"')+'f1:E{"digest":"synthetic-required-error"}\n'};
-  }}),/reference/);
+  }}),error=>error.fatalScope===true&&/signed-in Library account/.test(error.message));
   assert.equal(f.writes.length,0);
+});
+
+const bootstrap = body => '<!doctype html><script>globalThis.UNSAFE_BOOTSTRAP_EXECUTED=true</script><script>self.__next_f.push('+JSON.stringify([1,body])+')</script>';
+const htmlTransport = (f,transform=body=>body) => async(path,init)=>{
+  if(path.startsWith('/_next/'))return f.fetcher(path,init);
+  assert.equal(init.headers.RSC,undefined);assert.equal(init.redirect,'error');assert.equal(init.cache,'no-store');
+  const r=await f.fetcher(path,init);
+  if(init.method==='POST'){assert.equal(init.headers.Accept,'text/x-component');return r;}
+  assert.equal(init.headers.Accept,'text/html');
+  return {...r,headers:{get:()=> 'text/html; charset=utf-8'},text:async()=>bootstrap(transform(await r.text()))};
+};
+test('authenticated HTML bootstrap and agreeing account providers use actual acquisition and atomic storage',async()=>{
+  const f=fixture({initial:legacy});
+  const fetcher=htmlTransport(f,body=>body+frames([{name:'AuthProvider',props:{user:{id:'principal-A'}}}]).replaceAll('1:','e1:').replaceAll('$L1','$Le1').replace('0:','e0:'));
+  const result=await f.collect({fetcher});assert.equal(result.saved,8);assert.equal(f.writes.filter(p=>p.libraryEntitlements).length,1);
+  assert.equal(f.context.UNSAFE_BOOTSTRAP_EXECUTED,undefined);
+  for(const [key,value] of Object.entries(legacy))assert.deepEqual(f.stored[key],value);
+  await f.collect({fetcher});assert.equal(observations(f).length,8);
+});
+test('HTML bootstrap refuses conflicting or missing principals, malformed data and truncated frames',async()=>{
+  for(const foreign of ['principal-B',null]){
+    const f=fixture();const body=frames([{name:'AuthProvider',props:{user:{id:foreign}}}]).replaceAll('1:','e1:').replaceAll('$L1','$Le1').replace('0:','e0:');
+    await assert.rejects(f.collect({fetcher:htmlTransport(f,v=>v+body)}));assert.equal(f.writes.length,0);
+  }
+  for(const html of ['<script>self.__next_f.push([1,notJSON])</script>','<script>self.__next_f.push([1,"0:{"])</script>','<script>self.__next_f.push([1,{}])</script>','<script>self.__next_f.push(getPrivateData())</script>','<html>No Library bootstrap</html>']){
+    const f=fixture();await assert.rejects(f.collect({fetcher:async(path,init)=>({...await f.fetcher(path,init),headers:{get:()=> 'text/html'},text:async()=>html})}));assert.equal(f.writes.length,0);
+  }
+});
+test('missing detail principal aborts the batch rather than retaining earlier new observations',async()=>{
+  const rows=Array.from({length:8},(_,i)=>({...row('id-'+i),productEntitlementId:i<5?'parent-A':'parent-B'}));
+  const f=fixture({initial:legacy,rows,groupIds:['parent-A','parent-B']});await assert.rejects(f.collect({fetcher:async(path,init)=>{const r=await f.fetcher(path,init);return path==='/home/library/parent-B'?{...r,text:async()=>(await r.text()).replace('"id":"principal-A"','"id":null')}:r;}}),error=>error.fatalScope===true);
+  assert.equal(f.stored.libraryEntitlements,undefined);assert.equal(f.writes.filter(p=>p.libraryEntitlements).length,0);assert.deepEqual(f.stored.libraryItems,legacy.libraryItems);
+});
+test('dependency-rich modules keep the eight-asset ceiling and require a unique observed action',async()=>{
+  for(const found of [true,false]){
+    const f=fixture();let assets=0;
+    const fetcher=async(path,init)=>{
+      if(path.startsWith('/_next/')){assets++;return {ok:true,text:async()=>found&&path.endsWith('synthetic-library.js')?`createServerReference("${'a'.repeat(40)}",callServer,0,0,"filterUserLibrary")`:'/* shared dependency */'};}
+      const r=await f.fetcher(path,init);
+      return path==='/home/library'&&init.method!=='POST'?{...r,text:async()=>(await r.text()).replace('["static/chunks/synthetic-library.js"]',JSON.stringify([...Array.from({length:12},(_,i)=>'static/chunks/dependency-'+i+'.js'),'static/chunks/synthetic-library.js']))}:r;
+    };
+    if(found)assert.equal((await f.collect({fetcher})).saved,8);else {await assert.rejects(f.collect({fetcher}),/read-only Library action/);assert.equal(f.stored.libraryEntitlements,undefined);}
+    assert.equal(assets,8);
+  }
 });

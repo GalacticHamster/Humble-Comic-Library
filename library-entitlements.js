@@ -199,17 +199,48 @@
     for (const v of models.values()) walk(v);
     return { models, modules, resolve, components };
   }
+  function htmlFlight(body) {
+    if (typeof body !== 'string' || new TextEncoder().encode(body).length > 8 * 1024 * 1024) throw Error('Library HTML exceeds the safety bound.');
+    let frames = '', chunks = 0;
+    // Read literal bootstrap data only. Never evaluate scripts or insert HTML.
+    for (const script of body.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script\s*>/giu)) {
+      const value = script[1].trim();
+      if (!value.startsWith('self.__next_f.push(')) continue;
+      const match = /^self\.__next_f\.push\((\[.*\])\);?$/su.exec(value);
+      if (!match || ++chunks > 20000) throw Error('Unsupported Library bootstrap.');
+      const chunk = JSON.parse(match[1]);
+      if (!Array.isArray(chunk)) throw Error('Invalid Library bootstrap.');
+      if (chunk[0] === 1) {
+        if (chunk.length !== 2 || typeof chunk[1] !== 'string') throw Error('Invalid Library bootstrap data.');
+        frames += chunk[1];
+      }
+    }
+    if (!frames) throw Error('Missing Library bootstrap.');
+    return flight(frames);
+  }
+  function principal(frame) {
+    const auth = frame.components.filter(c => c.name === 'AuthProvider');
+    if (!auth.length) throw Object.assign(Error('Could not verify the signed-in Library account.'), { fatalScope: true });
+    let ids;
+    try { ids = new Set(auth.map(c => id(frame.resolve(c.props?.user?.id)))); }
+    catch { throw Object.assign(Error('Could not verify the signed-in Library account.'), { fatalScope: true }); }
+    if (ids.size !== 1) throw Object.assign(Error('Conflicting Library accounts.'), { fatalScope: true });
+    return [...ids][0];
+  }
   async function read(fetcher, path, options = {}) {
-    const r = await fetcher(path, { credentials: 'same-origin', signal: AbortSignal.timeout(12000), ...options,
-      headers: { RSC: '1', Accept: 'text/x-component', ...options.headers } });
+    const action = options.method === 'POST';
+    const r = await fetcher(path, { credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(12000), ...options,
+      headers: { Accept: action ? 'text/x-component' : 'text/html', ...options.headers } });
     if ([401,403].includes(r.status)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true });
-    if (!r.ok || !/^text\/x-component(?:;|$)/iu.test(r.headers.get('content-type') ?? '')) throw Error('Unreadable Library response.');
+    const type = r.headers.get('content-type') ?? '';
+    if (!r.ok) throw Error('Unreadable Library response.');
+    if (!action && /^text\/html(?:;|$)/iu.test(type)) return htmlFlight(await r.text());
+    if (!/^text\/x-component(?:;|$)/iu.test(type)) throw Error('Unreadable Library response.');
     return flight(await r.text());
   }
   async function envelope(fetcher) {
-    const f = await read(fetcher, '/home/library'), auth = f.components.filter(c => c.name === 'AuthProvider'), libs = f.components.filter(c => c.name === 'UserLibrary');
-    if (auth.length !== 1 || libs.length !== 1) throw Object.assign(Error('Could not verify the signed-in Library account.'), { fatalScope: true });
-    const principalId = id(f.resolve(auth[0].props?.user?.id)), groups = f.resolve(libs[0].props?.bundleItems);
+    const f = await read(fetcher, '/home/library'), libs = f.components.filter(c => c.name === 'UserLibrary');
+    const principalId = principal(f), groups = libs.length === 1 ? f.resolve(libs[0].props?.bundleItems) : null;
     if (!Array.isArray(groups) || !groups.length || groups.length > 10000) throw Object.assign(Error('Library account scope is unavailable.'), { fatalScope: true });
     const groupMap = new Map(); let userId;
     for (const g of groups) {
@@ -228,9 +259,11 @@
       const path = v.startsWith('static/chunks/') ? '/_next/' + v : v.startsWith('_next/static/') ? '/' + v : /^[\w-]+\.js$/u.test(v) ? '/_next/static/chunks/' + v : v;
       if (/^\/_next\/static\/chunks\/[\w.-]+\.js(?:\?[^#]*)?$/u.test(path)) paths.add(path.split('?')[0]);
     }
-    if (paths.size > 8) throw Error('Unsupported Library module.');
     const actions = new Set();
-    for (const path of paths) {
+    // HTML bootstrap modules include shared dependency chunks too. Inspect at
+    // most eight, starting with the module's trailing chunks, without raising
+    // the request ceiling or guessing an action when no exact export is found.
+    for (const path of [...paths].slice(0,8)) {
       const r = await fetcher(path, { credentials: 'omit', signal: AbortSignal.timeout(12000) });
       if (!r.ok) throw Error('Library frontend is unavailable.'); const source = await r.text();
       if (source.length > 2000000) throw Error('Library frontend exceeds safety bound.');
@@ -308,8 +341,7 @@
               if (parents.size >= MAX_PARENTS) { fail('request-bound'); throw Error('Parent bound'); }
               parents.set(row.productEntitlementId, null);
               const df = await read(fetcher, '/home/library/' + encodeURIComponent(row.productEntitlementId));
-              const auth = df.components.filter(c => c.name === 'AuthProvider');
-              if (auth.length !== 1 || df.resolve(auth[0].props?.user?.id) !== first.scope.principalId) throw Object.assign(Error('Library detail account changed.'), { fatalScope: true });
+              if (principal(df) !== first.scope.principalId) throw Object.assign(Error('Library detail account changed.'), { fatalScope: true });
               const cs = df.components.filter(c => c.name === 'ProductKeysDownloads');
               if (cs.length !== 1 || df.resolve(cs[0].props?.productEntitlementId) !== row.productEntitlementId) throw Error('Library parent identity changed.');
               detail = { f: df, parent: df.resolve(cs[0].props.userLibraryItem) }; parents.set(row.productEntitlementId, detail);

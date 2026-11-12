@@ -19,15 +19,16 @@ async function installedEntitlementChecks(disabled=false) {
   const rows=Array.from({length:8},(_,n)=>row(n));let failPage=false,foreign=false,malformed=false,reads=0;
   const frames=components=>components.map((c,i)=>`${(i+1).toString(16)}:I${JSON.stringify([i+1,c.name==='UserLibrary'?['static/chunks/synthetic-library.js']:[],c.name])}`).join('\n')+'\n0:'+JSON.stringify(components.map((c,i)=>['$','$L'+(i+1).toString(16),null,c.props]))+'\n';
   const response=(body,status=200,type='text/x-component')=>({ok:status===200,status,headers:{get:()=>type},text:async()=>type==='text/x-component'&&status===200?'f0:X\nf0:{"ui":"synthetic stream"}\nf0:C\nf1:E{"digest":"synthetic unrelated UI error"}\n'+body:body});
+  const htmlResponse=components=>response('<!doctype html><script>self.__next_f.push('+JSON.stringify([1,frames([...components,components[0]])])+')</script>',200,'text/html');
   const fetcher=async(path,init={})=>{
     if(path==='/_next/static/chunks/synthetic-library.js')return response(`(0,r.createServerReference)("${'a'.repeat(40)}",r.callServer,void 0,r.findSourceMapURL,"filterUserLibrary")`,200,'text/javascript');
-    if(path==='/home/library'&&init.method!=='POST')return response(frames([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]));
+    if(path==='/home/library'&&init.method!=='POST')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]);
     if(path==='/home/library'&&init.method==='POST'){
       const page=Number(init.body.get('_1_page'));reads++;
       if(failPage&&page===2)return response('',503);
       return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*5,page*5).map(r=>({...r,userId:foreign?'foreign-hub':r.userId})),pagination:{page,totalPages:2,totalDocs:8}})+(malformed?'':'\n'));
     }
-    if(path==='/home/library/parent-A')return response(frames([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:false,keyIntegrationId:null,unavailableBefore:null,unavailableAfter:null,redeemedAt:null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}}))}}}}]));
+    if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:false,keyIntegrationId:null,unavailableBefore:null,unavailableAfter:null,redeemedAt:null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}}))}}}}]);
     throw Error('Unexpected fixture request');
   };
   const acquire=pageLimit=>E.collect({fetcher,store,confirmed:true,pageLimit});
