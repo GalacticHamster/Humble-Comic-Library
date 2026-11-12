@@ -134,6 +134,9 @@
     const bytes = new TextEncoder().encode(body);
     if (bytes.length > 8 * 1024 * 1024) throw Error('Library response exceeds the safety bound.');
     const decode = new TextDecoder('utf-8', { fatal: true }), models = new Map(), modules = new Map();
+    // Unrelated streamed UI and error chunks are not entitlement evidence. Keep
+    // their IDs unavailable so a required account/item reference still fails.
+    const unavailable = new Set(), streams = new Set();
     let p = 0, records = 0;
     while (p < bytes.length) {
       if (bytes[p] === 10) { p++; continue; }
@@ -147,16 +150,30 @@
         if (bytes[comma] !== 44 || !/^[a-f0-9]+$/u.test(sizeText)) throw Error('Invalid Library text frame.');
         const size = parseInt(sizeText,16);
         if (comma + 1 + size > bytes.length) throw Error('Truncated Library text frame.');
-        if (models.has(key) || modules.has(key)) throw Error('Duplicate Library frame.');
+        if (models.has(key) || modules.has(key) || unavailable.has(key)) throw Error('Duplicate Library frame.');
         models.set(key, decode.decode(bytes.subarray(comma + 1, comma + 1 + size))); p = comma + 1 + size; continue;
       }
       let end = p; while (end < bytes.length && bytes[end] !== 10) end++;
       if (end === bytes.length) throw Error('Truncated Library response.');
       const value = decode.decode(bytes.subarray(p,end)); p = end + 1;
+      if (value === 'X' || value === 'x' || value.startsWith('E')) {
+        if (models.has(key) || modules.has(key) || unavailable.has(key)) throw Error('Duplicate Library frame.');
+        if (value.startsWith('E')) JSON.parse(value.slice(1));
+        else streams.add(key);
+        unavailable.add(key); continue;
+      }
+      if (value.startsWith('C')) {
+        if (!streams.delete(key)) throw Error('Unexpected Library stream closure.');
+        if (value.length > 1) JSON.parse(value.slice(1));
+        continue;
+      }
+      if (streams.has(key)) { JSON.parse(value); continue; }
+      if (unavailable.has(key)) throw Error('Duplicate Library frame.');
       if (value.startsWith('I')) { if (modules.has(key) || models.has(key)) throw Error('Duplicate Library module.'); modules.set(key, JSON.parse(value.slice(1))); }
       else if (/^[\[\{"ntf\d-]/u.test(value)) { if (models.has(key) || modules.has(key)) throw Error('Duplicate Library model.'); models.set(key, JSON.parse(value)); }
       else if (!/^(?:H|D|W)/u.test(value)) throw Error('Unsupported Library frame.');
     }
+    if (streams.size) throw Error('Truncated Library stream.');
     const resolve = value => {
       const seen = new Set();
       for (let n = 0; n < 32; n++) {

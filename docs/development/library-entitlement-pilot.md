@@ -58,4 +58,14 @@ Installed tests exercise collector → message → worker → storage → reload
 
 Before activation, validate live bounded acquisition and missing/negative eligibility; separate-copy semantics; account-switch/recovery; DRM-free media classification; and any compatible GL observation transport. Preserve legacy purchases/corrections throughout. Do not relax missing fields to obtain Owned badges.
 
+### November 12 live-pilot follow-up
+
+The memory-only pilot uses the production collector/parser in the existing Humble page, with the guard enabled only in an isolated diagnostic copy. It has no extension messaging or persistent storage adapter. Only aggregate diagnostics are exported.
+
+The first real Library response exposed unsupported Flight `X`/`C` stream and `E` error frames. The reader now skips unrelated closed streams and error chunks, keeping their IDs unavailable as evidence. Required account/item references to those IDs still fail; malformed, duplicate and unclosed frames remain rejected. This follows the framing distinctions in [React's Flight client](https://github.com/facebook/react/blob/main/packages/react-client/src/ReactFlightClient.js), without executing provider code or implementing stream-based entitlement evidence.
+
+After this repair, both normal and no-cache reads returned an AuthProvider without a signed-in user and no UserLibrary component. Collection stopped before action discovery or parent requests, and no storage commit occurred. Consequently this attempt does **not** validate authenticated acquisition, admission counts or current media metadata. A fresh Humble sign-in is needed before repeating the bounded pilot; the older sampled identities are not substituted for current authenticated evidence.
+
+No admission predicates or media classifications changed. Public frontend handling of absent redemption groups is a rendering default, not independent proof of eligibility. `download_drm_free` describes delivery, not media; no default-to-book rule is authorized. The source guard and redesigned purchase-history importer remain disabled.
+
 Commands: `node --test tests/library-entitlements.test.mjs`; `node tests/runtime.mjs --library-entitlements [--firefox]`; `node tests/runtime.mjs --library-entitlements-disabled [--firefox]`. Packages are staged only in disposable temporary directories.

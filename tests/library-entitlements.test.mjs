@@ -125,3 +125,29 @@ test('production Flight reader respects UTF-8 text lengths and resolves module/m
   const f=E.flight('4:T'+length+','+title+'\n1:I[1,[],"$2"]\n2:"AuthProvider"\n0:["$","$L1",null,{"title":"$4"}]\n');
   assert.equal(f.resolve('$4'),title);assert.equal(f.components[0].name,'AuthProvider');
 });
+
+test('unrelated closed Flight streams and errors do not invalidate independent Library evidence',async()=>{
+  const f=fixture();
+  const fetcher=async(path,init)=>{
+    const r=await f.fetcher(path,init);
+    if(path.startsWith('/_next/'))return r;
+    return {...r,text:async()=> 'f0:X\nf0:{"unrelated":"UI stream"}\nf0:C\nf1:E{"digest":"synthetic-unrelated-error"}\n'+await r.text()};
+  };
+  const saved=await f.collect({fetcher});
+  assert.equal(saved.saved,8);assert.equal(saved.scan.historicalComplete,false);
+  assert(!JSON.stringify(f.stored).includes('synthetic-unrelated-error'));
+});
+
+test('Flight streams and errors cannot supply required evidence or bypass framing integrity',async()=>{
+  const {E}=fixture();
+  for(const body of ['a:X\na:C\n','a:E{"digest":"synthetic"}\n']){
+    const f=E.flight(body);assert.throws(()=>f.resolve('$a'),/reference/);assert.equal(f.models.size,0);
+  }
+  for(const body of ['a:X\n','a:C\n','a:X\na:X\n','a:E{}\na:{}\n','a:X\na:C\na:T1,x','a:Ebroken\n','a:X\na:broken\na:C\n'])assert.throws(()=>E.flight(body));
+  const f=fixture();
+  await assert.rejects(f.collect({fetcher:async(path,init)=>{
+    const r=await f.fetcher(path,init);if(path!=='/home/library'||init.method==='POST')return r;
+    return {...r,text:async()=> (await r.text()).replace('"id":"principal-A"','"id":"$f1"')+'f1:E{"digest":"synthetic-required-error"}\n'};
+  }}),/reference/);
+  assert.equal(f.writes.length,0);
+});
