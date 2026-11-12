@@ -195,3 +195,18 @@ test('dependency-rich modules keep the eight-asset ceiling and require a unique 
     assert.equal(assets,8);
   }
 });
+
+test('live-shaped Steam metadata remains a valid observation without ownership or activation authority',async()=>{
+  const c=child('native-steam');delete c.directRedeem;c.keyIntegrationId='synthetic-integration';c.unavailableAfter='2099-01-01T00:00:00.000Z';c.redeemedAt='2020-01-01T00:00:00.000Z';
+  const f=fixture({initial:legacy,rows:[row(c.id)],children:[c],parent:{preOrder:undefined}});
+  const result=await f.collect();assert.equal(result.saved,1);assert.equal(result.scan.unresolvedItems,0);
+  const [r]=observations(f);assert.equal(r.admission,'observation-only');assert.equal(r.mediaType,'game');assert.equal(r.activationStatus,'unknown');assert.equal(r.eligibility.parentPreOrder,null);assert.equal(r.eligibility.directRedeem,null);assert.equal(r.eligibility.integration,'unknown');assert.equal(r.eligibility.unavailableAfter.state,'date');
+  assert.equal(f.E.matchingItems(f.stored).length,0);assert.equal((await f.E.projectForGL(f.stored,'synthetic-salt')).records[0].admission,'observation-only');
+  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(restored.libraryEntitlements.scopes[0].observations[0].admission,'observation-only');assert.deepEqual(copy(restored.mediaTypeOverrides),legacy.mediaTypeOverrides);
+});
+
+test('live-shaped DRM-free metadata stays unknown-media observation-only rather than failing acquisition',async()=>{
+  const c=child('native-drm','Synthetic DRM','download_drm_free');delete c.directRedeem;delete c.keyIntegrationId;
+  const f=fixture({rows:[row(c.id,c.title,c.type)],children:[c],parent:{preOrder:undefined}});const result=await f.collect();assert.equal(result.saved,1);assert.equal(result.scan.unresolvedItems,0);
+  const [r]=observations(f);assert.equal(r.mediaType,'unknown');assert.equal(r.admission,'observation-only');assert.equal(r.eligibility.redemptionGroups,'none');assert.equal(f.E.matchingItems(f.stored).length,0);
+});

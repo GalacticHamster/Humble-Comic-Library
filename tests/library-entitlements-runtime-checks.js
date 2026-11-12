@@ -16,7 +16,7 @@ async function installedEntitlementChecks(disabled=false) {
   await store('replace',baseline);
   const committedBaseline=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
   const row=n=>({id:'native-'+n,title:'Synthetic game '+n,type:'steam',userId:'hub-A',productEntitlementId:'parent-A'});
-  const rows=Array.from({length:8},(_,n)=>row(n));let failPage=false,foreign=false,malformed=false,reads=0;
+  const rows=Array.from({length:8},(_,n)=>row(n));let failPage=false,foreign=false,malformed=false,reads=0,liveShape=false;
   const frames=components=>components.map((c,i)=>`${(i+1).toString(16)}:I${JSON.stringify([i+1,c.name==='UserLibrary'?['static/chunks/synthetic-library.js']:[],c.name])}`).join('\n')+'\n0:'+JSON.stringify(components.map((c,i)=>['$','$L'+(i+1).toString(16),null,c.props]))+'\n';
   const response=(body,status=200,type='text/x-component')=>({ok:status===200,status,headers:{get:()=>type},text:async()=>type==='text/x-component'&&status===200?'f0:X\nf0:{"ui":"synthetic stream"}\nf0:C\nf1:E{"digest":"synthetic unrelated UI error"}\n'+body:body});
   const htmlResponse=components=>response('<!doctype html><script>self.__next_f.push('+JSON.stringify([1,frames([...components,components[0]])])+')</script>',200,'text/html');
@@ -28,7 +28,7 @@ async function installedEntitlementChecks(disabled=false) {
       if(failPage&&page===2)return response('',503);
       return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*5,page*5).map(r=>({...r,userId:foreign?'foreign-hub':r.userId})),pagination:{page,totalPages:2,totalDocs:8}})+(malformed?'':'\n'));
     }
-    if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:false,keyIntegrationId:null,unavailableBefore:null,unavailableAfter:null,redeemedAt:null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}}))}}}}]);
+    if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:liveShape?undefined:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:liveShape?undefined:false,keyIntegrationId:liveShape?'synthetic-integration':null,unavailableBefore:null,unavailableAfter:liveShape?'2099-01-01T00:00:00.000Z':null,redeemedAt:liveShape?'2020-01-01T00:00:00.000Z':null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}}))}}}}]);
     throw Error('Unexpected fixture request');
   };
   const acquire=pageLimit=>E.collect({fetcher,store,confirmed:true,pageLimit});
@@ -50,6 +50,11 @@ async function installedEntitlementChecks(disabled=false) {
   const matching=E.matchingItems(state);check(matching.length===8&&matching.every(r=>r.entitlement==='third-party-key'&&!r.purchaseKey),'installed matching projection remains distinct from historical transactions');
   const feed=await E.projectForGL(state,'synthetic-salt');check(feed.records.every(r=>r.activationStatus==='unknown')&&feed.format==='humble-library-entitlement-observations','installed GL projection is distinguished and never a Steam ownership claim');
   check(complete.scan.historicalComplete===false&&complete.scan.reconciliationAuthority==='none','installed accessible traversal has no historical or deletion authority');
+  liveShape=true;const liveResult=await acquire(2);const liveState=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
+  check(liveResult.saved===8&&liveResult.scan.unresolvedItems===0,'installed live-shaped Steam records persist as observations without parser rejection');
+  check(E.matchingItems(liveState).length===0&&liveState.libraryEntitlements.scopes[0].observations.every(r=>r.admission==='observation-only'&&r.activationStatus==='unknown'),'installed missing integration/preorder evidence and future availability never gain ownership or activation');
+  const liveRestored=H.restoreBackupState(H.createLibraryBackup(liveState));check(liveRestored.libraryEntitlements.scopes[0].observations.every(r=>r.admission==='observation-only')&&JSON.stringify(liveRestored.mediaTypeOverrides)===JSON.stringify(committedBaseline.mediaTypeOverrides),'installed live-shaped backup retains conservative status and historical corrections');
+  liveShape=false;await store('replace',state);
   try{
     E.installPanel({fetcher});const panel=document.getElementById('hcl-library-entitlement-pilot');
     check(!!panel,'installed pilot exposes a separate explicitly labeled collector panel');
