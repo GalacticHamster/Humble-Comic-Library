@@ -254,3 +254,16 @@ for(const field of ['giftStatus','revoked','temporaryAccess'])test(`refresh pres
   const clear=child(c.id);clear[field]=field==='giftStatus'?'unassigned':false;const third=fixture({initial:second.stored,rows:[row(c.id)],children:[clear]});await third.collect();assert.equal(observations(third)[0].purchaseStatus,'purchased');
   const record=observations(third)[0];assert.throws(()=>third.E.refreshObservation(record,{...record,nativeId:'other'}),/foreign/);
 });
+
+test('live titles with line breaks or tabs are normalized display metadata, not a reason to reject a purchase',async()=>{
+  const title='Synthetic\tgame:\nsubtitle ',r=row('titled',title),c=child('titled',title);
+  const f=fixture({initial:legacy,rows:[r],children:[c]});const result=await f.collect();
+  assert.equal(result.saved,1);assert.equal(result.scan.unresolvedItems,0);
+  const [saved]=observations(f);assert.equal(saved.title,'Synthetic game: subtitle');assert.equal(saved.purchaseStatus,'purchased');assert.equal(saved.nativeId,'titled');
+  for(const [k,v]of Object.entries(legacy))assert.deepEqual(f.stored[k],v);
+  // Stored observations stay strict: a raw control character cannot enter through backup restore.
+  const backup=f.H.createLibraryBackup(f.stored);backup.libraryEntitlements.scopes[0].observations[0].title=title;assert.throws(()=>f.H.restoreBackupState(backup),/text/);
+  for(const [rowTitle,childTitle] of [['\n\t','\n\t'],['Synthetic game','Different game']]){
+    const g=fixture({rows:[row('bad',rowTitle)],children:[child('bad',childTitle)]});const bad=await g.collect();assert.equal(bad.saved,0);assert.equal(bad.scan.unresolvedItems,1);
+  }
+});

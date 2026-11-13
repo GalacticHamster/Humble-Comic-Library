@@ -394,6 +394,7 @@
 #hcl-library-entitlement-pilot {
   position: fixed; right: 16px; bottom: 16px; z-index: 2147483646;
   max-width: min(360px, calc(100vw - 32px)); padding: 14px;
+  max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
   background: #1f2937; color: #f9fafb; border: 1px solid #64748b; border-radius: 8px;
   font: 14px/1.45 system-ui, sans-serif;
 }
@@ -403,3 +404,5 @@
 #hcl-library-entitlement-pilot progress[hidden], #hcl-library-entitlement-pilot [hidden] { display: none; }
 #hcl-library-entitlement-pilot .hcl-sync-facts { margin: 6px 0; padding-left: 18px; }
 #hcl-library-entitlement-pilot .hcl-sync-note { color: #fde68a; }
+/* The saved-items disclosure can list up to 50 titles; keep status and controls on screen. */
+#hcl-library-entitlement-pilot details ul { max-height: 12em; overflow-y: auto; margin: 6px 0 0; padding-left: 18px; }

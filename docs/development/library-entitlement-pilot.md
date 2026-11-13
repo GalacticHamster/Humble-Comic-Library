@@ -73,6 +73,46 @@ Page position is progress, not proof of observation. Each later batch first re-r
 
 A full sync's target follows the latest reported page count. A full sync completes as `accessible-pages-traversed` only when it has no uncertainty; otherwise it completes as `incomplete`. Empty or short pages that contradict reported totals never advance the checkpoint. Observations absent from later pages are never removed.
 
+### Live full-Library pilot (November 12)
+
+A read-only memory-only diagnostic first sampled pages 1, 400, 800, 1200 and 1647. All 25 rows had parents in the initial 206-parent list and were verified as Purchased.
+
+The pilot build then ran against a real Firefox library as a temporary add-on with the same extension ID and storage UUID. It completed a real full sync of 1,647 of 1,647 reported pages (8,235 rows) in 165 batches over about 70 minutes, with no retries, rate limits or sign-in problems. Every row is accounted for:
+
+| Rows | Outcome |
+|---:|---|
+| 8,111 | Unique native entitlements saved: 8,109 Purchased, 2 excluded as gifted |
+| 10 | Already saved earlier in the same sync |
+| 68 | Duplicate rows within a batch |
+| 46 | Not verified |
+
+The stored data checked out:
+
+- Every saved entitlement is bound to the active saved account.
+- Activation is Unknown for all of them.
+- No key, redemption or download fields were stored.
+- A backup round-trip keeps observations and the checkpoint.
+
+The sync completed `incomplete` because of `items-unresolved`. Legacy items, summaries, history, reminders, corrections and import history were byte-identical (by hash) before and after. A diagnostic of the 10-page range containing one unverified row found its cause: the provider title contained control characters (a line break or tab). Provider titles are now normalized by collapsing control-character runs into a space. Row/detail title agreement and every native-ID, parent and account check are unchanged. Stored observations still reject control characters, and a title that is blank after normalization stays unresolved.
+
+A second full sync, with the fix, used the same storage and changed nothing in the legacy data. It read all 1,647 pages in 166 batches over about 77 minutes. There were no retries, rate limits or sign-in problems.
+
+| Rows | Outcome |
+|---:|---|
+| 4 | Newly saved (titles with line breaks or tabs) |
+| 8,121 | Already saved, refreshed |
+| 68 | Duplicate rows within a batch |
+| 42 | Not verified |
+
+The library now holds 8,115 unique entitlements: 8,113 Purchased and 2 excluded. Nothing was duplicated. A memory-only reason diagnostic read all 8,235 rows and explained every remaining row:
+
+| Rows | Reason |
+|---:|---|
+| 41 | The row's parent is not in the Library page's initial parent list |
+| 1 | The parent's detail page does not list the row |
+
+All 42 rows are on pages 1,295–1,591. Each is withheld as unresolved and not admitted, and the sync stays `incomplete`. Verifying them would need a parent source outside the initial list. Accepting one is a change to identity verification and needs its own review.
+
 ### Refresh
 
 **Check recent purchases** reads the six most recent pages (sort `mostRecent`). It widens to `ceil(growth / 5) + 2` pages, at most 40, when the reported total has grown since the previous run. It continues through that whole range even when it sees known IDs, and completes as `recent-pages`, which never claims full coverage. The last full-sync result (`lastFull`) is kept. Users can run the full sync again at any time.

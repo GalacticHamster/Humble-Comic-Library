@@ -18,6 +18,9 @@
     return v;
   };
   const id = v => { text(v, 250); if (v.startsWith('$')) throw Error('Unresolved Library identity.'); return v; };
+  // Provider titles are display metadata. Live titles can contain line breaks or tabs;
+  // collapse control-character runs instead of rejecting the purchase. Stored text stays strict.
+  const providerTitle = v => text(typeof v === 'string' ? v.replace(/\s*[\u0000-\u001f\u007f]+\s*/gu, ' ').trim() : v);
   const enumeration = v => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,64}$/u.test(v) ? v : 'unknown';
   const boolean = v => typeof v === 'boolean' ? v : null;
   const accessFlag = v => { if (v !== undefined && v !== null && typeof v !== 'boolean') throw Error('Invalid Library access evidence.'); return boolean(v); };
@@ -394,14 +397,14 @@
   }
   function projectChild(f, row, parent, child, scope, parentType, checkedAt) {
     const t = v => f.resolve(v), namespace = enumeration(t(child.type));
-    if (id(t(row.id)) !== id(t(child.id)) || t(child.title) !== t(row.title) || enumeration(t(row.type)) !== namespace) throw Error('Library row/detail identity conflict.');
+    if (id(t(row.id)) !== id(t(child.id)) || providerTitle(t(child.title)) !== row.title || enumeration(t(row.type)) !== namespace) throw Error('Library row/detail identity conflict.');
     const groups = t(parent.entitlements?.redemptionGroups);
     const integrationId = t(child.keyIntegrationId), directRedeem = boolean(t(child.directRedeem));
     const listing = row.listingEvidence.filter(c => c.id === row.id && c.type === namespace);
     const revoked = [row.revoked, ...listing.map(c=>c.revoked), accessFlag(t(parent.revoked)), accessFlag(t(child.revoked))];
     const temporary = [row.temporaryAccess, ...listing.map(c=>c.temporaryAccess), accessFlag(t(parent.temporaryAccess)), accessFlag(t(child.temporaryAccess))];
     const gifted = row.giftStatus === 'gifted' || listing.some(c=>c.giftStatus === 'gifted');
-    return observation({ scope, nativeId: t(child.id), namespace, title: t(child.title), parentId: t(row.productEntitlementId), source: 'authenticated-humble-library', observedAt: checkedAt,
+    return observation({ scope, nativeId: t(child.id), namespace, title: providerTitle(t(child.title)), parentId: t(row.productEntitlementId), source: 'authenticated-humble-library', observedAt: checkedAt,
       eligibility: { expired: boolean(t(child.expired)), preOrdered: boolean(t(child.preOrdered)), outOfStock: boolean(t(child.outOfStock)), redeemable: boolean(t(child.redeemable)), directRedeem,
         revoked: revoked.includes(true) ? true : boolean(t(child.revoked)), temporaryAccess: temporary.includes(true) ? true : boolean(t(child.temporaryAccess)),
         parentPreOrder: boolean(t(parent.preOrder)), parentType, giftStatus: gifted ? 'gifted' : enumeration(t(child.giftStatus)),
@@ -472,7 +475,7 @@
           let ref;
           try {
             if (typeof f.resolve(raw.userId) !== 'string' || f.resolve(raw.userId) !== first.scope.userId) throw Object.assign(Error('Library account changed or could not be verified.'), { fatalScope: true });
-            const row = { id: id(f.resolve(raw.id)), type: enumeration(f.resolve(raw.type)), title: text(f.resolve(raw.title)), productEntitlementId: id(f.resolve(raw.productEntitlementId)) };
+            const row = { id: id(f.resolve(raw.id)), type: enumeration(f.resolve(raw.type)), title: providerTitle(f.resolve(raw.title)), productEntitlementId: id(f.resolve(raw.productEntitlementId)) };
             row.revoked = accessFlag(f.resolve(raw.revoked)); row.temporaryAccess = accessFlag(f.resolve(raw.temporaryAccess)); row.giftStatus = enumeration(f.resolve(raw.giftStatus));
             row.listingEvidence = [...(f.resolve(raw.entitlements?.keys) ?? []), ...(f.resolve(raw.entitlements?.downloads) ?? [])].map(c => ({
               id: id(f.resolve(c.id)), type: enumeration(f.resolve(c.type)), giftStatus: enumeration(f.resolve(c.giftStatus)),

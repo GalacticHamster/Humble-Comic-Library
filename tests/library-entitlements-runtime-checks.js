@@ -89,6 +89,13 @@ async function installedEntitlementChecks(disabled=false,phase) {
     check(/not proof of your complete purchase history/.test(status.textContent),'installed completion does not claim complete purchase history');
     check([...panel.querySelectorAll('.hcl-sync-facts li')].some(li=>/0 new, 8 already saved/.test(li.textContent)),'installed panel separates new and refreshed observations');
     check([...panel.querySelectorAll('details li')].some(li=>/Purchased/.test(li.textContent)),'installed panel lists saved Purchased items');
+    // Live pilot regression: an open 50-item list must not push status/controls off screen.
+    const style=document.createElement('style');style.textContent=await (await fetch(chrome.runtime.getURL('content.css'))).text();document.head.append(style);
+    const details=panel.querySelector('details'),list=details.querySelector('ul');while(list.children.length<50)list.append(Object.assign(document.createElement('li'),{textContent:'Synthetic saved item — Purchased · Media: Unknown'}));details.open=true;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    const box=panel.getBoundingClientRect();
+    check(box.top>=0&&box.bottom<=innerHeight&&list.scrollHeight>list.clientHeight&&status.getBoundingClientRect().top>=0,'installed panel keeps status on screen with the saved-items list open');
+    style.remove();
   }finally{document.getElementById('hcl-library-entitlement-pilot')?.remove();await store('replace',state);}
   await installedSyncChecks({store,state,baseline:committedBaseline,row,check});
   return {checks};
