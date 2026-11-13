@@ -279,11 +279,17 @@ The combined groups:
 
 The Bundles & Orders view drops from 460 to 236 groups. Reconciliation takes about 40 ms and is identical for reversed and shuffled input and after an extension reload. Browsing and switching sources leave protected storage unchanged.
 
-## Companion boundary
+## Media, ownership matching and Galactic Library (1.1.1)
 
-Observations never enter legacy libraryItems, summaries, reminders, corrections or companion transaction snapshots. Old GL/FAN cannot receive them as fabricated purchases or Steam ownership.
+**Media.** `projectChild` keeps each DRM-free child's `downloads[].platform` and `downloads[].downloadStruct[].name` as `delivery: {platforms, formats}`: short lowercase tokens only, never links, file names or hashes. A November 13 read-only probe found `platform: ebook` and PDF/CBZ formats on all 127 sampled DRM-free children. `providerMedia` applies the historical importer's order to that evidence: software assets, video, executables (game, or software from a Software Bundle), audio, comics (CBZ/CBR or a Comics/Manga Bundle), books. Key stores (Steam, GOG, Epic, console stores) are games. No extra requests are made. Observations saved by 1.1.0 lack `delivery`; `resolvedMedia` then uses the same title's media from the account's imported records when they agree (book and comic agree), else an explicit Book, Comics/Manga, Software or Audiobook Bundle purchase name, else Unknown. Options and the Library panel ask for one more full sync when such records exist.
 
-`projectForGL` is a different versioned, salted-reference **projection only**. There is no transport hook or automatic sharing. A compatible GL capability and explicit account/consent review are required before sending it. Existing purchase/reminder sync remains unchanged.
+**Matching.** `matchingItems` gives the bundle-page matcher every purchased record with a resolved media, except titles the account's imported records already list (those match through the imported record, so copies are not doubled). The existing ownership policy then decides Owned, Possible, Partial or New; a Humble key is presented as Purchased, activation not confirmed.
+
+**Galactic Library.** HB's `handoffSnapshot` appends `companionRecords` to the existing v1 purchase snapshot for the account the native scope is bound to, so the coordinator, consent, chunked transfer and GL ingestion are unchanged. Records use `humble-library:<namespace>:<native ID>` and purchase `humble-library:<parent ID>`, no purchase date, entitlement `direct-download` or `third-party-key` with key status unknown, and file formats. Provider account identifiers are not sent. Deduplication is per title and media family: copies are sent only beyond the number of imported purchases of that title, in native-ID order. That keeps genuine repeat purchases, avoids doubling overlap and stores no inferred identity mapping. Unknown media and videos are withheld and reported as snapshot limitations. During two-way sync, `handoffImport` drops incoming `humble-library:` records, so GL's copies never become imported purchases. The worker marks the purchase sync when a Library sync releases its lease (and at startup), not after every batch. GL needed no runtime change: its Humble key evidence already reports activation unknown.
+
+Live read-only analysis of the pilot account (aggregates): 8,231 purchased records; media resolved for 7,859 (7,122 from imported titles, 465 key stores, 272 purchase names), 372 unknown and 20 videos until a full re-sync records delivery details. 274 synced-only records now reach the matcher. GL would receive 917 synced records in addition to 7,744 imported ones; 6,922 copies are not sent because imported records already represent them.
+
+`projectForGL` remains a separate, unused salted projection.
 
 ## Release integration (1.1.0)
 

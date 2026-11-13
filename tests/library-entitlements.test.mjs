@@ -277,7 +277,7 @@ test('storefront and claimed Choice membership qualify independently of optional
 
 test('generic Purchased display preserves unknown media, native copies and account isolation',async()=>{
   const f=fixture({rows:[row('a','Same title','download_drm_free'),row('b','Same title','download_drm_free'),row('c','Other key','gog')]});await f.collect();
-  const views=f.E.purchaseViews(f.stored);assert.equal(views.length,3);assert.equal(new Set(views.map(r=>r.itemRef)).size,3);assert(views.every(r=>r.status==='Purchased'&&r.mediaType==='unknown'&&r.activationStatus==='unknown'));assert.equal(f.E.matchingItems(f.stored).length,0);
+  const views=f.E.purchaseViews(f.stored);assert.equal(views.length,3);assert.equal(new Set(views.map(r=>r.itemRef)).size,3);assert(views.every(r=>r.status==='Purchased'&&r.activationStatus==='unknown'));assert.deepEqual([...views.map(r=>r.mediaType)].sort(),['game','unknown','unknown'],'a GOG key is a game; DRM-free files without delivery evidence stay unknown');assert.deepEqual(JSON.parse(JSON.stringify(f.E.matchingItems(f.stored).map(i=>[i.title,i.kind,i.entitlement]))),[['Other key','game','third-party-key']]);
   assert.equal(f.E.purchaseViews({...f.stored,humbleAccountId:'22222222-2222-4222-8222-222222222222'}).length,0);
   const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));assert.equal(f.E.purchaseViews(restored).length,3);
 });

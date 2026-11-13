@@ -917,9 +917,9 @@
       for (const entry of group.items) {
         if (entry.excluded || historical.has(key(entry.title))) continue;
         const k = key(entry.title);
-        if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.namespace === 'steam' ? 'game' : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
+        if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', route: entry.route, steam: entry.namespace === 'steam' });
+        title.nativeCopies.push({ purchase: group.name || '', route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
         if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
       }
     }
@@ -945,7 +945,7 @@
       primary.textContent = copy.purchase ? `Purchase: ${copy.purchase}` : 'Humble Library purchase';
       const secondary = document.createElement('div');
       secondary.className = 'library-provenance-secondary';
-      secondary.textContent = `Purchased on Humble · Media: ${copy.steam ? 'Game' : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
+      secondary.textContent = `Purchased on Humble · Media: ${copy.media ? mediaTypeLabel(copy.media) : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
       li.append(primary, secondary);
       if (copy.route) {
         const open = document.createElement('button');
@@ -1307,6 +1307,7 @@
     if (cp.lastFull) parts.push(`Last full sync finished ${date(cp.lastFull.completedAt)}${cp.lastFull.coverage === 'accessible-pages-traversed' ? '.' : '; some items may have been missed, so run it again later.'}`);
     else if (cp.status === 'completed' || cp.status === 'cancelled') parts.push('No full sync has finished yet; run one to check your whole Library.');
     if (cp.status === 'completed' && cp.mode === 'refresh') parts.push(`Recent purchases checked ${date(cp.updatedAt)}.`);
+    if (view.undetailed) parts.push(`${number(view.undetailed)} item${view.undetailed === 1 ? ' was' : 's were'} saved before download details were read, so ${view.undetailed === 1 ? 'its' : 'their'} media may be unknown. Run the full sync again on the Humble Library page to identify ${view.undetailed === 1 ? 'it' : 'them'} for bundle-page checks and Galactic Library.`);
     if (cp.unresolved) parts.push(`${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} could not be verified and ${cp.unresolved === 1 ? 'was' : 'were'} not saved.`);
     status.textContent = parts.join(' ');
   }

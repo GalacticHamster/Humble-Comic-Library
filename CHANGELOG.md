@@ -1,13 +1,18 @@
 # Changelog
 
-## 1.1.0 — Sync from your Humble Library
+## 1.1.1 — Sync from your Humble Library
+
+Replaces the unpublished 1.1.0 candidate.
+
 
 - Sync purchases from Humble's redesigned Library page. **Sync full Library** reads the whole Library, **Check recent purchases** picks up new orders, and syncs can be paused, cancelled and resumed later, even after a browser restart. Each batch is saved with its progress; sign-in, account, rate-limit and incomplete-coverage problems are explained with the next step. The old purchase-page importer, which Humble's redesign broke, now points here.
-- Synced purchases are stored separately from purchases imported before the redesign, and are checked against the signed-in Humble account. Nothing is removed or replaced. Gifted, revoked and temporary-access items are not counted as purchases, media stays Unknown unless Humble identifies it, and Steam or other key activation stays Unknown.
+- Synced purchases are stored separately from purchases imported before the redesign, and are checked against the signed-in Humble account. Nothing is removed or replaced. Gifted, revoked and temporary-access items are not counted as purchases, and Steam or other key activation stays Unknown.
+- Synced purchases take part in bundle-page ownership checks, including comics, books, audiobooks, software and DRM-free games. Media comes from the download type and file formats Humble lists, as the old importer used; purchases saved before this version use the same title's media from earlier imports or an explicit Book, Comics or Software Bundle name. Anything else stays Unknown and is not guessed. The existing matching rules still keep sequels, other editions, omnibuses and unrelated titles apart, and a Humble Steam key is shown as Purchased, not activated.
+- Synced purchases are shared with Galactic Library through the existing automatic purchase sync, once a Library sync finishes. A title already shared from earlier imports is not sent again; only further copies are, so repeat purchases stay distinct without doubling. Records Galactic Library sends back are recognised and never become imported purchases. Items with unknown media and videos are not shared.
 - A first install can sync without an earlier import. Extension options, the toolbar popup and the Titles and Bundles & Orders views now show synced purchases, including titles that exist only in the Humble Library. Likely matches between earlier imports and synced purchases are combined in Bundles & Orders for display only.
 - Key reminders no longer use Humble's retired order links. **Open in Humble Library** goes to the purchase that is likely the same order, or to the item itself when exactly one matching key is listed. Repeat purchases, ambiguous orders and orders without a Library match open the Library instead. The order-link setting was removed.
 
-No new permissions or network destinations: the sync reads humblebundle.com in the signed-in tab. Ownership badges on bundle pages use synced Steam-key games; synced DRM-free items (books, comics, most software) are not yet used for badges because Humble does not identify their media. Synced purchases are not yet shared with Galactic Library.
+No new permissions, network destinations or extra Humble requests: the sync reads humblebundle.com in the signed-in tab, and the purchase-sync protocol is unchanged. Purchases synced with 1.1.0 should be synced again in full once so their media can be identified.
 
 ## 1.0.3 — automatic local sharing
 

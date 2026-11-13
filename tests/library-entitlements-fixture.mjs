@@ -15,10 +15,10 @@ export function fixture(options={}) {
   let stored={humbleAccountId:accountId,humbleProfileLabel:'A',libraryItems:[],...copy(options.initial??{})},writeCount=0,envelopes=0,secretReads=0;
   const requests=[],writes=[];
   const area={get:async defaults=>typeof defaults==='string'?{[defaults]:stored[defaults]}:{...copy(defaults),...copy(stored)},set:async patch=>{if(options.writeFailure?.(patch))throw Error('Synthetic storage failure');stored={...stored,...copy(patch)};writes.push(copy(patch));writeCount++;},remove:async keys=>{for(const k of keys)delete stored[k];}};
-  const context=vm.createContext({console,URL,TextEncoder,TextDecoder,FormData,AbortSignal,Date,crypto:webcrypto,setTimeout,clearTimeout});
+  const context=vm.createContext({console,URL,TextEncoder,TextDecoder,FormData,AbortSignal,Date,crypto:webcrypto,setTimeout,clearTimeout,structuredClone});
   if(options.poisonSecrets)context.JSON={stringify:JSON.stringify,parse:value=>{const result=JSON.parse(value);const walk=v=>{if(!v||typeof v!=='object')return;for(const k of Object.keys(v)){if(['keyFormatted','externalAccountName','gameKey'].includes(k))Object.defineProperty(v,k,{enumerable:true,get(){secretReads++;throw Error('Forbidden secret access');}});else walk(v[k]);}};walk(result);return result;}};
   context.globalThis=context;
-  for(const file of [...(options.accounts?['purchase-sync.js']:[]),'library-entitlements.js','shared.js','collection-mappings.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(file==='library-entitlements.js'&&options.enabled===false?'const ENABLED = true;':'__NO_REPLACEMENT__','const ENABLED = false;'),context,{filename:file});
+  for(const file of [...(options.companion?['purchase-snapshot.js','purchase-sync.js','purchase-adapters.js']:options.accounts?['purchase-sync.js']:[]),'library-entitlements.js','shared.js','collection-mappings.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(file==='library-entitlements.js'&&options.enabled===false?'const ENABLED = true;':'__NO_REPLACEMENT__','const ENABLED = false;'),context,{filename:file});
   const E=context.HumbleLibraryEntitlements,H=context.HumbleComicLibrary,writer=H.createSyncStore(area);
   const rows=options.rows??Array.from({length:8},(_,i)=>row('id-'+i,'Synthetic game '+i));
   const children=options.children??rows.map(r=>child(r.id,r.title,r.type));

@@ -79,12 +79,15 @@
       }
     }
     const native = nativeScope({ libraryEntitlements, humbleAccountId, entitlements });
+    // The same media resolution the bundle matcher uses: provider evidence, then agreeing imported records.
+    const kinds = native.scope && entitlements.historicalKinds ? entitlements.historicalKinds(Array.isArray(items) ? items : []) : null;
     for (const r of native.scope?.observations ?? []) {
+      const media = kinds ? entitlements.resolvedMedia(r, kinds) : r.mediaType;
       const key = 'n:' + r.parentId;
       if (!groups.has(key)) groups.set(key, group(key, { source: 'native', parentId: r.parentId, type: NATIVE_TYPES[r.eligibility?.parentType] ?? 'unknown', route: purchaseRoute(r.parentId) }));
       const g = groups.get(key);
       if (!g.name && r.parentTitle) g.name = r.parentTitle;
-      g.items.push({ title: r.title, kind: r.mediaType, category: r.mediaType === 'game' ? 'game' : 'unknown', source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
+      g.items.push({ title: r.title, kind: media, category: category(media), source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
         gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId) });
     }
     const list = [...groups.values()];

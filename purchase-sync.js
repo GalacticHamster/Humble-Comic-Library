@@ -51,6 +51,11 @@
   if(/Mapped account|Proposed account|account.*(?:unavailable|replaced)|duplicate.*identity/i.test(text))return 'missing-account';
   if(/consent|permission|not confirmed|not authorized|not allowed|Confirm automatic synchronization|Unknown automatic synchronization/i.test(text))return 'consent-required';
   if(/relationship changed|different relationship|conflicting|Disconnect the existing|connection changed/i.test(text))return 'mapping-conflict';
+  // Companion accountRef hashes include saved items, including reminder reviews.
+  // A concurrent edit can stale that snapshot reference without changing the
+  // stable account mapping. Retry with fresh descriptors; normal identity and
+  // consent guards still reject deleted/replaced accounts on the next attempt.
+  if(text==='Saved account data changed. Refresh the account choices and confirm again.')return 'source-busy';
   if(/Saved (?:source|destination) account changed|Saved source purchases|purchases changed/i.test(text))return 'source-busy';
   if(/destination account changed|source account changed/i.test(text))return 'identity-changed';
   if(/Response (?:lost|interrupted)|timed out|worker restarted/i.test(text))return 'transport';

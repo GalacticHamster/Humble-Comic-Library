@@ -180,7 +180,7 @@ test('Sync from Humble reports progress, unfinished syncs and unverified items i
   const cp = { version: 1, id: '44444444-4444-4444-8444-444444444444', mode: 'full', status: 'paused', reason: 'user', coverage: 'in-progress', startedAt: '2026-11-13T00:00:00.000Z', updatedAt: '2026-11-13T00:05:00.000Z', lastProgressAt: '2026-11-13T00:05:00.000Z',
     revision: 3, nextPage: 4, targetPages: 9, reportedPages: 9, reportedTotal: 8500, initialTotal: 8500, baselineTotal: null, pagesRead: 3, batches: 1, added: 1, refreshed: 0, unresolved: 2, conflicts: 0, duplicates: 0, pageSize: 1000, uncertainty: ['items-unresolved'], lastSignature: null, lastFull: null };
   const paused = await harness({ libraryEntitlements: entitlements(obs, ACCOUNT, cp) });
-  assert.match(paused.get('#library-sync-status').textContent, /^1 Humble Library item saved for this account\. A full sync is unfinished \(3 of 9 pages read\)\. Open Humble Library and select Resume\. 2 items could not be verified and were not saved\.$/u);
+  assert.match(paused.get('#library-sync-status').textContent, /^1 Humble Library item saved for this account\. A full sync is unfinished \(3 of 9 pages read\)\. Open Humble Library and select Resume\. 1 item was saved before download details were read, so its media may be unknown\. Run the full sync again on the Humble Library page to identify it for bundle-page checks and Galactic Library\. 2 items could not be verified and were not saved\.$/u);
   const fresh = await harness({ humbleAccountId: null, humbleProfileLabel: '' });
   assert.equal(fresh.get('#library-sync-status').textContent, 'Not synced from your Humble Library yet.');
   assert.equal(fresh.get('#last-import').textContent, '', 'no stale importer message on a fresh install');

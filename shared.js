@@ -861,6 +861,24 @@
     });}
     return {libraryItems:enrich(state.libraryItems,false),historicalLibraryItems:enrich(state.historicalLibraryItems??[],true),stats,details};
   }
+  // Synced Humble Library records join the existing purchase-sync snapshot (v1) for the
+  // account they are bound to. Imported purchases are unchanged; see companionRecords.
+  function nativeShare(scope){
+    const E=global.HumbleLibraryEntitlements;if(!E?.ENABLED)return null;
+    return E.companionRecords({libraryEntitlements:scope.state.libraryEntitlements,accountId:scope.stableId,items:scope.items,historicalItems:scope.state.historicalLibraryItems??[]});
+  }
+  async function companionAccounts(state){
+    const A=global.GalacticPurchaseAdapters,rows=await A.accounts('hb',state),scopes=A.hbScopes(state);
+    return rows.map((row,index)=>{const native=nativeShare(scopes[index]);if(!native)return row;const shared=native.records.length,withheld=native.unknown+native.video;
+      return {...row,count:row.count+shared+withheld,eligibleCount:row.eligibleCount+shared,unassigned:row.unassigned&&!shared&&!withheld,limitations:withheld?[...row.limitations,withheld+' synced Humble Library items have no media type GL supports yet and are not shared.']:row.limitations};});
+  }
+  async function companionSnapshot(state,ref){
+    const A=global.GalacticPurchaseAdapters,S=global.GalacticPurchaseSnapshot,data=await A.snapshot('hb',state,ref),native=nativeShare(await A.selected('hb',state,ref));
+    if(!native||!native.records.length&&!native.unknown&&!native.video)return data;
+    const notes=[...(native.unknown?[native.unknown+' synced Humble Library items have unknown media and are not shared. A full Library sync can identify most of them.']:[]),...(native.video?[native.video+' synced Humble Library videos are not shared; GL does not store videos from Humble.']:[]),
+      ...(native.represented?[native.represented+' synced Humble Library items are already shared as imported purchases and are not sent twice.']:[])];
+    return S.validate({...data,limitations:[...notes,...data.limitations].slice(0,20),records:[...data.records,...native.records]});
+  }
   function createSyncStore(area,{onInvalidated=()=>{}}={}) {
     let tail=Promise.resolve();
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
@@ -931,15 +949,17 @@
       }
       if(['syncAccounts','begin','selectProfile','renameProfile'].includes(operation))await globalThis.GalacticPurchaseSync?.migrateAccounts(area,'hb');
       if(operation==='syncAccounts'){
-      const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await globalThis.GalacticPurchaseAdapters.accounts('hb',state);
+      const state=await area.get(LIBRARY_STATE_DEFAULTS),rows=await companionAccounts(state);
       return rows;
     }
     if(['handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(operation)){
         const A=globalThis.GalacticPurchaseAdapters,S=globalThis.GalacticPurchaseSnapshot,state=await area.get(LIBRARY_STATE_DEFAULTS);
-        if(operation==='handoffAccounts')return A.accounts('hb',state);
-        if(operation==='handoffSnapshot')return A.snapshot('hb',state,args[0]);
+        if(operation==='handoffAccounts')return companionAccounts(state);
+        if(operation==='handoffSnapshot')return companionSnapshot(state,args[0]);
         if(operation==='handoffInventory')return A.hbInventory(state,args[0]);
-        const [raw,target]=args,data=S.validate(raw);if(data.provider!=='humble')throw Error('Wrong purchase provider.');
+        const [raw,target]=args,validated=S.validate(raw);if(validated.provider!=='humble')throw Error('Wrong purchase provider.');
+        // Records GL received from this extension's Library sync stay in Library storage; they never become imported purchases.
+        const data={...validated,records:validated.records.filter(row=>!global.HumbleLibraryEntitlements?.sharedRecord(row.providerItemId))};
         if(operation!=='handoffPreview'&&(await area.get({[controlKey]:null}))[controlKey])throw Error('Wait for the Humble scan to finish before importing saved purchases.');
         let scope;
         if(target?.newLabel){const label=String(target.newLabel).trim();if(!label||label.length>100||A.hbScopes(state).some(value=>value.label===label)||target.expectedActiveLabel!==state.humbleProfileLabel)throw Error('Invalid or stale new account choice.');scope={label,items:[],state:{...LIBRARY_STATE_DEFAULTS,humbleProfileLabel:label,humbleAccountId:global.crypto.randomUUID()},fresh:true};}

@@ -102,3 +102,9 @@ async function shareMappedReminders({state,account,verify}){
 const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl),onSynced:shareMappedReminders});
 purchaseSync.register();
 GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives','keyReminders'], 'hclSyncControl');
+// Library sync batches commit every few seconds. Share them once the sync releases its lease
+// (finished, paused or stopped) rather than after every batch. An abandoned sync is shared at startup.
+chrome.storage.onChanged?.addListener((changes,area)=>{
+ if(area!=='local'||!changes.libraryEntitlements&&!(changes.hclLibraryEntitlementLease&&!changes.hclLibraryEntitlementLease.newValue))return;
+ chrome.storage.local.get({hclLibraryEntitlementLease:null}).then(state=>{if(!state.hclLibraryEntitlementLease)return purchaseSync.mark('humble');}).catch(()=>{});
+});

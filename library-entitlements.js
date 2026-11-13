@@ -59,6 +59,73 @@
     }
     return result;
   }
+  // Download platforms and file-format names as Humble lists them for a DRM-free item. They
+  // describe the delivery only; links, file names and hashes are never read or kept.
+  const DELIVERY_TOKEN = /^[a-z0-9][a-z0-9 ._+-]{0,23}$/u;
+  function delivery(raw) {
+    if (raw === undefined || raw === null) return null;
+    if (!object(raw) || Object.keys(raw).some(k => !['platforms','formats'].includes(k))) throw Error('Invalid Library delivery evidence.');
+    const list = v => { if (!Array.isArray(v) || v.length > 12 || v.some(x => typeof x !== 'string' || !DELIVERY_TOKEN.test(x))) throw Error('Invalid Library delivery evidence.'); return [...new Set(v)].sort(); };
+    return { platforms: list(raw.platforms), formats: list(raw.formats) };
+  }
+  function deliveryEvidence(t, downloads) {
+    if (!Array.isArray(downloads)) return null;
+    const platforms = new Set(), formats = new Set(), token = v => typeof v === 'string' ? v.trim().toLowerCase().replace(/\s*\((?:zip|rar|7z)\)$/u, '').replace(/^\./u, '') : '';
+    for (const d of downloads.slice(0, 50)) {
+      const value = t(d);
+      if (!object(value)) continue;
+      const platform = token(t(value.platform)); if (DELIVERY_TOKEN.test(platform)) platforms.add(platform);
+      const files = t(value.downloadStruct);
+      for (const f of Array.isArray(files) ? files.slice(0, 50) : []) { const name = token(t(object(t(f)) ? t(f).name : null)); if (DELIVERY_TOKEN.test(name)) formats.add(name); }
+    }
+    return { platforms: [...platforms].sort().slice(0, 12), formats: [...formats].sort().slice(0, 12) };
+  }
+  // Key-only stores sell games. Steam keys can be software too; that was never distinguished.
+  const GAME_KEYS = new Set(['steam','gog','epic_keyless','origin','uplay','rockstar_social','playstation','nintendo','xbox']);
+  const BOOK_FORMATS = new Set(['pdf','epub','mobi','cbz','cbr','azw3','prc']), AUDIO_FORMATS = new Set(['mp3','m4a','m4b','aac','flac','ogg','opus','wav']);
+  const EXECUTABLE = ['windows','mac','linux','android','ios'];
+  // The historical importer's media order, from provider evidence only: software assets,
+  // video, executables (game, or software from a Software Bundle), audio, comics, books.
+  function providerMedia(namespace, evidence, parentTitle = '') {
+    if (GAME_KEYS.has(namespace)) return 'game';
+    if (namespace !== 'download_drm_free' || !evidence) return 'unknown';
+    const platforms = new Set(evidence.platforms), formats = new Set(evidence.formats);
+    if (evidence.formats.some(f => /^(?:gmz|gmx|yyz|yymp|yymps|gmez|unitypackage|uproject|uasset|blend)$/u.test(f))) return 'software';
+    if (platforms.has('video') || evidence.formats.some(f => /^(?:mp4|mkv|mov|m4v|webm)$/u.test(f))) return 'video';
+    if (EXECUTABLE.some(x => platforms.has(x))) return /\bsoftware\b/iu.test(parentTitle) ? 'software' : 'game';
+    if (platforms.has('audio') || !platforms.has('ebook') && evidence.formats.some(f => AUDIO_FORMATS.has(f))) return 'audiobook';
+    if (!platforms.has('ebook') && !evidence.formats.some(f => BOOK_FORMATS.has(f))) return 'unknown';
+    return formats.has('cbz') || formats.has('cbr') || /\b(?:comics?|manga|graphic novels?)\b.*\bbundle\b|\bbundle\b.*\b(?:comics?|manga)\b/iu.test(parentTitle) ? 'comic' : 'book';
+  }
+  const titleKey = v => String(v ?? '').normalize('NFKC').toLowerCase().replace(/[\u2018\u2019\u201c\u201d'"`]/gu, '').replace(/&/gu, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  // Comics are books for matching and for GL.
+  const family = kind => kind === 'comic' ? 'book' : kind;
+  // Media of one title across the account's imported records, when they agree.
+  function historicalKinds(items) {
+    const kinds = new Map();
+    for (const item of items) {
+      const k = titleKey(item?.title), kind = String(item?.kind || 'book');
+      if (!k || ['unclassified','unknown'].includes(kind)) continue;
+      if (!kinds.has(k)) kinds.set(k, new Set());
+      kinds.get(k).add(kind);
+    }
+    return kinds;
+  }
+  // Older observations have no delivery evidence. Then the same title's imported media, or an
+  // explicit Book, Comics, Manga, Software or Audiobook Bundle purchase name, may supply it.
+  function resolvedMedia(r, kinds) {
+    if (r.mediaType !== 'unknown') return r.mediaType;
+    if (r.namespace !== 'download_drm_free') return 'unknown';
+    const imported = kinds?.get(titleKey(r.title));
+    // Comic and book records of one title agree (comics are books); any other mix is a conflict.
+    if (imported) return imported.size === 1 ? [...imported][0] : [...imported].every(k => family(k) === 'book') ? 'comic' : 'unknown';
+    const name = r.parentTitle ?? '';
+    if (/\b(?:comics?|manga|graphic novels?)\b/iu.test(name) && /\bbundle\b/iu.test(name)) return 'comic';
+    if (/\b(?:book|ebook)\s+bundle\b/iu.test(name)) return 'book';
+    if (/\bsoftware\s+bundle\b/iu.test(name)) return 'software';
+    if (/\baudio\s?books?\b/iu.test(name)) return 'audiobook';
+    return 'unknown';
+  }
   function admission(r) {
     const e = r.eligibility;
     // Every observation comes from an account-checked Purchased row and exact
@@ -75,9 +142,11 @@
       eligibility: eligibility(raw.eligibility) };
     // The parent purchase's display name. Older records were saved without it.
     if (raw.parentTitle !== undefined && raw.parentTitle !== null) r.parentTitle = text(raw.parentTitle);
+    const evidence = delivery(raw.delivery); if (evidence) r.delivery = evidence;
     if (r.namespace === 'unknown' || !r.observedAt) throw Error('Library identity or timestamp is missing.');
-    // No title-based media inference. DRM-free files may be books, games or software.
-    r.mediaType = r.namespace === 'steam' ? 'game' : 'unknown';
+    // Media comes from provider evidence only: the key store, or the DRM-free download's platform
+    // and file formats. No title-based inference; without evidence it stays unknown.
+    r.mediaType = providerMedia(r.namespace, evidence, r.parentTitle);
     r.admission = admission(r); r.activationStatus = 'unknown';
     r.purchaseStatus = r.admission === 'observation-only' ? 'excluded' : 'purchased';
     return r;
@@ -98,7 +167,7 @@
     const evidence = {...next.eligibility};
     for (const field of ['revoked','temporaryAccess']) if (evidence[field] === null && old.eligibility[field] === true) evidence[field] = true;
     if (evidence.giftStatus === 'unknown' && old.eligibility.giftStatus === 'gifted') evidence.giftStatus = 'gifted';
-    return observation({...next,eligibility:evidence,parentTitle:next.parentTitle ?? old.parentTitle});
+    return observation({...next,eligibility:evidence,parentTitle:next.parentTitle ?? old.parentTitle,delivery:next.delivery ?? old.delivery});
   }
   function scan(raw) {
     if (raw == null) return null;
@@ -216,23 +285,71 @@
       return { ...scope, localAccountId: s.localAccountId, profileLabel: s.profileLabel, observations, lastScan: scan(s.lastScan), sync: checkpoint(s.sync) };
     }) };
   }
+  // Bundle-page matching records for the active account. A title the account's imported
+  // purchases already list is matched through that record, so synced copies never double it.
   function matchingItems(state) {
     if (!ENABLED) return [];
-    const result = [], seen = new Map();
+    const result = [], seen = new Map(), kinds = historicalKinds([...(state.libraryItems ?? []), ...(state.historicalLibraryItems ?? [])]);
+    const imported = new Set((state.libraryItems ?? []).map(item => JSON.stringify([titleKey(item?.title), family(item?.kind || 'book')])));
     for (const s of collection(state.libraryEntitlements).scopes) {
       if (s.localAccountId !== (state.humbleAccountId ?? null) || s.localAccountId === null && (s.profileLabel !== (state.humbleProfileLabel ?? '') || state.libraryItems?.length)) continue;
       for (const r of s.observations) {
-        if (r.admission === 'observation-only' || r.mediaType === 'unknown') continue;
+        const kind = resolvedMedia(r, kinds);
+        if (r.admission === 'observation-only' || kind === 'unknown' || imported.has(JSON.stringify([titleKey(r.title), family(kind)]))) continue;
         // Presentation-only grouping. Native observations/copies are never merged in storage.
-        const key = JSON.stringify([r.mediaType, r.title, r.namespace]);
+        const key = JSON.stringify([kind, r.title, r.namespace]);
         if (seen.has(key)) { seen.get(key).libraryObservationRefs.push(identity(r)); continue; }
-        const item = { title: r.title, kind: r.mediaType, source: 'humble', itemRef: identity(r),
-          entitlement: r.namespace === 'steam' ? 'third-party-key' : 'direct-download', keyStatus: 'unknown',
+        const item = { title: r.title, kind, source: 'humble', itemRef: identity(r),
+          entitlement: r.namespace === 'download_drm_free' ? 'direct-download' : 'third-party-key', keyStatus: 'unknown',
           libraryObservation: true, libraryObservationRefs: [identity(r)], observationSource: r.source };
         seen.set(key, item); result.push(item);
       }
     }
     return result;
+  }
+  const SHARED_PREFIX = 'humble-library:';
+  const sharedRecord = id => typeof id === 'string' && id.startsWith(SHARED_PREFIX);
+  const KEY_TYPES = { steam: 'Steam', gog: 'GOG', epic_keyless: 'Epic Games', origin: 'EA', uplay: 'Ubisoft', rockstar_social: 'Rockstar', playstation: 'PlayStation', nintendo: 'Nintendo', xbox: 'Xbox' };
+  // Purchase-sync records for one saved account (the existing companion snapshot, v1).
+  // Records carry the native entitlement and parent IDs, never the provider account IDs.
+  // A title the account's imported purchases already share is sent only for copies beyond
+  // the imported purchase count: repeat purchases stay distinct and overlap is not doubled.
+  // No historical/native identity is inferred or stored.
+  function companionRecords({ libraryEntitlements, accountId, items = [], historicalItems = [] }) {
+    const empty = { records: [], unknown: 0, represented: 0, video: 0 };
+    if (!ENABLED || typeof accountId !== 'string' || !accountId) return empty;
+    const scope = collection(libraryEntitlements ?? undefined).scopes.find(s => s.localAccountId === accountId);
+    if (!scope) return empty;
+    const kinds = historicalKinds([...items, ...historicalItems]), copies = new Map();
+    for (const item of items) {
+      const k = JSON.stringify([titleKey(item?.title), family(item?.kind || 'book')]);
+      const purchases = new Set((item?.provenance?.length ? item.provenance : [item]).map(p => p?.purchaseKey).filter(Boolean));
+      copies.set(k, (copies.get(k) ?? 0) + Math.max(1, purchases.size));
+    }
+    const groups = new Map();let unknown = 0, video = 0;
+    for (const r of scope.observations) {
+      if (r.purchaseStatus !== 'purchased') continue;
+      const kind = resolvedMedia(r, kinds);
+      if (kind === 'unknown' || kind === 'unclassified') { unknown++; continue; }
+      if (kind === 'video') { video++; continue; }
+      const k = JSON.stringify([titleKey(r.title), family(kind)]);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push({ r, kind });
+    }
+    const records = [];let represented = 0;
+    for (const [k, list] of groups) {
+      list.sort((a, b) => a.r.nativeId < b.r.nativeId ? -1 : a.r.nativeId > b.r.nativeId ? 1 : a.r.namespace < b.r.namespace ? -1 : 1);
+      const skip = Math.min(list.length, copies.get(k) ?? 0);represented += skip;
+      for (const { r, kind } of list.slice(skip)) {
+        const key = r.namespace !== 'download_drm_free';
+        records.push({ providerItemId: SHARED_PREFIX + r.namespace + ':' + r.nativeId, title: r.title, mediaType: family(kind),
+          metadata: { purchaseId: SHARED_PREFIX + r.parentId, ...(r.parentTitle ? { sourceBundle: r.parentTitle } : {}),
+            entitlement: key ? 'third-party-key' : 'direct-download', ...(key ? { keyStatus: 'unknown', ...(KEY_TYPES[r.namespace] ? { keyType: KEY_TYPES[r.namespace] } : {}) } : {}),
+            ...(r.delivery?.formats?.length ? { formats: r.delivery.formats } : {}) },
+          purchasedAt: null, origins: [] });
+      }
+    }
+    return { records, unknown, represented, video };
   }
   // Future capability-gated channel only. Existing transaction protocols must not carry these.
   async function projectForGL(state, salt) {
@@ -416,9 +533,11 @@
     const temporary = [row.temporaryAccess, ...listing.map(c=>c.temporaryAccess), accessFlag(t(parent.temporaryAccess)), accessFlag(t(child.temporaryAccess))];
     const gifted = row.giftStatus === 'gifted' || listing.some(c=>c.giftStatus === 'gifted');
     // Display name of the account-checked parent; an unusable name never rejects the purchase.
-    let parentTitle = null;
+    let parentTitle = null, evidence = null;
     try { parentTitle = providerTitle(t(parent.title)); } catch {}
-    return observation({ scope, nativeId: t(child.id), namespace, title: providerTitle(t(child.title)), parentId: t(row.productEntitlementId), parentTitle, source: 'authenticated-humble-library', observedAt: checkedAt,
+    // Unreadable delivery details leave media unknown; they never reject the purchase.
+    if (namespace === 'download_drm_free') try { evidence = deliveryEvidence(t, t(child.downloads)); } catch {}
+    return observation({ scope, nativeId: t(child.id), namespace, title: providerTitle(t(child.title)), parentId: t(row.productEntitlementId), parentTitle, ...(evidence ? { delivery: evidence } : {}), source: 'authenticated-humble-library', observedAt: checkedAt,
       eligibility: { expired: boolean(t(child.expired)), preOrdered: boolean(t(child.preOrdered)), outOfStock: boolean(t(child.outOfStock)), redeemable: boolean(t(child.redeemable)), directRedeem,
         revoked: revoked.includes(true) ? true : boolean(t(child.revoked)), temporaryAccess: temporary.includes(true) ? true : boolean(t(child.temporaryAccess)),
         parentPreOrder: boolean(t(parent.preOrder)), parentType, giftStatus: gifted ? 'gifted' : enumeration(t(child.giftStatus)),
@@ -664,8 +783,10 @@
   }
   function syncView(state) {
     const s = collection(state.libraryEntitlements).scopes.find(v => v.localAccountId !== null && v.localAccountId === state.humbleAccountId);
-    if (!s) return { checkpoint: null, saved: 0, found: 0 };
-    return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0 };
+    if (!s) return { checkpoint: null, saved: 0, found: 0, undetailed: 0 };
+    // DRM-free purchases saved before download details were read; a full sync adds them.
+    const undetailed = s.observations.filter(r => r.namespace === 'download_drm_free' && r.purchaseStatus === 'purchased' && !r.delivery).length;
+    return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0, undetailed };
   }
   const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
     'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'Humble’s pages did not show every listed item' };
@@ -715,7 +836,8 @@
         ...(cp.lastProgressAt ? [`Last progress: ${new Date(cp.lastProgressAt).toLocaleString()}`] : []),
         `Saved Library items for this account: ${number(stored.saved)}`,
         ...(stored.excluded ? [`Not counted as purchases: ${number(stored.excluded)} gifted, revoked or temporary-access item${stored.excluded === 1 ? '' : 's'}`] : []),
-        ...(cp.unresolved ? [`Could not be verified: ${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} (not saved; a later full sync may verify ${cp.unresolved === 1 ? 'it' : 'them'})`] : [])
+        ...(cp.unresolved ? [`Could not be verified: ${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} (not saved; a later full sync may verify ${cp.unresolved === 1 ? 'it' : 'them'})`] : []),
+        ...(stored.undetailed ? [`Media not yet identified: ${number(stored.undetailed)} item${stored.undetailed === 1 ? '' : 's'} saved by an earlier version. Run the full sync again to identify books, comics, games and software.`] : [])
       ] : []).map(text => make('li', { textContent: text })));
       const from = cp ? ` Resume to continue from page ${number(cp.nextPage)}.` : '';
       let text;
@@ -781,5 +903,5 @@
     document.body.append(panel); panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
-    matchingItems, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel });
+    matchingItems, companionRecords, sharedRecord, resolvedMedia, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel });
 })(globalThis);
