@@ -183,6 +183,46 @@ test('missing detail principal aborts the batch rather than retaining earlier ne
   const f=fixture({initial:legacy,rows,groupIds:['parent-A','parent-B']});await assert.rejects(f.collect({fetcher:async(path,init)=>{const r=await f.fetcher(path,init);return path==='/home/library/parent-B'?{...r,text:async()=>(await r.text()).replace('"id":"principal-A"','"id":null')}:r;}}),error=>error.fatalScope===true);
   assert.equal(f.stored.libraryEntitlements,undefined);assert.equal(f.writes.filter(p=>p.libraryEntitlements).length,0);assert.deepEqual(f.stored.libraryItems,legacy.libraryItems);
 });
+// Live shape: the envelope lists bundle purchases only; store and widget purchases
+// are reachable through their own authenticated detail route.
+const detailPage=(parent,item,principal='principal-A',name='ProductKeysDownloads')=>({ok:true,status:200,headers:{get:()=>'text/x-component'},
+  text:async()=>frames([{name:'AuthProvider',props:{user:{id:principal}}},{name,props:{productEntitlementId:parent,userLibraryItem:item}}])});
+const item=(type,children)=>({id:'detail-'+type,preOrder:false,...(type?{type}:{}),entitlements:{keys:children.filter(c=>c.type!=='download_drm_free'),downloads:children.filter(c=>c.type==='download_drm_free'),redemptionGroups:[]}});
+const under=(parent,id,title,type)=>({...row(id,title,type),productEntitlementId:parent});
+test('store and widget purchases outside the bundle list verify only through their own account-checked detail',async()=>{
+  const rows=[row('listed'),under('parent-S','store-1','Store game','download_drm_free'),under('parent-W','widget-1','Widget game'),under('parent-U','bundle-x','Unlisted bundle game'),
+    under('parent-N','untyped','Untyped game'),under('parent-P','public','Public game'),under('parent-S','gift','Gifted game')];
+  const details={'parent-S':item('storefront',[child('store-1','Store game','download_drm_free'),{...child('gift','Gifted game'),giftStatus:'gifted'}]),'parent-W':item('widget',[child('widget-1','Widget game')]),
+    'parent-U':item('bundle',[child('bundle-x','Unlisted bundle game')]),'parent-N':item(undefined,[child('untyped','Untyped game')]),'parent-P':item('storefront',[child('public','Public game')])};
+  const f=fixture({initial:legacy,rows,children:[child('listed')]});
+  const fetcher=async(path,init)=>{const parent=decodeURIComponent(path.split('/').at(-1));
+    if(parent==='parent-P')return detailPage(parent,details[parent],'principal-A','ProductPage');
+    return details[parent]?detailPage(parent,details[parent]):f.fetcher(path,init);};
+  const r=await f.collect({fetcher});
+  assert.equal(r.scan.unresolvedItems,3);assert.equal(r.scan.coverage,'incomplete');
+  const saved=Object.fromEntries(observations(f).map(o=>[o.nativeId,o]));
+  assert.deepEqual(Object.keys(saved).sort(),['gift','listed','store-1','widget-1']);
+  assert.equal(saved['store-1'].parentId,'parent-S');assert.equal(saved['store-1'].eligibility.parentType,'storefront');assert.equal(saved['store-1'].purchaseStatus,'purchased');
+  assert.equal(saved['widget-1'].eligibility.parentType,'widget');assert.equal(saved['widget-1'].admission,'humble-key-entitlement');
+  assert.equal(saved.gift.purchaseStatus,'excluded');assert.equal(saved.listed.eligibility.parentType,'bundle');
+  for(const [k,v]of Object.entries(legacy))assert.deepEqual(f.stored[k],v);
+  assert(!JSON.stringify(f.stored).includes('SYNTHETIC_SECRET'));
+});
+test('an unlisted parent detail from another account aborts the batch',async()=>{
+  const f=fixture({initial:legacy,rows:[row('listed'),under('parent-S','store-1')],children:[child('listed')]});
+  const fetcher=async(path,init)=>path==='/home/library/parent-S'?detailPage('parent-S',item('storefront',[child('store-1')]),'principal-B'):f.fetcher(path,init);
+  await assert.rejects(f.collect({fetcher}),error=>error.fatalScope===true);
+  assert.equal(f.stored.libraryEntitlements,undefined);assert.deepEqual(f.stored.libraryItems,legacy.libraryItems);
+});
+test('parent-level rows without an exact typed child stay unresolved, even when titles agree',async()=>{
+  // Live shapes: a widget row whose ID is its parent and whose only child has no type, and
+  // a bundle row whose ID is its listed parent while the detail lists differently identified files.
+  const rows=[under('parent-W','parent-W','Widget purchase','widget'),under('parent-A','parent-A','Bundle purchase','bundle'),row('a')];
+  const f=fixture({rows,children:[child('a'),child('file-1','Bundle purchase','download_drm_free'),child('file-2','Other file','download_drm_free')]});
+  const fetcher=async(path,init)=>path==='/home/library/parent-W'?detailPage('parent-W',item('widget',[{...child('parent-W','Widget purchase'),type:null}])):f.fetcher(path,init);
+  const r=await f.collect({fetcher});
+  assert.equal(r.scan.unresolvedItems,2);assert.deepEqual(observations(f).map(o=>o.nativeId),['a']);
+});
 test('dependency-rich modules keep the eight-asset ceiling and require a unique observed action',async()=>{
   for(const found of [true,false]){
     const f=fixture();let assets=0;

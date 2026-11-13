@@ -5,6 +5,7 @@
   'use strict';
   const ENABLED = false; // Activation requires the documented live-validation gate.
   const MAX_RECORDS = 100000, MAX_PAGES = 10, MAX_PARENTS = 20, MAX_REFRESH_PAGES = 40;
+  const DETAIL_PARENT_TYPES = new Set(['storefront','widget']);
   const SYNC_STATUSES = ['running','paused','completed','cancelled','stopped'];
   const SYNC_REASONS = ['user','rate-limited','signed-out','account','superseded','failed','incompatible','session-limit'];
   const UNCERTAINTY = ['totals-changed','ordering-changed','items-unresolved','duplicate-conflict','pagination-loop'];
@@ -482,7 +483,7 @@
               revoked: accessFlag(f.resolve(c.revoked)), temporaryAccess: accessFlag(f.resolve(c.temporaryAccess)),
               expired: boolean(f.resolve(c.expired)), preOrdered: boolean(f.resolve(c.preOrdered)), outOfStock: boolean(f.resolve(c.outOfStock)), redeemable: boolean(f.resolve(c.redeemable)) }));
             ref = JSON.stringify([row.type,row.id]);
-            if (!first.groupMap.has(row.productEntitlementId)) throw Error('Unsupported Library parent.');
+            const listed = first.groupMap.has(row.productEntitlementId);
             if (conflicted.has(ref)) { result.duplicateItems++; continue; }
             const previous = seenRows.get(ref);
             if (previous) {
@@ -512,11 +513,15 @@
                 if (parentCache.size > 300) parentCache.delete(parentCache.keys().next().value);
               }
             }
+            // The envelope lists bundle purchases only. Store and widget purchases are
+            // verified from their own account-checked detail route, never a public product.
+            const parentType = listed ? first.groupMap.get(row.productEntitlementId) : enumeration(detail.f.resolve(detail.parent.type));
+            if (!listed && !DETAIL_PARENT_TYPES.has(parentType)) throw Error('Unsupported Library parent.');
             const children = [...(detail.f.resolve(detail.parent.entitlements?.keys) ?? []), ...(detail.f.resolve(detail.parent.entitlements?.downloads) ?? [])];
             if (children.length > 10000) throw Error('Excessive Library children.');
             const matches = children.filter(c => detail.f.resolve(c.id) === row.id && enumeration(detail.f.resolve(c.type)) === row.type);
             if (matches.length !== 1) throw Error('Ambiguous Library child.');
-            const value = projectChild(detail.f, row, detail.parent, matches[0], first.scope, first.groupMap.get(row.productEntitlementId), result.checkedAt);
+            const value = projectChild(detail.f, row, detail.parent, matches[0], first.scope, parentType, result.checkedAt);
             rows.set(ref, { row, value });
           } catch (error) { if (halts(error)) throw error; if (error.transient) { transient = true; break; } result.unresolvedItems++; fail('item-unresolved'); }
         }

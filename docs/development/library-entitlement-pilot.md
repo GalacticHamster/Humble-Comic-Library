@@ -111,7 +111,33 @@ The library now holds 8,115 unique entitlements: 8,113 Purchased and 2 excluded.
 | 41 | The row's parent is not in the Library page's initial parent list |
 | 1 | The parent's detail page does not list the row |
 
-All 42 rows are on pages 1,295–1,591. Each is withheld as unresolved and not admitted, and the sync stays `incomplete`. Verifying them would need a parent source outside the initial list. Accepting one is a change to identity verification and needs its own review.
+All 42 rows are on pages 1,295–1,591. Each is withheld as unresolved and not admitted, and the sync stays `incomplete`.
+
+### Parents outside the bundle list
+
+A targeted memory-only diagnostic re-read only those 18 pages and the affected parents. It found that the Library envelope's `bundleItems` contains only `bundle` parents (206 of 206). The 41 missing-parent rows belong to 21 parents whose own detail pages report `storefront` (20) or `widget` (1). These are store and widget purchases, not catalog changes. For every one of the 21:
+
+- The row came from the authenticated Purchased Library action under the active account's user ID.
+- The detail read used the same signed-in principal.
+- Exactly one `ProductKeysDownloads` component named that parent.
+
+The route takes a per-account `productEntitlementId`, not a public product ID. A random ID returns a page with no `ProductKeysDownloads`, which is rejected.
+
+A parent missing from the envelope is now read from its own detail route and accepted only when its type is `storefront` or `widget`. The row still needs:
+
+- the account check;
+- a single detail component naming its parent;
+- an exact native child with the same ID, type and title;
+- the gift, revocation and temporary-access rules.
+
+An unlisted `bundle` parent, an untyped parent, or one without the detail component stays unresolved. A detail page from another account aborts the batch. A memory-only production run on the 18 pages verified 88 of 90 rows, including 40 of the 41 missing-parent rows, all Purchased.
+
+The two remaining rows are parent-level rows, not individual entitlements:
+
+- **Widget row:** its ID is its widget parent's. The parent's only child has that ID but no type.
+- **Bundle row:** its ID is its listed bundle parent's. The detail lists two DRM-free files with other IDs.
+
+Neither has an exact typed native child, so both stay unresolved. Titles are not used to link them.
 
 ### Refresh
 
