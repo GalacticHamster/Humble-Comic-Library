@@ -1,14 +1,14 @@
-# Authenticated Library entitlement pilot
+# Authenticated Library entitlement collector
 
-Status: implemented, **disabled**. This is independent of the disabled redesigned purchase-history importer. It does not replace purchase history or establish complete migration coverage.
+Status: **enabled in release builds from 1.1.0** as the supported way to sync purchases after Humble's November 2026 redesign. The redesigned purchase-history importer stays disabled and now points users to the Library sync. The collector does not replace purchase history or establish complete migration coverage.
 
-`library-entitlements.js` has a source-level `ENABLED = false` guard. Acquisition, matching and the worker check it. No preference, webpage message or normal UI enables it. Installed tests enable only a temporary package copy; they never rewrite source or existing release ZIPs.
+`library-entitlements.js` keeps a source-level `ENABLED` guard (now `true`). Acquisition, matching and the worker check it, so setting it to `false` withdraws the collector without touching stored data. No preference or webpage message changes it. The `--library-entitlements-disabled` installed checks patch a temporary package copy to `false` as a negative control. Sections below that say "pilot" record the validation history.
 
 ## Identity, preservation and backup
 
 The optional `libraryEntitlements` state/backup field has its own version-1 validator. Identity is `(authenticated principal ID, Library user ID, entitlement namespace/type, native individual ID)`. Title, parent native ID, source, non-secret eligibility and observation time are metadata. No purchase key, order ID, acquisition date, historical alias, secret key value or destination activation is invented.
 
-The pilot requires an established saved local account and explicit confirmation. Local IDs bind storage but do not substitute for provider identity. A bound profile cannot silently switch provider scope. First-account setup automation is outside this pilot.
+The sync requires explicit confirmation of the saved account. On a first install with no saved account, `entitlementContext` gives the active unnamed account its stable local ID through the same `migrateAccounts` lineage step that account synchronization uses; nothing else is written. Local IDs bind storage but do not substitute for provider identity. A bound profile cannot silently switch provider scope. Adding a second, never-saved Humble account still needs the retired importer's Save a new account flow and is not available in 1.1.0; accounts saved earlier can be selected in Saved accounts and synced.
 
 Begin/commit/abort use the existing serialized worker. A 15-minute token binds the sender tab, local account/profile and provider scope. New scans, account changes, restore and clear invalidate old work. Commits reconstruct fields, recompute admission and atomically write only observations plus token cleanup. Failed writes preserve prior observations and all legacy arrays, corrections, checkpoints and reminders. There are no delete-first writes or absence reconciliation.
 
@@ -284,6 +284,16 @@ The Bundles & Orders view drops from 460 to 236 groups. Reconciliation takes abo
 Observations never enter legacy libraryItems, summaries, reminders, corrections or companion transaction snapshots. Old GL/FAN cannot receive them as fabricated purchases or Steam ownership.
 
 `projectForGL` is a different versioned, salted-reference **projection only**. There is no transport hook or automatic sharing. A compatible GL capability and explicit account/consent review are required before sending it. Existing purchase/reminder sync remains unchanged.
+
+## Release integration (1.1.0)
+
+- **Panel.** The Library page panel is titled *Sync purchases from your Humble Library*, names the saved account in its confirmation, reports excluded (gifted, revoked, temporary) and unverified counts, and offers **Browse your library**, which asks the worker (`HCL_OPEN_OPTIONS`) to open Extension options. Duration text no longer promises hours or minutes for every Library.
+- **Options.** *Sync from Humble* replaces *Import from Humble*: it opens the Library page and shows the active account's checkpoint summary (saved count, unfinished sync with pages read, last full sync and coverage, unverified items). The summary updates on `libraryEntitlements` changes without re-rendering or reconciling the browser.
+- **Titles.** Native titles with no historical record of the same normalized name are listed for browsing only, with their purchase names (searchable as bundle names), copy counts, Media Unknown (Game for Steam) and a verified content link. They have no media-override controls and are never stored.
+- **Popup.** Counts synced Purchased records for the active account alongside historical items.
+- **Key reminders.** `HumbleLibraryBrowser.reminderDestination(reminder, groups)` is computed per render from the current reconciliation and never stored. A reminder's order key must belong to a unified (likely) group that is not one of interchangeable repeat purchases; the destination is then the single non-excluded, non-DRM-free native entitlement with the same normalized title (Steam keys require the steam namespace), else the purchase route. Repeat, ambiguous, conflicting, unmatched, unknown and not-synced cases open `/home/library`. The obsolete `/downloads?key=` option and the `hclPurchaseFocus` hand-off are no longer used by reminders; the stored `openDirectPurchaseLinks` value is left as is.
+
+Live upgrade of the real pilot profile to the 1.1.0 package (same add-on ID and storage) changed no historical, reminder, account or native data; only the companion coordinator's `galacticPurchaseSync` status changed. Reconciliation was identical (224 combined, pairs hash unchanged). Titles listed 438 native-only titles. Of 89 reminders, 82 open a likely item, 2 a likely purchase and 5 the Library; none use an order-key link.
 
 ## Validation and activation gates
 

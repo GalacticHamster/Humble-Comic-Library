@@ -873,7 +873,12 @@
         const E=global.HumbleLibraryEntitlements;
         if(!E?.ENABLED)throw Error('Library entitlement collection is not enabled.');
         const current=await area.get(LIBRARY_STATE_DEFAULTS),key='hclLibraryEntitlementControl',leaseKey='hclLibraryEntitlementLease',lease=pendingEntitlements[leaseKey];
-        if(operation==='entitlementContext')return {accountId:current.humbleAccountId,profileLabel:current.humbleProfileLabel};
+        if(operation==='entitlementContext'){
+          // A first install has no saved account yet. Give the active (unnamed) account its stable
+          // local identity, exactly as account synchronization would; nothing else is written.
+          if(!current.humbleAccountId&&globalThis.GalacticPurchaseSync){await GalacticPurchaseSync.migrateAccounts(area,'hb');Object.assign(current,await area.get({humbleAccountId:null,humbleProfileLabel:''}));}
+          return {accountId:current.humbleAccountId,profileLabel:current.humbleProfileLabel};
+        }
         if(operation==='entitlementBegin'){
           const [options,tabId]=args;
           if(options?.confirmed!==true)throw Error('Confirm the signed-in Humble account before checking Library entitlements.');

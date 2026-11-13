@@ -52,6 +52,11 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     const result=await HumbleEntitlements.send(chrome.runtime,id,targetProfile,feed,async()=>{if(!await GalacticPurchaseSync.sharingAllowed(chrome.storage.local,'humble'))throw Error('Automatic sharing is disabled.');return libraryStore.execute('verifyShareSnapshot',[snapshot.scope,id]);});return {ok:true,count:result.count,coverage:feed.coverage};
   })().then(respond,()=>respond({ok:false,error:'Reminder request was not confirmed. Check both profile labels, GL permission/version and connection, then check the reminders in Galactic Library.'}));return true;
 });
+chrome.runtime.onMessage.addListener((message,sender)=>{
+  // The Library sync panel's "Browse your library" button. Content scripts cannot open options themselves.
+  if(message?.type!=='HCL_OPEN_OPTIONS'||sender.id!==chrome.runtime.id)return false;
+  chrome.runtime.openOptionsPage().catch(()=>{});return false;
+});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'HCL_OPEN_GALACTIC_REVIEW' || sender.id !== chrome.runtime.id) return false;
   (async () => {

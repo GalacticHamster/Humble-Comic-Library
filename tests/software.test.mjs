@@ -387,12 +387,10 @@ test('purchase-navigation diagnostic reports structure without exposing link val
   assert.match(JSON.stringify(diagnostic.report), /data-purchase-key/u);
 });
 
-test('direct Humble order links remain an explicit opt-in with a visible URL/history warning', () => {
+test('key reminders no longer offer the obsolete order-key route or write a purchase-focus request', () => {
   const optionsSource = fs.readFileSync(new URL('../options.js', import.meta.url), 'utf8');
   const optionsHtml = fs.readFileSync(new URL('../options.html', import.meta.url), 'utf8');
-  assert.match(optionsSource, /openDirectPurchaseLinks/u);
-  assert.match(optionsSource, /if \(directPurchaseLinksEnabled\)/u);
-  assert.match(optionsSource, /https:\/\/www\.humblebundle\.com\/downloads\?key=/u);
-  assert.match(optionsHtml, /Open direct Humble order links/u);
-  assert.match(optionsHtml, /purchase identifier appears in the Humble URL and browser history/u);
+  assert.doesNotMatch(optionsSource, /downloads\?key=|hclPurchaseFocus: \{|openDirectPurchaseLinks/u);
+  assert.doesNotMatch(optionsHtml, /open-direct-purchase-links/u);
+  assert(optionsSource.includes('reminderDestination(record, latestReconciliation?.groups ?? null)'));
 });

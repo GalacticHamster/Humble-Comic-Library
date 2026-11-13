@@ -15,7 +15,6 @@
   const showDiagnostics = document.querySelector('#show-diagnostics');
   const keyReminderSummary = document.querySelector('#key-reminder-summary');
   const keyReminderList = document.querySelector('#key-reminder-list');
-  const openDirectPurchaseLinks = document.querySelector('#open-direct-purchase-links');
   const humbleExtensionId = document.querySelector('#humble-extension-id');
   const galacticLibraryExtensionId = document.querySelector('#galactic-library-extension-id');
   const galacticLibraryLinkStatus = document.querySelector('#galactic-library-link-status');
@@ -906,6 +905,62 @@
   }
 
   let latestLibraryItems = [];
+  // Humble Library titles with no historical record of the same name, shown in Titles for
+  // browsing only. They have no media override or order details, and are never stored.
+  let latestNativeTitles = [];
+  function nativeOnlyTitles(model, items) {
+    const key = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
+    const historical = new Set(items.map(item => key(typeof item === 'string' ? item : item?.title)));
+    const titles = new Map();
+    for (const group of model.groups) {
+      if (group.source !== 'native') continue;
+      for (const entry of group.items) {
+        if (entry.excluded || historical.has(key(entry.title))) continue;
+        const k = key(entry.title);
+        if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.namespace === 'steam' ? 'game' : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
+        const title = titles.get(k);
+        title.nativeCopies.push({ purchase: group.name || '', route: entry.route, steam: entry.namespace === 'steam' });
+        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
+      }
+    }
+    return [...titles.values()];
+  }
+
+  function renderNativeTitleRow(item) {
+    const row = document.createElement('li');
+    row.className = 'library-item';
+    const details = document.createElement('details');
+    details.className = 'library-item-details';
+    const summary = document.createElement('summary');
+    summary.className = 'library-item-summary';
+    const copies = item.nativeCopies.length;
+    summary.textContent = `${item.title} — Humble Library${copies > 1 ? ` · ${copies} copies` : ''}`;
+    const list = document.createElement('ul');
+    list.className = 'library-provenance-list';
+    for (const copy of item.nativeCopies) {
+      const li = document.createElement('li');
+      li.className = 'library-provenance-item';
+      const primary = document.createElement('div');
+      primary.className = 'library-provenance-primary';
+      primary.textContent = copy.purchase ? `Purchase: ${copy.purchase}` : 'Humble Library purchase';
+      const secondary = document.createElement('div');
+      secondary.className = 'library-provenance-secondary';
+      secondary.textContent = `Purchased on Humble · Media: ${copy.steam ? 'Game' : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
+      li.append(primary, secondary);
+      if (copy.route) {
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'library-open-humble';
+        open.textContent = 'Open in Humble';
+        open.addEventListener('click', () => { chrome.tabs.create({ url: copy.route }); });
+        li.append(open);
+      }
+      list.append(li);
+    }
+    details.append(summary, list);
+    row.append(details);
+    return row;
+  }
 
   function renderLibraryBrowser(items = latestLibraryItems) {
     latestLibraryItems = Array.isArray(items) ? items : [];
@@ -919,7 +974,7 @@
     if (librarySort && librarySort.value !== libraryBrowserState.sort) librarySort.value = libraryBrowserState.sort;
     if (libraryPageSize && Number(libraryPageSize.value) !== libraryBrowserState.pageSize) libraryPageSize.value = String(libraryBrowserState.pageSize);
 
-    const uniqueItems = consolidateLibrary(latestLibraryItems);
+    const uniqueItems = [...consolidateLibrary(latestLibraryItems), ...latestNativeTitles];
     const processed = filterAndSortLibrary(uniqueItems, {
       search: libraryBrowserState.search,
       scope: libraryBrowserState.scope,
@@ -937,15 +992,15 @@
     const pageItems = processed.slice(start, start + pageSize);
 
     preview.start = start + 1;
-    preview.replaceChildren(...pageItems.map(renderLibraryRow));
+    preview.replaceChildren(...pageItems.map(item => item.nativeOnly ? renderNativeTitleRow(item) : renderLibraryRow(item)));
 
     if (libraryPrevious) libraryPrevious.disabled = libraryBrowserState.page === 0;
     if (libraryNext) libraryNext.disabled = (libraryBrowserState.page + 1) * pageSize >= processed.length;
 
     const note = document.querySelector('#preview-note');
     if (note) {
-      if (!latestLibraryItems.length) {
-        note.textContent = 'Your library is empty. Import purchases or restore a backup to see a preview.';
+      if (!uniqueItems.length) {
+        note.textContent = 'Your library is empty. Sync your Humble Library or restore a backup to see your titles.';
       } else if (!processed.length) {
         note.textContent = `No items match your search or filter criteria (0 of ${uniqueItems.length} items).`;
       } else {
@@ -955,7 +1010,8 @@
           : libraryBrowserState.sort === 'date-asc' ? 'by purchase date (oldest)'
           : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'
           : 'alphabetically';
-        note.textContent = `Showing ${pageItems.length} of ${processed.length} items${filterInfo}${pageInfo}, ${sortLabel}.`;
+        const nativeShown = processed.filter(item => item.nativeOnly).length;
+        note.textContent = `Showing ${pageItems.length} of ${processed.length} items${filterInfo}${pageInfo}, ${sortLabel}.${nativeShown ? ` ${nativeShown.toLocaleString()} ${nativeShown === 1 ? 'is' : 'are'} only in your synced Humble Library.` : ''}`;
       }
     }
   }
@@ -1034,7 +1090,7 @@
   }
 
   async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, openDirectPurchaseLinks: directPurchaseLinksEnabled = false, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, openDirectPurchaseLinks: false, galacticLibraryExtensionId: '' });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '' });
     const items = await library();
     renderWishlist((await chrome.storage.local.get({ wishlistItems: [] })).wishlistItems);
     const display=await chrome.storage.local.get({bundleSummaryPreferences:{}}),prefs=HumbleComicLibrary.normalizeSummaryPreferences(display.bundleSummaryPreferences);document.querySelector('#summary-minimized').checked=prefs.minimized;document.querySelector('#summary-position').value=prefs.position;
@@ -1058,8 +1114,8 @@
     ].filter(Boolean).join(', ');
     count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${mediaCounts ? ` (${mediaCounts})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
     lastImport.textContent = summary
-      ? `Last import: ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
-      : 'No Humble import has run yet.';
+      ? `Last purchase-page import (before Humble's 2026 redesign): ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
+      : '';
     if (summary?.fullRescan) {
       lastImport.textContent += summary.reconciled
         ? ' Current Humble snapshot reconciled; historical evidence archived.'
@@ -1219,6 +1275,7 @@
       latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
       // Reconciled once per data load; it is presentation only and never stored.
       latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
+      latestNativeTitles = latestGroupModel.native.present ? nativeOnlyTitles(latestGroupModel, items) : [];
       if (libraryGroupMode) libraryGroupMode.disabled = !latestReconciliation;
       // Native-only choices stay unavailable until this account has native Library records.
       for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
@@ -1227,14 +1284,31 @@
     renderLibraryBrowser(items);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
     showDiagnostics.checked = diagnosticsEnabled;
-    openDirectPurchaseLinks.checked = directPurchaseLinksEnabled;
     humbleExtensionId.textContent = chrome.runtime.id;
     galacticLibraryExtensionId.value = savedGalacticLibraryExtensionId;
     document.querySelector('#builtin-galactic-id').textContent=HumbleComicLibrary.builtinGalacticId(chrome.runtime);
     galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
       ? 'Saved override retained. Connection not yet verified; check the connection.'
       : 'Automatic Galactic Library pairing ready. Connection not yet verified; check the connection.';
+    renderLibrarySync(libraryEntitlements, humbleAccountId);
     renderKeyReminders(keyReminders, keyReminderScan);
+  }
+
+  function renderLibrarySync(libraryEntitlements, humbleAccountId) {
+    const status = document.querySelector('#library-sync-status');
+    if (!status) return;
+    const E = globalThis.HumbleLibraryEntitlements;
+    let view = null;
+    try { view = E?.ENABLED && libraryEntitlements ? E.syncView({ libraryEntitlements, humbleAccountId }) : null; } catch { status.textContent = 'Saved Library records could not be read. Your other purchases are unaffected; restore a backup if this continues.'; return; }
+    const cp = view?.checkpoint, number = v => v.toLocaleString(), date = v => new Date(v).toLocaleDateString();
+    if (!cp) { status.textContent = view?.saved ? `${number(view.saved)} Humble Library items saved for this account.` : 'Not synced from your Humble Library yet.'; return; }
+    const parts = [`${number(view.saved)} Humble Library item${view.saved === 1 ? '' : 's'} saved for this account.`];
+    if (['running', 'paused', 'stopped'].includes(cp.status)) parts.push(`A ${cp.mode === 'refresh' ? 'recent-purchase check' : 'full sync'} is unfinished (${number(Math.min(cp.nextPage - 1, cp.targetPages))} of ${number(cp.targetPages)} pages read). Open Humble Library and select Resume.`);
+    if (cp.lastFull) parts.push(`Last full sync finished ${date(cp.lastFull.completedAt)}${cp.lastFull.coverage === 'accessible-pages-traversed' ? '.' : '; some items may have been missed, so run it again later.'}`);
+    else if (cp.status === 'completed' || cp.status === 'cancelled') parts.push('No full sync has finished yet; run one to check your whole Library.');
+    if (cp.status === 'completed' && cp.mode === 'refresh') parts.push(`Recent purchases checked ${date(cp.updatedAt)}.`);
+    if (cp.unresolved) parts.push(`${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} could not be verified and ${cp.unresolved === 1 ? 'was' : 'were'} not saved.`);
+    status.textContent = parts.join(' ');
   }
 
   function renderKeyReminders(reminders, scan) {
@@ -1297,31 +1371,28 @@
     source.className = 'key-reminder-source';
     source.textContent = [record.sourceBundle || 'Humble purchase', record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
 
+    // Worked out from this render's presentation match; the reminder itself is never changed.
+    const destination = globalThis.HumbleLibraryBrowser
+      ? HumbleLibraryBrowser.reminderDestination(record, latestReconciliation?.groups ?? null)
+      : { kind: 'library', url: 'https://www.humblebundle.com/home/library', reason: 'not-synced' };
+    const where = document.createElement('div');
+    where.className = 'key-reminder-destination';
+    where.textContent = destination.kind === 'library'
+      ? REMINDER_FALLBACK_TEXT[destination.reason] ?? REMINDER_FALLBACK_TEXT.unmatched
+      : `Likely the same order as “${destination.name}” in your Humble Library${destination.kind === 'entitlement' ? '; opens this item' : '; opens that purchase'}. Check it before revealing a key.`;
     const open = document.createElement('button');
     open.type = 'button';
-    open.textContent = 'Open purchase';
+    open.textContent = destination.kind === 'library' ? 'Open Humble Library' : 'Open in Humble Library';
+    open.dataset.destination = destination.kind;
     open.addEventListener('click', async () => {
       open.disabled = true;
       try {
-        const { openDirectPurchaseLinks: directPurchaseLinksEnabled = false } = await chrome.storage.local.get({ openDirectPurchaseLinks: false });
-        if (directPurchaseLinksEnabled) {
-          await chrome.tabs.create({ url: directHumblePurchaseUrl(record.purchaseKey) });
-        } else {
-          await HumbleComicLibrary.storageSet({
-            hclPurchaseFocus: {
-              purchaseKey: record.purchaseKey,
-              sourceBundle: record.sourceBundle ?? '',
-              purchasedAt: record.purchasedAt ?? '',
-              requestedAt: Date.now()
-            }
-          });
-          await chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
-        }
+        await chrome.tabs.create({ url: destination.url });
       } finally {
         open.disabled = false;
       }
     });
-    row.append(heading, detail, source, open);
+    row.append(heading, detail, source, where, open);
     return row;
   }
 
@@ -1350,9 +1421,14 @@
     return `expires in ${days} day${days === 1 ? '' : 's'}`;
   }
 
-  function directHumblePurchaseUrl(purchaseKey) {
-    return 'https://www.humblebundle.com/downloads?key=' + encodeURIComponent(purchaseKey);
-  }
+  const REMINDER_FALLBACK_TEXT = {
+    'not-synced': 'Sync your Humble Library to link this reminder to its purchase. Until then, find the title in your Library.',
+    repeat: 'You bought this more than once, and the Library does not show which purchase this key belongs to. Find the title in your Library.',
+    ambiguous: 'More than one Library purchase could be this order. Find the title in your Library.',
+    conflicting: 'The Library purchase with this name lists different items. Find the title in your Library.',
+    unmatched: 'This order could not be linked to a single Library purchase. Find the title in your Library.',
+    'no-record': 'This order could not be linked to a single Library purchase. Find the title in your Library.'
+  };
 
   fileInput.addEventListener('change', async () => {
     const [file] = fileInput.files;
@@ -1406,10 +1482,6 @@
     }
   });
 
-  openDirectPurchaseLinks.addEventListener('change', async () => {
-    await HumbleComicLibrary.storageSet({ openDirectPurchaseLinks: openDirectPurchaseLinks.checked });
-  });
-
   for(const [id,type]of [['share-entitlements','HCL_SHARE_ENTITLEMENTS'],['remove-shared-entitlements','HCL_REMOVE_SHARED_ENTITLEMENTS']])document.querySelector('#'+id).addEventListener('click',async()=>{
     const status=document.querySelector('#entitlement-share-status'),button=document.querySelector('#'+id);if(!document.querySelector('#confirm-reminder-sharing').checked){status.textContent='Confirm the same Humble account before sending or removing reminders.';return;}
     button.disabled=true;try{const response=await chrome.runtime.sendMessage({type,confirmed:true,profileLabel:document.querySelector('#share-hb-profile').dataset.profileLabel,targetProfileLabel:document.querySelector('#share-gl-profile').value});if(!response?.ok)throw new Error(response?.error??'Reminder sharing unavailable.');status.textContent=type==='HCL_SHARE_ENTITLEMENTS'?`Shared ${response.count} entitlements (${response.coverage} baseline). Ownership and activation were not changed.`:'Shared reminders removed from Galactic Library.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}
@@ -1455,12 +1527,8 @@
     galacticLibraryLinkStatus.textContent = 'Override removed. Automatic Galactic Library pairing remains available; check the connection.';
   });
 
-  document.querySelector('#open-purchases').addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
-  });
-
-  document.querySelector('#open-key-reminders').addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://www.humblebundle.com/home/purchases' });
+  for (const id of ['#open-purchases', '#open-key-reminders']) document.querySelector(id).addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://www.humblebundle.com/home/library' });
   });
 
   document.querySelector('#export-library').addEventListener('click', async () => {
@@ -1500,5 +1568,11 @@
     getReconciliation: () => latestReconciliation,
     renderOptions: () => render()
   };
+  // Keep the sync summary current while a Library tab is syncing. The browser itself is
+  // rebuilt only when this page renders, so batches never trigger reconciliation here.
+  chrome.storage.onChanged?.addListener((changes, area) => {
+    if (area !== 'local' || !changes.libraryEntitlements) return;
+    chrome.storage.local.get({ humbleAccountId: null }).then(({ humbleAccountId }) => renderLibrarySync(changes.libraryEntitlements.newValue ?? null, humbleAccountId)).catch(() => {});
+  });
   render();
 }());

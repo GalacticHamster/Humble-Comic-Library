@@ -18,7 +18,7 @@ export function fixture(options={}) {
   const context=vm.createContext({console,URL,TextEncoder,TextDecoder,FormData,AbortSignal,Date,crypto:webcrypto,setTimeout,clearTimeout});
   if(options.poisonSecrets)context.JSON={stringify:JSON.stringify,parse:value=>{const result=JSON.parse(value);const walk=v=>{if(!v||typeof v!=='object')return;for(const k of Object.keys(v)){if(['keyFormatted','externalAccountName','gameKey'].includes(k))Object.defineProperty(v,k,{enumerable:true,get(){secretReads++;throw Error('Forbidden secret access');}});else walk(v[k]);}};walk(result);return result;}};
   context.globalThis=context;
-  for(const file of ['library-entitlements.js','shared.js','collection-mappings.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(file==='library-entitlements.js'&&options.enabled!==false?'const ENABLED = false;':'__NO_REPLACEMENT__','const ENABLED = true;'),context,{filename:file});
+  for(const file of [...(options.accounts?['purchase-sync.js']:[]),'library-entitlements.js','shared.js','collection-mappings.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(file==='library-entitlements.js'&&options.enabled===false?'const ENABLED = true;':'__NO_REPLACEMENT__','const ENABLED = false;'),context,{filename:file});
   const E=context.HumbleLibraryEntitlements,H=context.HumbleComicLibrary,writer=H.createSyncStore(area);
   const rows=options.rows??Array.from({length:8},(_,i)=>row('id-'+i,'Synthetic game '+i));
   const children=options.children??rows.map(r=>child(r.id,r.title,r.type));

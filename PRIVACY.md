@@ -6,7 +6,7 @@ Humble Library is an unofficial browser extension for comparing a person's Humbl
 
 ## Data the extension handles
 
-When the user chooses to import from Humble, the extension accesses the user's signed-in Humble Purchases page and retrieves the purchase list and required purchase-detail records from Humble. It stores the following data locally in the browser:
+When the user starts a Library sync, the extension reads the user's signed-in Humble Library page (humblebundle.com/home/library) in that tab, page by page, together with the detail pages of the purchases it lists. Before 1.1.0, imports read the Humble Purchases page instead; data saved by those imports is kept. The extension stores the following data locally in the browser:
 
 - item titles and whether an item is a book, audiobook, game, or software;
 - Humble bundle names, purchase dates, and purchase identifiers;
@@ -16,7 +16,7 @@ When the user chooses to import from Humble, the extension accesses the user's s
 - optional custom issue-to-collection mapping rules that the user imports; and
 - profile labels/archives, media-type corrections, wishlist/planning information, preferences, and companion connection state.
 
-A separate authenticated Library entitlement collector is implemented as a disabled development pilot. If enabled in a test build and explicitly started, it stores provider-account scope, native entitlement/type and parent identifiers, titles, non-secret eligibility metadata and observation times separately from purchase history. These observations are included in backups and replaced by restore or Clear library. They do not invent purchase dates or destination-platform activation, and are not sent through existing companion purchase/reminder channels. The pilot does not reveal or redeem keys, prepare downloads, or store key values, account-link values, instructions or signed download URLs.
+Library sync records are stored separately from earlier imports. Each record holds the Humble account scope it was read from (Humble's own account and Library user identifiers), the native entitlement and parent-purchase identifiers, entitlement type (for example Steam or DRM-free), title, parent-purchase name, non-secret eligibility metadata (such as gift, revocation, temporary-access, expiry and redemption flags), and observation times, plus the sync's page progress. These records are included in backups and replaced by restore or Clear library. They do not invent purchase dates or destination-platform activation, and are not sent to Galactic Library. The sync does not reveal or redeem keys, prepare downloads, or store key values, account-link values, instructions or signed download URLs.
 
 After imports, previously observed Humble item provenance and purchase summaries are retained in a separate local history archive. A fully successful rescan reconciles the current Humble snapshot; historical evidence remains available for history-only match warnings and backups, but does not establish current ownership or active reminders. Failed rescans retain previous entries. Manual titles are protected during reconciliation. The archive contains the same types of purchase data listed above, with no redemption-key values or raw API responses, and is included in backup export/restore. Manual title import and **Clear library** clear the archive too.
 
@@ -38,7 +38,7 @@ The extension does not read, copy, save, or ask the user to provide a Humble ses
 
 This data supports library import, matching, purchase history, reminders, planning, and export. Saved data is held in this browser profile. Provider requests, local companion exchanges, and user-created downloads are described below; this is not a promise that no data leaves the browser.
 
-The extension does not send library data to a Galactic Hamster-operated server and has no analytics or advertising service. Imports request data from Humble Bundle using the signed-in browser session. Opening a provider, help, or optional support link visits that destination under its own privacy policy; this is separate from sending a library backup.
+The extension does not send library data to a Galactic Hamster-operated server and has no analytics or advertising service. The Library sync and earlier imports request data from Humble Bundle using the signed-in browser session. Opening a provider, help, or optional support link visits that destination under its own privacy policy; this is separate from sending a library backup.
 
 When a compatible official Galactic Library extension is also installed, or the user configures an Advanced companion override, Humble Library sends current bundle titles/media types and available bibliographic identifiers, authors, edition/run/language and requested contents evidence to that other locally installed extension. Ebooks and audiobooks are checked separately; Software lookup is sent only when GL advertises support. Galactic Library returns matching records from its non-Humble providers: only exact confirmed ownership is labelled owned elsewhere, while uncertain or temporary access and related titles require review. These matching queries use a bounded comparison response, not a library backup. They exclude session credentials and redemption keys. Purchase synchronization is a separate data flow described below. Removing a custom override restores official automatic pairing; disable or uninstall Galactic Library or HB to stop this exchange. Built-in IDs are separate from stored overrides.
 
@@ -55,7 +55,7 @@ An already saved GL feed remains after unlinking, clearing or uninstalling HB. R
 - **storage** saves library data, preferences, account relationships, and local working state.
 - **unlimitedStorage** allows large browser-local libraries and purchase histories to exceed the normal extension-storage quota. It adds no website access or remote storage. Available disk space and browser-wide storage limits can still cause saves to fail; the existing saved library is retained when a save fails.
 - **alarms** schedules background purchase-synchronization work and retries.
-- Content-script access to Humble pages reads listings and runs the user-initiated purchase importer and overlays.
+- Content-script access to Humble pages reads listings, runs the user-started Library sync, and shows overlays.
 
 ## Retention and deletion
 

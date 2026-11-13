@@ -7,7 +7,7 @@ export function load({enabled = true} = {}) {
   const context = vm.createContext({console, Intl, Date, URL, TextEncoder, crypto: webcrypto});
   context.globalThis = context;
   const source = fs.readFileSync(new URL('../library-entitlements.js', import.meta.url), 'utf8');
-  vm.runInContext(enabled ? source.replace('const ENABLED = false;', 'const ENABLED = true;') : source, context);
+  vm.runInContext(enabled ? source : source.replace('const ENABLED = true;', 'const ENABLED = false;'), context);
   vm.runInContext(fs.readFileSync(new URL('../library-browser.js', import.meta.url), 'utf8'), context);
   return {E: context.HumbleLibraryEntitlements, B: context.HumbleLibraryBrowser};
 }

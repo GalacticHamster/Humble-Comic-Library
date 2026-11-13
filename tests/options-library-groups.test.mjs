@@ -22,7 +22,7 @@ async function harness(initial = {}, { enabled = true } = {}) {
   context.globalThis = context;
   vm.createContext(context);
   const entitlementSource = fs.readFileSync(new URL('../library-entitlements.js', import.meta.url), 'utf8');
-  vm.runInContext(enabled ? entitlementSource.replace('const ENABLED = false;', 'const ENABLED = true;') : entitlementSource, context);
+  vm.runInContext(enabled ? entitlementSource : entitlementSource.replace('const ENABLED = true;', 'const ENABLED = false;'), context);
   for (const file of ['shared.js', 'collection-mappings.js', 'library-browser.js', 'options.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   await new Promise((resolve) => setTimeout(resolve, 30));
   const get = (sel) => context.document.querySelector(sel);
@@ -154,4 +154,55 @@ test('native records from another account, a disabled collector or an empty libr
   const ui = await harness({ libraryEntitlements: entitlements(obs, ACCOUNT, null), libraryItems: [] });await ui.view('groups');
   await ui.input('#library-search', 'zzz');
   assert.match(ui.note(), /No bundles or orders match your search or filter criteria \(0 of 1 purchase groups\)/);
+});
+
+test('key reminders open a likely Library item or the Library itself and never write storage', async () => {
+  const { E } = load();
+  const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Celeste', parentTitle: 'Indie Bundle', namespace: 'steam' }),
+    nativeObservation(E, { id: 2, parent: 20, title: 'Repeat', parentTitle: 'Monthly', namespace: 'steam' }), nativeObservation(E, { id: 3, parent: 21, title: 'Repeat', parentTitle: 'Monthly', namespace: 'steam' })];
+  const reminder = (purchaseKey, title) => ({ id: purchaseKey, purchaseKey, title, sourceBundle: 'x', keyType: 'Steam', status: 'unrevealed', directRedeem: false, isExpired: false, checkedAt: '2026-01-01T00:00:00.000Z' });
+  const ui = await harness({ libraryItems: [historical('Celeste', 'K1', 'Indie Bundle', { kind: 'game' }), historical('Repeat', 'R1', 'Monthly', { kind: 'game' }), historical('Repeat', 'R2', 'Monthly', { kind: 'game' })],
+    libraryEntitlements: entitlements(obs), keyReminders: [reminder('K1', 'Celeste'), reminder('R1', 'Repeat')], keyReminderScan: { complete: true, checkedAt: '2026-01-01T00:00:00.000Z' }, openDirectPurchaseLinks: true });
+  const cards = ui.get('#key-reminder-list').children.filter(c => c.className === 'key-reminder-card');
+  const button = card => card.children.find(c => c.type === 'button'), info = card => card.children.find(c => c.className === 'key-reminder-destination').textContent;
+  const [celeste, repeat] = ['Celeste', 'Repeat'].map(t => cards.find(c => c.children[0].children[0].textContent === t));
+  assert.equal(button(celeste).textContent, 'Open in Humble Library');assert.match(info(celeste), /Likely the same order as “Indie Bundle”.*opens this item/u);
+  assert.equal(button(repeat).textContent, 'Open Humble Library');assert.match(info(repeat), /more than once/u);
+  const before = ui.writes.length;
+  await button(celeste).listeners.click();await button(repeat).listeners.click();
+  assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/content/' + obs[0].nativeId, 'https://www.humblebundle.com/home/library'], 'the old order-key link setting no longer applies');
+  assert.equal(ui.writes.length, before, 'opening a reminder writes nothing');assert.equal(ui.stored.hclPurchaseFocus, undefined);
+});
+
+test('Sync from Humble reports progress, unfinished syncs and unverified items in plain language', async () => {
+  const { E } = load();
+  const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Celeste', parentTitle: 'Indie Bundle' })];
+  const cp = { version: 1, id: '44444444-4444-4444-8444-444444444444', mode: 'full', status: 'paused', reason: 'user', coverage: 'in-progress', startedAt: '2026-11-13T00:00:00.000Z', updatedAt: '2026-11-13T00:05:00.000Z', lastProgressAt: '2026-11-13T00:05:00.000Z',
+    revision: 3, nextPage: 4, targetPages: 9, reportedPages: 9, reportedTotal: 8500, initialTotal: 8500, baselineTotal: null, pagesRead: 3, batches: 1, added: 1, refreshed: 0, unresolved: 2, conflicts: 0, duplicates: 0, pageSize: 1000, uncertainty: ['items-unresolved'], lastSignature: null, lastFull: null };
+  const paused = await harness({ libraryEntitlements: entitlements(obs, ACCOUNT, cp) });
+  assert.match(paused.get('#library-sync-status').textContent, /^1 Humble Library item saved for this account\. A full sync is unfinished \(3 of 9 pages read\)\. Open Humble Library and select Resume\. 2 items could not be verified and were not saved\.$/u);
+  const fresh = await harness({ humbleAccountId: null, humbleProfileLabel: '' });
+  assert.equal(fresh.get('#library-sync-status').textContent, 'Not synced from your Humble Library yet.');
+  assert.equal(fresh.get('#last-import').textContent, '', 'no stale importer message on a fresh install');
+  await fresh.get('#open-purchases').listeners.click();assert.deepEqual(fresh.opened, ['https://www.humblebundle.com/home/library']);
+});
+
+test('Titles lists synced Humble Library titles, even with no historical library, without duplicating historical titles', async () => {
+  const { E } = load();
+  const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 2, parent: 10, title: 'Monstress #1', parentTitle: 'Image Bundle' }),
+    nativeObservation(E, { id: 3, parent: 11, title: 'Monstress #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 4, parent: 12, title: 'Celeste', parentTitle: 'Indie', namespace: 'steam' }),
+    nativeObservation(E, { id: 5, parent: 12, title: 'Gift Copy', parentTitle: 'Indie', gifted: true })];
+  const fresh = await harness({ humbleProfileLabel: '', libraryEntitlements: entitlements(obs) });
+  const names = ui => ui.rows().map(row => row.children[0].children[0].textContent);
+  assert.deepEqual(names(fresh), ['Celeste — Humble Library', 'Monstress #1 — Humble Library · 2 copies', 'Saga #1 — Humble Library'], 'gifts stay out; copies stay counted');
+  assert.match(fresh.note(), /Showing 3 of 3 items.* 3 are only in your synced Humble Library\./u);
+  const celeste = fresh.rows()[0].children[0].children[1].children[0];
+  assert.match(text(celeste), /Purchased on Humble · Media: Game · Steam activation: Unknown/u);
+  await celeste.children.find(c => c.type === 'button').listeners.click();
+  assert.deepEqual(fresh.opened, ['https://www.humblebundle.com/home/library/content/' + obs[3].nativeId]);
+  await fresh.change('#library-search-scope', 'bundle');await fresh.input('#library-search', 'image');
+  assert.deepEqual(names(fresh), ['Monstress #1 — Humble Library · 2 copies', 'Saga #1 — Humble Library'], 'bundle-name search covers Library purchases');
+  const mixed = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')], libraryEntitlements: entitlements(obs) });
+  assert.deepEqual(names(mixed).filter(n => n.startsWith('Saga')), ['Saga #1 — in 1 bundle'], 'a historical title is not listed again');
+  assert.equal(mixed.writes.length, 0);
 });

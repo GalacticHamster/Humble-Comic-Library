@@ -3,7 +3,7 @@
 /* Independent Library observations. Never a replacement for purchase history. */
 (function (global) {
   'use strict';
-  const ENABLED = false; // Activation requires the documented live-validation gate.
+  const ENABLED = true; // Validated against a live Library; disable only to withdraw the collector.
   const MAX_RECORDS = 100000, MAX_PAGES = 10, MAX_PARENTS = 20, MAX_REFRESH_PAGES = 40;
   const DETAIL_PARENT_TYPES = new Set(['storefront','widget']);
   const SYNC_STATUSES = ['running','paused','completed','cancelled','stopped'];
@@ -668,7 +668,7 @@
     return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0 };
   }
   const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
-    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'Humbleâ€™s pages did not show every listed item' };
+    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'Humble’s pages did not show every listed item' };
   const STOP_TEXT = {
     'rate-limited': 'Humble asked for fewer requests, so the sync stopped. Progress is saved; resume later.',
     'signed-out': 'You appear to be signed out of Humble. Sign in, reload this page, then resume. Progress is saved.',
@@ -683,10 +683,10 @@
     if (!ENABLED || document.getElementById('hcl-library-entitlement-pilot')) return;
     const make = (tag, props = {}) => Object.assign(document.createElement(tag), props);
     const panel = make('section', { id: 'hcl-library-entitlement-pilot' });
-    const heading = make('strong', { textContent: 'Humble Library sync (pilot)' });
-    const description = make('p', { textContent: 'Reads your signed-in Humble Library a few pages at a time and saves each purchase it can verify. Existing purchases, corrections and history are never removed or replaced.' });
-    const label = make('label'), confirm = make('input', { type: 'checkbox' });
-    label.append(confirm, ' This signed-in Humble account belongs to the saved account named above.');
+    const heading = make('strong', { textContent: 'Sync purchases from your Humble Library' });
+    const description = make('p', { textContent: 'Saves the purchases your Humble Library lists so this extension can mark items you own and let you browse them in Extension options. Nothing is removed or replaced: earlier purchases, corrections and history stay as they are. Purchased on Humble does not mean a Steam or other key was activated.' });
+    const label = make('label'), confirm = make('input', { type: 'checkbox' }), accountName = make('span');
+    label.append(confirm, ' The Humble account signed in here is my saved account ', accountName, '.');
     const actions = make('div', { className: 'hcl-sync-actions' });
     const button = (action, text) => { const b = make('button', { type: 'button', textContent: text }); b.dataset.action = action; actions.append(b); return b; };
     const startFull = button('full', 'Sync full Library'), refresh = button('refresh', 'Check recent purchases'), pause = button('pause', 'Pause'), resume = button('resume', 'Resume'), cancel = button('cancel', 'Cancel');
@@ -694,6 +694,8 @@
     const status = make('p'); status.setAttribute('role', 'status');
     const facts = make('ul', { className: 'hcl-sync-facts' }), note = make('p', { className: 'hcl-sync-note' });
     const savedItems = make('details'), savedHeading = make('summary'), savedList = make('ul');
+    const browse = make('button', { type: 'button', textContent: 'Browse your library' }); browse.hidden = true;
+    browse.addEventListener('click', () => { global.chrome.runtime.sendMessage({ type: 'HCL_OPEN_OPTIONS' }).catch(() => {}); });
     savedItems.hidden = true; savedItems.append(savedHeading, savedList);
     const store = (operation, ...args) => global.HumbleComicLibrary.storageRequest(operation, ...args);
     sharedSync ??= createSync({ fetcher, settings, store });
@@ -711,7 +713,9 @@
         `Pages read: ${number(Math.min(cp.nextPage - 1, cp.targetPages))} of ${number(cp.targetPages)}${cp.mode === 'refresh' ? ' recent pages' : ' that Humble reports'}`,
         `Purchases found in this sync: ${number(stored.found)} (${number(cp.added)} new, ${number(cp.refreshed)} already saved)`,
         ...(cp.lastProgressAt ? [`Last progress: ${new Date(cp.lastProgressAt).toLocaleString()}`] : []),
-        `Saved Library items for this account: ${number(stored.saved)}`
+        `Saved Library items for this account: ${number(stored.saved)}`,
+        ...(stored.excluded ? [`Not counted as purchases: ${number(stored.excluded)} gifted, revoked or temporary-access item${stored.excluded === 1 ? '' : 's'}`] : []),
+        ...(cp.unresolved ? [`Could not be verified: ${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} (not saved; a later full sync may verify ${cp.unresolved === 1 ? 'it' : 'them'})`] : [])
       ] : []).map(text => make('li', { textContent: text })));
       const from = cp ? ` Resume to continue from page ${number(cp.nextPage)}.` : '';
       let text;
@@ -721,24 +725,26 @@
         retrying: v.retry ? `Humble did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds (attempt ${v.retry.attempt} of ${v.retry.of}). Progress so far is saved.` : 'Trying again…'
       }[v.phase] ?? `${v.mode === 'refresh' ? 'Checking recent purchases' : 'Syncing'}… reading pages ${number(v.pageRange?.[0] ?? 1)}–${number(v.pageRange?.[1] ?? 1)}.`;
       else if (v.phase === 'stopped' && v.error === 'superseded') text = STOP_TEXT.superseded;
-      else if (!cp) text = 'Not synced yet. A full sync of a large Library can take a few hours. You can pause and continue later, even after closing the browser.';
+      else if (!cp) text = 'Not synced yet. Start with a full sync. Most Libraries take minutes; very large ones can take longer. You can pause and continue later, even after closing the browser.';
       else if (cp.status === 'running') text = 'The sync was interrupted (the page closed or the browser restarted).' + from + ' If it is still running in another Humble tab, resuming here stops it there.';
       else if (cp.status === 'paused') text = (cp.reason === 'session-limit' ? STOP_TEXT['session-limit'] : 'Paused.') + from;
       else if (cp.status === 'stopped') text = (STOP_TEXT[cp.reason] ?? STOP_TEXT.failed) + (v.retryAfter ? ` Humble suggested waiting about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes.` : '');
       else if (cp.status === 'cancelled') text = 'Sync cancelled. Purchases already found stay saved.';
-      else if (cp.mode === 'refresh') text = `Checked your ${number(cp.targetPages)} most recent Library pages. Older pages were not checked; run a full sync to check everything.`;
+      else if (cp.mode === 'refresh') text = `Checked your most recent Library ${cp.targetPages === 1 ? 'page' : `${number(cp.targetPages)} pages`} for new purchases. Older pages were not checked again${cp.lastFull ? '' : '; run a full sync to check everything'}.`;
       else if (cp.coverage === 'accessible-pages-traversed') text = `Finished: read all ${number(cp.reportedPages)} pages your Humble Library currently shows. This reflects what the Library shows today, not proof of your complete purchase history. Existing purchases were kept.`;
       else text = 'Finished reading to the last page, but some purchases may have been missed. Existing purchases were kept. Run the full sync again later to check.';
       status.textContent = text;
       const doubts = (cp?.uncertainty ?? []).map(code => UNCERTAINTY_TEXT[code]);
       note.textContent = doubts.length ? `Why this may be incomplete: ${doubts.join('; ')}.` : '';
       note.hidden = !doubts.length;
+      browse.hidden = !stored.saved;
     };
     const refreshStored = async () => {
       const state = await global.chrome.storage.local.get({ libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null });
       const own = context && state.humbleAccountId === context.accountId;
       stored = own ? syncView(state) : { checkpoint: null, saved: 0, found: 0 };
       const views = own ? purchaseViews(state) : [];
+      stored.excluded = views.filter(item => item.status !== 'Purchased').length;
       savedList.replaceChildren(...views.slice(0, 50).map(item => make('li', { textContent: `${item.title} — ${item.status} · Media: ${item.mediaType === 'unknown' ? 'Unknown' : item.mediaType}` })));
       savedHeading.textContent = views.length > 50 ? 'Saved Library items (first 50)' : 'Saved Library items';
       savedItems.hidden = views.length === 0;
@@ -768,10 +774,10 @@
       await refreshStored().catch(render);
     });
     store('entitlementContext').then(value => {
-      context = value; description.textContent += ' Saved account: ' + (value.profileLabel || 'unnamed') + '.';
+      context = value; accountName.textContent = value.profileLabel ? `“${value.profileLabel}”` : '(not yet named)';
       refreshStored().catch(render);
     }, () => { message = 'The saved account is unavailable. Open Extension options before syncing.'; render(); });
-    panel.append(heading, description, label, actions, bar, status, facts, note, savedItems);
+    panel.append(heading, description, label, actions, bar, status, facts, note, browse, savedItems);
     document.body.append(panel); panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,

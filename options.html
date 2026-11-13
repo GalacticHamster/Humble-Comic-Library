@@ -4,13 +4,15 @@
   <body>
     <main class="settings">
       <h1>Humble Library</h1>
-      <p>Your library stays in this browser. Import directly from your signed-in Humble purchase history or restore a JSON backup.</p>
+      <p>Your library stays in this browser. Sync it from your signed-in Humble Library or restore a JSON backup.</p>
       <section class="appearance-panel" aria-labelledby="appearance-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the same GalacticHamster colors across your extensions.</p><div class="appearance-controls"><label>Appearance <select id="appearance-mode" disabled><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label><label><input id="appearance-follow-gl" type="checkbox" disabled> Follow Galactic Library appearance</label><button id="appearance-sync" type="button" class="secondary">Refresh linked appearance</button></div><p id="appearance-status" role="status">Loading appearance settings...</p><p>Use GL's theme when connected.</p><details class="settings-help"><summary>Theme following help</summary><p>Updates when a page opens or you select Refresh linked appearance. If GL is unavailable, the last linked theme or your local choice is used. The local selector is disabled while following.</p></details></section>
       <section>
-        <h2>Import from Humble</h2>
-        <p>Sign in to Humble in this browser, open the purchase importer, and select <em>Import new purchases</em>. Use <em>Rescan all purchases</em> to check the complete purchase history for the selected account and update its saved list.</p>
-        <details class="settings-help"><summary>How account nicknames work</summary><p>A nickname labels a website account locally; it does not detect your login. Use Saved accounts to switch to an existing saved purchase list without a full rescan. Rename account changes only its name and preserves scan history. For another website account, sign in on the website, open Advanced accounts in the importer, select Save a new account, and rescan all purchases once. A nickname is optional. Only the active account is matched; other saved accounts are kept separately.</p><p>Account naming is optional. Import new purchases reuses your saved account and checks the complete history on the first import. Use Advanced accounts in the importer when adding another website account.</p></details>
-        <button id="open-purchases" type="button">Open Humble purchase importer</button>
+        <h2>Sync from Humble</h2>
+        <p>Sign in to Humble in this browser, select <strong>Open Humble Library</strong>, and use <em>Sync purchases from your Humble Library</em> at the bottom of that page. Start with a full sync. Afterwards, <em>Check recent purchases</em> picks up new orders quickly. You can pause a sync and resume it later, even after closing the browser.</p>
+        <button id="open-purchases" type="button">Open Humble Library</button>
+        <p id="library-sync-status" role="status"></p>
+        <details class="settings-help"><summary>What the sync saves</summary><p><strong>Purchased on Humble</strong> means your Humble Library lists the item as bought by this account. It does not mean a Steam or other key was revealed or activated; activation stays Unknown. Gifted, revoked and temporary-access items are kept out of your purchases. Items Humble shows without enough detail to verify are not saved and are reported as unverified; a later full sync can add them. The sync only adds or updates Library records. It never removes purchases, corrections, reminders or history, including purchases imported before Humble changed its site in 2026.</p></details>
+        <details class="settings-help"><summary>How saved accounts work</summary><p>Each saved account keeps its own purchases. The sync checks that the signed-in Humble account is the one already linked to the active saved account and refuses to mix two Humble accounts. A nickname is optional and only labels the account here. Use Saved accounts to switch between accounts you saved earlier; switch before syncing a different Humble account.</p></details>
         <div id="account-profiles"></div>
         <p id="last-import" role="status"></p>
       </section>
@@ -42,10 +44,9 @@
       </section>
       <section>
         <h2>Key and access reminders</h2>
-        <p>These reminders come from your local Humble imports. Track unrevealed keys and entitlements needing review. Imports refresh new and pending purchases; a full rescan establishes the complete reminder baseline. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
-        <button id="open-key-reminders">Open Humble purchases</button>
-        <label class="key-reminder-direct-option"><input id="open-direct-purchase-links" type="checkbox"> Open direct Humble order links</label>
-        <p class="key-reminder-direct-note">Off by default: <strong>Open purchase</strong> uses Humble's normal purchase-card flow, so allow pop-ups and redirects for Humble if you want it to open the individual order. When enabled, the purchase identifier appears in the Humble URL and browser history.</p>
+        <p>These reminders come from purchases imported before Humble changed its site in 2026. Track unrevealed keys and entitlements needing review. Revealing a key does not prove activation in its destination library. Redemption-key values are never stored.</p>
+        <button id="open-key-reminders">Open Humble Library</button>
+        <p class="key-reminder-direct-note">Humble's old order links no longer open individual orders. After a Library sync, <strong>Open in Humble Library</strong> goes to the purchase that is most likely the same order, and to the item itself when exactly one matching key is listed. Check the item before revealing a key. When an order can't be linked to a single Library purchase, for example a repeat purchase, <strong>Open Humble Library</strong> opens your Library so you can find the title there.</p>
         <p id="key-reminder-summary" role="status"></p>
         <ol id="key-reminder-list"></ol>
       </section>

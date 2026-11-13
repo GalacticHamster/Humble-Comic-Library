@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased ? automatic local sharing
+## 1.1.0 — Sync from your Humble Library
+
+- Sync purchases from Humble's redesigned Library page. **Sync full Library** reads the whole Library, **Check recent purchases** picks up new orders, and syncs can be paused, cancelled and resumed later, even after a browser restart. Each batch is saved with its progress; sign-in, account, rate-limit and incomplete-coverage problems are explained with the next step. The old purchase-page importer, which Humble's redesign broke, now points here.
+- Synced purchases are stored separately from purchases imported before the redesign, and are checked against the signed-in Humble account. Nothing is removed or replaced. Gifted, revoked and temporary-access items are not counted as purchases, media stays Unknown unless Humble identifies it, and Steam or other key activation stays Unknown.
+- A first install can sync without an earlier import. Extension options, the toolbar popup and the Titles and Bundles & Orders views now show synced purchases, including titles that exist only in the Humble Library. Likely matches between earlier imports and synced purchases are combined in Bundles & Orders for display only.
+- Key reminders no longer use Humble's retired order links. **Open in Humble Library** goes to the purchase that is likely the same order, or to the item itself when exactly one matching key is listed. Repeat purchases, ambiguous orders and orders without a Library match open the Library instead. The order-link setting was removed.
+
+No new permissions or network destinations: the sync reads humblebundle.com in the signed-in tab. Ownership badges on bundle pages use synced Steam-key games; synced DRM-free items (books, comics, most software) are not yet used for badges because Humble does not identify their media. Synced purchases are not yet shared with Galactic Library.
+
+## 1.0.3 — automatic local sharing
 
 - Automatically pair the sole saved provider account on each side, including populated libraries; retain relationships over sharing OFF/ON. Preserve valid historical Humble key dates and isolate malformed optional observations. Correct sharing checkbox alignment and actionable connection diagnostics.
 

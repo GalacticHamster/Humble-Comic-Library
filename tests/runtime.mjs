@@ -17,11 +17,12 @@ try{
   const manifest=JSON.parse(await readFile(join(root,'manifest.json'),'utf8'));let archive=process.env.HB_RUNTIME_PACKAGE??join(stage,`Humble-Comic-Library-${manifest.version}${firefox?'-firefox':''}.zip`);
   const entitlement=process.argv.includes('--library-entitlements'),disabledEntitlement=process.argv.includes('--library-entitlements-disabled');
   if(entitlement&&disabledEntitlement)throw Error('Choose enabled pilot or disabled gate checks.');
-  if(entitlement){
-    const enabled=join(temporary,'enabled-pilot');await mkdir(enabled);
+  if(disabledEntitlement){
+    // Negative control: the release package with the collector withdrawn.
+    const enabled=join(temporary,'disabled-collector');await mkdir(enabled);
     execFileSync('powershell.exe',['-NoProfile','-Command','Expand-Archive -LiteralPath $env:HCL_PROBE_ZIP -DestinationPath $env:HCL_PROBE_DIR'],{windowsHide:true,env:{...process.env,HCL_PROBE_ZIP:archive,HCL_PROBE_DIR:enabled}});
-    const file=join(enabled,'library-entitlements.js'),source=await readFile(file,'utf8');assert.equal(source.split('const ENABLED = false;').length,2);await writeFile(file,source.replace('const ENABLED = false;','const ENABLED = true;'));
-    archive=join(temporary,'entitlement-pilot.zip');
+    const file=join(enabled,'library-entitlements.js'),source=await readFile(file,'utf8');assert.equal(source.split('const ENABLED = true;').length,2);await writeFile(file,source.replace('const ENABLED = true;','const ENABLED = false;'));
+    archive=join(temporary,'disabled-collector.zip');
     execFileSync('powershell.exe',['-NoProfile','-Command','Compress-Archive -Path (Join-Path $env:HCL_PROBE_DIR "*") -DestinationPath $env:HCL_PROBE_ZIP'],{windowsHide:true,env:{...process.env,HCL_PROBE_ZIP:archive,HCL_PROBE_DIR:enabled}});
   }
   const quota=process.argv.includes('--quota'),limited=process.argv.includes('--quota-limited');

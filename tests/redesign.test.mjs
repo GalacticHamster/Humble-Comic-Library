@@ -26,7 +26,7 @@ test('stale routes, unresolved props, malformed tiers and foreign currencies can
 for(const full of [true,false])test(`redesigned ${full?'Full':'Quick'} stops before scan admission and preserves purchases/corrections/history/accounts/checkpoints`,async()=>{
  const f=importer({...initialState(),historicalLibraryItems:[{...initialState().libraryItems[0],title:'Earlier book'}],historicalPurchaseSummaries:[{purchaseKey:'earlier',sourceBundle:'Earlier bundle'}],mediaTypeOverrides:{old:'comic'},lastImport:{completedAt:'2026-11-01'},profileArchives:[{label:'Other'}]},[order('new')],{new:bookDetail('New')});
  const before=JSON.stringify(f.stored);f.context.document.querySelector=()=>({});
- await assert.rejects(f.scan(full),/temporarily unavailable/);
+ await assert.rejects(f.scan(full),/no longer available/);
  assert.equal(JSON.stringify(f.stored),before);assert.equal(f.writes.length,0);assert.equal(f.requests.length,0);
 });
 test('legacy missing purchase API fails with actionable preservation message and no writes',async()=>{

@@ -106,3 +106,25 @@ test('reconciling a library at real scale stays fast and avoids all-pairs title 
   console.log(`# reconcile: ${ms.toFixed(0)} ms for 240 historical and 226 native groups (${items.length} + ${obs.length} titles)`);
   assert.equal(r.stats.matched, 226);assert.equal(r.groups.length, 240);assert(ms < 1500, String(ms));
 });
+
+test('thousands of single-title store purchases and repeat purchases reconcile quickly and keep repeats apart', () => {
+  const {E, B} = load();
+  const items = [], obs = [];
+  for (let s = 0; s < 3000; s++) {
+    items.push(...order('S' + s, `Store Game ${s}`, [`Store Game ${s}`], {item: {kind: 'game'}}));
+    obs.push(...purchase(E, 100000 + s, `Store Game ${s}: Deluxe Edition`, [`Store Game ${s}`, `Store Game ${s} Soundtrack`], {parentType: 'storefront', namespace: 'steam'}));
+  }
+  for (let m = 0; m < 40; m++) for (let copy = 0; copy < 3; copy++) {
+    const titles = Array.from({length: 8}, (_, i) => `Monthly ${m} title ${i}`);
+    items.push(...order(`M${m}-${copy}`, `Monthly ${m}`, titles, {purchasedAt: `2024-0${copy + 1}-01T00:00:00.000Z`}));
+    obs.push(...purchase(E, 200000 + m * 3 + copy, `Monthly ${m}`, titles));
+  }
+  const model = B.buildGroups({items, libraryEntitlements: entitlements(obs), humbleAccountId: ACCOUNT});
+  const t = performance.now(), r = B.reconcile(model.groups), ms = performance.now() - t;
+  console.log(`# reconcile: ${ms.toFixed(0)} ms for ${model.groups.length} groups (${items.length} historical + ${obs.length} native titles)`);
+  assert.equal(r.stats.matched, 3120);assert.equal(r.stats.interchangeable, 120);assert.equal(r.groups.length, 3120);
+  const t2 = performance.now(), page = B.filterGroups(r.groups, {search: 'soundtrack', scope: 'title', sort: 'date-desc'}), filterMs = performance.now() - t2;
+  assert.equal(page.length, 3000);assert(ms < 4000 && filterMs < 1000, `${ms} / ${filterMs}`);
+  const d = B.reminderDestination({purchaseKey: 'M5-1', title: 'Monthly 5 title 0', keyType: 'Steam'}, r.groups);
+  assert.equal(d.reason, 'repeat', 'a repeat purchase never picks one of its identical copies');
+});

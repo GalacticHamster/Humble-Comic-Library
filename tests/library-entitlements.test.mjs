@@ -317,3 +317,14 @@ test('the account-checked parent name is saved as display metadata and never rej
   const older=copy(f.stored.libraryEntitlements);for(const o of older.scopes[0].observations)delete o.parentTitle;assert.equal(f.E.collection(older).scopes[0].observations.length,8);
   assert.throws(()=>f.E.observation({...observations(f)[0],parentTitle:'bad\ttitle'}),/text/);
 });
+
+test('a fresh install gets its local account identity on first sync and saves only native observations',async()=>{
+  const f=fixture({accounts:true,initial:{humbleAccountId:null,humbleProfileLabel:''}});
+  const context=await f.store('entitlementContext');
+  assert.match(context.accountId,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u);assert.equal(context.profileLabel,'');
+  assert.equal(f.stored.humbleAccountId,context.accountId);assert.deepEqual((await f.store('entitlementContext')).accountId,context.accountId,'the identity is stable');
+  await f.collect({expectedContext:context});
+  const s=f.stored;assert.equal(s.libraryEntitlements.scopes.length,1);assert.equal(s.libraryEntitlements.scopes[0].localAccountId,context.accountId);
+  assert.equal(s.libraryEntitlements.scopes[0].observations.length,8);assert.deepEqual(s.libraryItems,[],'no historical records are created');
+  assert.equal(s.humbleProfileLabel,'');
+});

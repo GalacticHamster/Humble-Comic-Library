@@ -200,7 +200,7 @@ function finishGalacticRendering(diagnostic){
 // November 2026 frontend adapter. Only public offer metadata is read here;
 // it is never acquisition evidence and cannot establish purchase coverage.
 function redesignedImportNotice() {
-  return 'Humble changed its purchase pages. Imports are temporarily unavailable while the new purchase source is verified. Your saved purchases, history and corrections were kept. Existing ownership checks still use your saved library. Check for a Humble Library compatibility update before retrying.';
+  return 'Humble changed its purchase pages, so imports from this page are no longer available. Sync your purchases from your Humble Library instead: open Library at humblebundle.com/home/library and use Sync purchases from your Humble Library. Your saved purchases, history and corrections were kept.';
 }
 
 function isRedesignedHumble() {

@@ -6,17 +6,17 @@ async function installedEntitlementChecks(disabled=false,phase) {
   if(disabled){
     let fetched=false,rejected=false;
     try{await E.collect({confirmed:true,store,fetcher:async()=>{fetched=true;throw Error('Must not fetch');}});}catch{rejected=true;}
-    check(rejected&&!fetched&&!E.ENABLED,'installed default collector gate prevents acquisition');
+    check(rejected&&!fetched&&!E.ENABLED,'withdrawn collector gate prevents acquisition');
     const result=await chrome.runtime.sendMessage({type:'HCL_STORE',operation:'entitlementBegin',args:[{confirmed:true,scope:{principalId:'a',userId:'b'}}]});
-    check(!result.ok,'installed default worker independently rejects entitlement writes');
-    E.installPanel();check(!document.getElementById('hcl-library-entitlement-pilot'),'installed default package exposes no collector controls');
-    await LibraryBrowser.renderOptions();check(LibraryBrowser.getGroups().native.enabled===false&&!LibraryBrowser.getGroups().groups.some(g=>g.source==='native'),'installed default package shows no native purchase groups');
+    check(!result.ok,'withdrawn collector: worker independently rejects entitlement writes');
+    E.installPanel();check(!document.getElementById('hcl-library-entitlement-pilot'),'withdrawn collector exposes no controls');
+    await LibraryBrowser.renderOptions();check(LibraryBrowser.getGroups().native.enabled===false&&!LibraryBrowser.getGroups().groups.some(g=>g.source==='native'),'withdrawn collector shows no native purchase groups');
     let runner=false;try{E.createSync({store,fetcher:async()=>{throw Error('Must not fetch');}});runner=true;}catch{}
-    check(!runner,'installed default package cannot create a sync runner');
+    check(!runner,'withdrawn collector cannot create a sync runner');
     const sync=await chrome.runtime.sendMessage({type:'HCL_STORE',operation:'entitlementSync',args:[{id:'44444444-4444-4444-8444-444444444444',revision:1,status:'cancelled'}]});
-    check(!sync.ok,'installed default worker rejects sync checkpoint changes');return {checks};
+    check(!sync.ok,'withdrawn collector: worker rejects sync checkpoint changes');return {checks};
   }
-  check(E.ENABLED,'only disposable pilot build enables collector');
+  check(E.ENABLED,'release package enables the collector');
   const account='11111111-1111-4111-8111-111111111111';
   const baseline={...H.LIBRARY_STATE_DEFAULTS,humbleProfileLabel:'Synthetic A',humbleAccountId:account,libraryItems:[{title:'Legacy book',kind:'book',source:'humble',purchaseKey:'legacy',providerItemId:'legacy:product:book',manualKind:'book'}],purchaseSummaries:[{purchaseKey:'legacy',itemCount:1}],mediaTypeOverrides:{'legacy:product:book':'book'},historicalLibraryItems:[{title:'Earlier book',kind:'book',source:'humble',purchaseKey:'earlier'}],historicalPurchaseSummaries:[{purchaseKey:'earlier',itemCount:1}]};
   await store('replace',baseline);
@@ -74,12 +74,12 @@ async function installedEntitlementChecks(disabled=false,phase) {
     // Real panel, worker and storage with short (still floor-respecting) pacing.
     const transport=syncTransport(Array.from({length:8},(_,n)=>row(n)));await store('replace',state);
     E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-entitlement-pilot');
-    check(!!panel,'installed pilot exposes a separate explicitly labeled sync panel');
+    check(panel?.querySelector('strong').textContent==='Sync purchases from your Humble Library','installed release exposes the Library sync panel');
     const button=action=>panel.querySelector('[data-action="'+action+'"]'),status=panel.querySelector('[role="status"]');
     const until=async(test,label,ms=20000)=>{const deadline=Date.now()+ms;while(!test()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));check(test(),label);};
     button('full').click();
     check(/Confirm/.test(status.textContent)&&transport.requests()===0,'installed panel refuses an unconfirmed account without reading');
-    await until(()=>/Saved account:/.test(panel.querySelector('p').textContent),'installed panel names the saved account before syncing');
+    await until(()=>/my saved account “Synthetic A”\./.test(panel.querySelector('label').textContent),'installed panel names the saved account before syncing');
     panel.querySelector('input[type="checkbox"]').checked=true;button('full').click();
     await until(()=>!button('pause').hidden&&/Syncing/.test(status.textContent),'installed panel shows a running sync with Pause available');
     button('pause').click();
@@ -214,12 +214,55 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   await installedBrowserChecks({check,store});
   await unchanged('installed Bundles & Orders browsing preserves legacy purchases, history and corrections');
 
+  await installedFreshInstallChecks({store,check,row});
+
   // Leave an interrupted sync (status running, lease held) for the reload/restart phase.
   await store('replace',state);
   const interrupted=syncTransport(Array.from({length:8},(_,n)=>row(n)));let posts=0;interrupted.hang((path,init)=>init.method==='POST'&&++posts>1);
   E.createSync({fetcher:interrupted.fetch,store,settings:{pageSize:5,batchPages:1},...fast}).start({mode:'full',context,confirmed:true});
   const deadline=Date.now()+10000;while((await current()).checkpoint?.nextPage!==2&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
   view=await current();check(view.checkpoint?.status==='running'&&view.checkpoint.nextPage===2&&view.saved===8,'installed sync is interrupted mid-run with a persisted checkpoint');
+}
+// A first install: no saved account, no earlier import. Then key-reminder navigation on the same data.
+async function installedFreshInstallChecks({store,check,row}){
+  const E=HumbleLibraryEntitlements,H=HumbleComicLibrary,tick=()=>new Promise(resolve=>setTimeout(resolve,50)),fire=(el,type)=>el.dispatchEvent(new Event(type,{bubbles:true}));
+  await store('replace',{...H.LIBRARY_STATE_DEFAULTS});await chrome.storage.local.set({humbleAccountId:null,humbleProfileLabel:''});
+  const context=await store('entitlementContext'),saved=await chrome.storage.local.get({humbleAccountId:null});
+  check(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(context.accountId)&&saved.humbleAccountId===context.accountId&&context.profileLabel==='','installed fresh install gets a local account identity when the sync starts');
+  await E.createSync({fetcher:syncTransport(Array.from({length:30},(_,n)=>row(n))).fetch,store,sleep:async()=>{}}).start({mode:'full',context,confirmed:true});
+  let state=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);const view=E.syncView(state);
+  check(view.checkpoint.status==='completed'&&view.saved===30&&state.libraryItems.length===0&&state.purchaseSummaries.length===0,'installed fresh-install full sync saves Library records without creating historical purchases');
+  await LibraryBrowser.renderOptions();
+  const titles=document.getElementById('library-view-titles');titles.checked=true;fire(titles,'change');
+  const size=document.getElementById('library-page-size');size.value='20';fire(size,'change');
+  const rows=()=>[...document.querySelectorAll('#library-preview > li')];
+  check(rows().length===20&&/Showing 20 of 30 items.*30 are only in your synced Humble Library/.test(document.getElementById('preview-note').textContent),'installed Titles view lists a native-only library with pagination');
+  const search=document.getElementById('library-search');search.value='Synthetic game 17';fire(search,'input');
+  check(rows().length===1&&/^Synthetic game 17 — Humble Library/.test(rows()[0].textContent)&&/Steam activation: Unknown/.test(rows()[0].textContent),'installed Titles search finds a native-only title and keeps activation unknown');
+  search.value='';fire(search,'input');size.value='50';fire(size,'change');
+  check(/^30 Humble Library items saved for this account\. Last full sync finished /.test(document.getElementById('library-sync-status').textContent),'installed Options summarizes the finished sync');
+  const groups=document.getElementById('library-view-groups');groups.checked=true;fire(groups,'change');
+  check(document.querySelectorAll('#library-preview > li.library-group').length===1,'installed Bundles & Orders shows the native purchase with an empty historical library');
+  titles.checked=true;fire(titles,'change');
+
+  // Key reminders: a likely single match opens the item; a purchase with no Library match opens the Library.
+  // Synthetic transport IDs are not UUIDs, so give this scenario route-shaped identifiers.
+  const entitlements=structuredClone(state.libraryEntitlements),id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
+  entitlements.scopes[0].observations.forEach((o,n)=>Object.assign(o,{parentTitle:'Synthetic Bundle',parentId:id(999),nativeId:id(n)}));
+  const order=(key,name,titles)=>titles.map(title=>({title,kind:'game',source:'humble',purchaseKey:key,sourceBundle:name,purchasedAt:'2024-03-01T00:00:00.000Z'}));
+  const reminder=(key,title)=>({id:key+title,purchaseKey:key,title,sourceBundle:'Synthetic Bundle',keyType:'Steam',status:'unrevealed',directRedeem:false,isExpired:false,checkedAt:'2026-01-01T00:00:00.000Z'});
+  await store('replace',{...state,libraryItems:[...order('synthorder','Synthetic Bundle',['Synthetic game 3','Synthetic game 4']),...order('oldorder','Retired Bundle',['Gone'])],
+    libraryEntitlements:entitlements,keyReminders:[reminder('synthorder','Synthetic game 3'),reminder('oldorder','Gone')],keyReminderScan:{complete:true,checkedAt:'2026-01-01T00:00:00.000Z'},openDirectPurchaseLinks:true});
+  const before=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
+  await LibraryBrowser.renderOptions();
+  const cards=[...document.querySelectorAll('#key-reminder-list .key-reminder-card')],card=t=>cards.find(c=>c.querySelector('.key-reminder-heading span').textContent===t);
+  const opened=[],create=chrome.tabs.create;chrome.tabs.create=async o=>{opened.push(o.url);};
+  try{card('Synthetic game 3').querySelector('button').click();card('Gone').querySelector('button').click();await tick();}finally{chrome.tabs.create=create;}
+  const target=entitlements.scopes[0].observations.find(o=>o.title==='Synthetic game 3').nativeId;
+  check(card('Synthetic game 3').querySelector('button').textContent==='Open in Humble Library'&&/Likely the same order as “Synthetic Bundle”/.test(card('Synthetic game 3').textContent)&&opened[0]==='https://www.humblebundle.com/home/library/content/'+target,'installed key reminder opens its likely Library item');
+  check(card('Gone').querySelector('button').textContent==='Open Humble Library'&&opened[1]==='https://www.humblebundle.com/home/library'&&!opened.some(u=>u.includes('downloads?key=')),'installed key reminder without a Library match opens the Library, never an order-key link');
+  state=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
+  check(['keyReminders','keyReminderScan','libraryItems','libraryEntitlements'].every(k=>JSON.stringify(state[k])===JSON.stringify(before[k]))&&!(await chrome.storage.local.get({hclPurchaseFocus:null})).hclPurchaseFocus,'installed reminder navigation writes nothing');
 }
 async function installedSyncResume({store,check,checks}){
   const E=HumbleLibraryEntitlements,before=await chrome.storage.local.get(null),view=E.syncView(before);

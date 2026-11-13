@@ -224,6 +224,25 @@
   }
 
   // scope: 'title' (contained titles), 'bundle' (group names) or 'both'.
+  // Where a key reminder's Open control goes. Reminders name a historical order key, which has
+  // had no working Humble route since the 2026 redesign. A Humble Library destination is offered
+  // only through one non-interchangeable presentation match, is labelled as likely, and is
+  // worked out on each render; nothing is stored. Everything else opens the Library itself.
+  function reminderDestination(reminder, groups) {
+    const fallback = reason => ({ kind: 'library', url: HUMBLE + '/home/library', reason });
+    if (!Array.isArray(groups)) return fallback('not-synced');
+    const key = 'h:' + reminder?.purchaseKey;
+    const match = groups.find(g => g.source === 'unified' && g.historical.key === key);
+    if (!match) return fallback(groups.find(g => g.source === 'historical' && g.key === key)?.matchState ?? 'no-record');
+    if (match.evidence.interchangeable) return fallback('repeat');
+    if (!match.route) return fallback('unmatched');
+    const title = matchKey(reminder.title), steam = /steam/iu.test(reminder.keyType ?? '');
+    // Reminders are about keys, so a DRM-free download of the same title is not the destination.
+    const items = match.native.items.filter(i => !i.excluded && i.route && i.namespace !== 'download_drm_free' && (!steam || i.namespace === 'steam') && matchKey(i.title) === title);
+    const base = { name: match.name, likely: true };
+    return items.length === 1 ? { ...base, kind: 'entitlement', url: items[0].route } : { ...base, kind: 'purchase', url: match.route };
+  }
+
   function filterGroups(groups, { search = '', scope = 'both', media = '', filter = '', type = '', sort = 'name-asc' } = {}) {
     const q = lower(search).trim(), collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
     const out = [];
@@ -251,5 +270,5 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, purchaseRoute, entitlementRoute, category });
 })(globalThis);
