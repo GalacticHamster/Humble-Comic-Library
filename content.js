@@ -301,7 +301,7 @@ function initialiseRedesignedHumble() {
       }catch(error){if(job===revision)showComparisonFailure(error);}
     },120);
   };
-  new MutationObserver(records=>{if(location.pathname!==previousRoute||isBundleCataloguePage()&&records.some(record=>recordHasExternalAddition(record)||recordHasCatalogueTimingChange(record))||records.some(record=>recordHasUnannotatedCover(record)||recordHasBundleMetadataChange(record))||/^\/home\/(?:purchases|library)/u.test(location.pathname)&&!document.querySelector('#hcl-importer'))refresh();})
+  new MutationObserver(records=>{if(location.pathname!==previousRoute||isBundleCataloguePage()&&records.some(record=>recordHasExternalAddition(record)||recordHasCatalogueTimingChange(record))||records.some(record=>recordHasUnannotatedCover(record)||recordHasBundleMetadataChange(record))||/^\/home\/(?:purchases|library)/u.test(location.pathname)&&!document.querySelector('#hcl-importer, #hcl-library-sync'))refresh();})
     .observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['alt','aria-checked','aria-label','data-countdown']});
   window.addEventListener('popstate',refresh);
   window.addEventListener('hcl-refresh-central',refresh);
@@ -3104,8 +3104,22 @@ function showPurchaseFocusNotice(message) {
   setTimeout(() => notice.remove(), 8000);
 }
 
+// Humble's redesigned purchase pages cannot be imported from. Instead of retired import buttons,
+// point to the Library sync and keep saved-account management in the importer's place.
+function addRetiredImporterNotice() {
+  const panel = document.createElement('section');
+  panel.id = 'hcl-importer';
+  panel.className = 'hcl-importer hcl-importer-retired';
+  panel.innerHTML = `
+    <div class="library-import-description"><strong>Humble Library</strong> <span>Purchases now sync from your Humble Library. Humble changed this page, so imports from it are no longer available. Your saved purchases, history and corrections were kept.</span></div>
+    <div class="hcl-import-actions"><a class="hcl-importer-link" href="/home/library">Open Humble Library</a></div>`;
+  LibraryAccountProfiles.mount(panel.querySelector('.library-import-description'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives']});
+  document.body.prepend(panel);
+}
+
 function addPurchaseImporter() {
   if (document.querySelector('#hcl-importer')) return;
+  if (isRedesignedHumble() && globalThis.HumbleLibraryEntitlements?.ENABLED) { addRetiredImporterNotice(); return; }
   const panel = document.createElement('section');
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer';

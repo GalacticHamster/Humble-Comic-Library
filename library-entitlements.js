@@ -800,8 +800,8 @@
     'session-limit': 'Paused after a long session to keep requests to Humble modest.'
   };
   let sharedSync = null;
-  // The importer section on Humble's Library page, in the same layout as the HB and FAN purchase
-  // importers: a full-width section below Humble's header and above the Library, never an overlay.
+  // The importer section on Humble's Library page, laid out and placed like the HB and FAN purchase
+  // importers: a full-width section at the top of the document, never an overlay.
   const PANEL_ID = 'hcl-library-sync';
   function installPanel({ fetcher = global.fetch.bind(global), settings } = {}) {
     if (!ENABLED || document.getElementById(PANEL_ID)) return;
@@ -815,7 +815,7 @@
     // First sync for a saved account binds it to the signed-in Humble account; later syncs are checked against that binding.
     const account = make('p', { className: 'hcl-sync-account' });
     const label = make('label', { className: 'hcl-sync-confirm' }), confirm = make('input', { type: 'checkbox' }), accountName = make('span');
-    label.append(confirm, ' The Humble account signed in here is my saved account ', accountName, '.');
+    const labelText = make('span'); labelText.append('The Humble account signed in here is my saved account ', accountName, '.'); label.append(confirm, labelText);
     const progressRow = make('div', { className: 'hcl-sync-progress' });
     const bar = make('progress', { max: 1, value: 0 }); bar.setAttribute('aria-label', 'Library pages read');
     const summary = make('span');
@@ -927,9 +927,8 @@
       refreshStored().catch(render);
     }, () => { message = 'The saved account is unavailable. Open Extension options before syncing.'; render(); });
     panel.append(intro, account, label, progressRow, footer, details);
-    // A body-level section before Humble's main content: below the site header, above the Library.
-    const main = document.querySelector('body > main');
-    if (main) document.body.insertBefore(panel, main); else document.body.prepend(panel);
+    // Same placement as the HB and FAN importers: first in the document, above Humble's banner and header.
+    document.body.prepend(panel);
     panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,

@@ -95,8 +95,8 @@ async function installedEntitlementChecks(disabled=false,phase) {
     // Layout: an in-flow section before the page's main content, never a fixed overlay.
     const style=document.createElement('style');style.textContent=await (await fetch(chrome.runtime.getURL('content.css'))).text();document.head.append(style);
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-    const cs=getComputedStyle(panel),main=document.querySelector('body > main');
-    check(cs.position==='static'&&panel.parentElement===document.body&&(!main||panel.nextElementSibling===main)&&panel.getBoundingClientRect().width<=document.documentElement.clientWidth,'installed section sits in the page flow before the main content and fits the width');
+    const cs=getComputedStyle(panel);
+    check(cs.position==='static'&&document.body.firstElementChild===panel&&panel.getBoundingClientRect().width<=document.documentElement.clientWidth,'installed section is first in the document, in the page flow, like the importer, and fits the width');
     style.remove();
     // An account already bound to its Humble Library syncs without confirming again; the worker still checks it.
     panel.remove();E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const bound=document.getElementById('hcl-library-sync'),bstatus=bound.querySelector('[role="status"]');

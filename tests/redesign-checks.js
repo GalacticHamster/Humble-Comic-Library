@@ -30,8 +30,9 @@
   check(framed(),'new media route restores computed full-card borders');
   check(collectBundleItems(bundleMediaContext('game')).every(i=>i.kind==='game'&&i.tier.price===null),'stale book Flight props cannot establish game tiers');
   history.pushState({},'', '/home/purchases');document.querySelector('h1').textContent='Purchases';await wait(()=>document.querySelector('#hcl-importer'));check(true,'SPA purchases navigation mounts one importer');
-  check(document.querySelector('#hcl-importer output').textContent.includes('Sync your purchases from your Humble Library'),'unsupported acquisition is explained before scanning');
-  document.querySelector('[data-import-mode="new"]').click();await wait(()=>document.querySelector('#hcl-importer output').textContent.startsWith('Import failed:'));check(!fixtureStored.lastImport,'blocked import publishes no checkpoint');
+  const notice=document.querySelector('#hcl-importer');
+  check(/Purchases now sync from your Humble Library/.test(notice.textContent)&&!notice.querySelector('[data-import-mode]')&&notice.querySelector('a.hcl-importer-link').getAttribute('href')==='/home/library','retired purchase importer is a notice pointing to the Library sync, with no import buttons');
+  check(document.body.firstElementChild===notice&&!fixtureStored.lastImport,'notice is first in the document like the importer, and nothing was imported');
   document.querySelector('#hcl-importer').remove();document.querySelector('h1').textContent='Purchases hydrated';await wait(()=>document.querySelectorAll('#hcl-importer').length===1);check(true,'hydration remounts one importer');
   history.pushState({},'', '/bundles');
   fixtureStored.purchaseSummaries=[{sourceBundle:'Owned bundle',purchaseKey:'synthetic-order'}];

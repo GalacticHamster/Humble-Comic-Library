@@ -244,6 +244,8 @@
 .hcl-importer button:disabled { cursor: progress; opacity: 0.7; }
 .hcl-importer output { flex-basis: 100%; font-size: 0.82rem; }
 .hcl-import-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-left: auto; }
+/* Styled like the themed importer buttons; the theme overlay would otherwise recolour it as a link. */
+#hcl-importer .hcl-importer-link { display: inline-block; padding: 0.45rem 0.7rem; border: 1px solid var(--gh-accent); border-radius: 0.25rem; background: var(--gh-accent); color: var(--gh-on-accent) !important; font: inherit; font-weight: 700; text-decoration: none; }
 .hcl-import-actions button { margin-left: 0; }
 .hcl-import-actions button[data-import-mode="all"] { background: var(--gh-accent); }
 .hcl-purchase-focus { outline: 3px solid var(--gh-warning) !important; outline-offset: 4px; box-shadow: 0 0 0 0.3rem rgb(240 160 32 / 25%) !important; }
