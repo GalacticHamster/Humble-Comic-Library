@@ -181,6 +181,17 @@ Parent-detail reads (227, one per distinct parent) are now 86% of requests. The 
 
 A live memory-only run of the production collector with 1,000-row pages read page 1 (1,000 rows, including action discovery) in 33 s and the final page (235 rows) in 19 s: 46 requests in total. Every row was verified as Purchased, with no unresolved, duplicate or conflicting rows.
 
+A live full sync of the same Firefox library at 1,000 rows per page took 5 minutes 49 seconds: 9 batches and about 270 requests. It read all 9 reported pages, with no retries, rate limits, sign-in problems or pagination inconsistencies.
+
+| Rows | Outcome |
+|---:|---|
+| 118 | Newly saved: the 40 store purchases and 78 rows the 5-row pager never served |
+| 8,115 | Already saved, all seen again |
+| 0 | Duplicates |
+| 2 | Not verified (the parent-level bundle and widget rows) |
+
+The library now holds 8,233 unique entitlements: 8,231 Purchased and 2 gifts excluded. Every one was observed in this sync, and `items-missed` was not raised. Coverage stays `incomplete` only because of `items-unresolved`. Legacy items, summaries, history, reminders, corrections, import history and account scope kept their fingerprints. Observations and the checkpoint survived an extension reload unchanged.
+
 ### Refresh
 
 **Check recent purchases** reads the most recent 50-row page (sort `mostRecent`). It widens to `ceil(growth / 50) + 2` pages, at most 40, when the reported total has grown since the previous run. It continues through that whole range even when it sees known IDs, and completes as `recent-pages`, which never claims full coverage. The last full-sync result (`lastFull`) is kept. Users can run the full sync again at any time.
