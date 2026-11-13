@@ -906,7 +906,7 @@
         if(!control||control.token!==args[0]||control.tabId!==tabId||control.localAccountId!==current.humbleAccountId||control.profileLabel!==current.humbleProfileLabel||!Number.isFinite(Date.parse(control.startedAt))||Date.now()-Date.parse(control.startedAt)>15*60*1000)throw Error('Library check superseded by an account change, clear or restore.');
         if(operation==='entitlementAbort'){await area.set({[key]:null});return true;}
         const data=args[1];
-        if(E.scopeKey(data?.scope)!==E.scopeKey(control)||!Array.isArray(data.observations)||data.observations.length>50)throw Error('Invalid Library account or observation batch.');
+        if(E.scopeKey(data?.scope)!==E.scopeKey(control)||!Array.isArray(data.observations)||data.observations.length>E.BATCH_ROWS)throw Error('Invalid Library account or observation batch.');
         const scan=E.scan(data.scan),incoming=new Map();
         if(!scan||scan.verifiedItems!==data.observations.length||scan.checkedAt<control.startedAt||Date.parse(scan.checkedAt)>Date.now()+60000)throw Error('Invalid Library scan admission.');
         for(const raw of data.observations){const row=E.observation(raw),id=E.identity(row);if(E.scopeKey(row.scope)!==E.scopeKey(control)||incoming.has(id)||row.observedAt!==scan.checkedAt)throw Error('Duplicate, stale or foreign Library observation.');incoming.set(id,row);}
@@ -918,7 +918,7 @@
           // The checkpoint advances only in this write, after this tab's lease and the expected revision are re-checked.
           const cp=previous?.sync??null,same=cp?.id===control.sync.id?cp:null;
           if(lease?.id!==control.sync.lease||lease.syncId!==control.sync.id||(control.sync.revision?same?.revision!==control.sync.revision:same))throw Error('Library sync superseded by another tab, account change, clear or restore.');
-          sync=E.advance({previous:same,carried:same?null:cp,run:{...control.sync,startedAt:control.startedAt},scan,request:data.sync,added,refreshed:incoming.size-added,at:new Date().toISOString()});
+          sync=E.advance({previous:same,carried:same?null:cp,run:{...control.sync,startedAt:control.startedAt},scan,request:data.sync,added,refreshed:incoming.size-added,observed:[...observations.values()].filter(r=>r.observedAt>=(same?.startedAt??control.startedAt)).length,at:new Date().toISOString()});
         }
         const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan,sync}]});
         // One atomic write; no legacy arrays, corrections, scan checkpoints or reminders are touched.

@@ -31,10 +31,10 @@ export function fixture(options={}) {
       return response(frames([{name:'AuthProvider',props:{user:{id:principal}}},{name:'UserLibrary',props:{bundleItems:(options.groupIds??['parent-A']).map((parent,i)=>({id:'group-'+i,productEntitlementId:parent,userId:'hub-A',type:options.parentType??'bundle'}))}}]));
     }
     if(path==='/home/library'&&init.method==='POST'){
-      const page=Number(init.body.get('_1_page'));
+      const page=Number(init.body.get('_1_page')),limit=Number(init.body.get('_1_limit'));
       if(options.failPage===page)return response('unavailable',options.authFailure?401:503);
-      const values=options.pages?.[page-1]??rows.slice((page-1)*5,page*5);
-      let body='0:'+JSON.stringify({success:true,results:values,pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/5)),totalDocs:rows.length,...options.pagination?.(page)}})+'\n';
+      const values=options.pages?.[page-1]??rows.slice((page-1)*limit,page*limit);
+      let body='0:'+JSON.stringify({success:true,results:values,pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/limit)),totalDocs:rows.length,...options.pagination?.(page)}})+'\n';
       if(options.truncate===page)body=body.slice(0,-2);
       return response(body);
     }

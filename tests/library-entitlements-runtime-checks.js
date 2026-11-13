@@ -32,7 +32,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     if(path==='/home/library'&&init.method==='POST'){
       const page=Number(init.body.get('_1_page'));reads++;
       if(failPage&&page===2)return response('',503);
-      return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*5,page*5).map(r=>({...r,userId:foreign?'foreign-hub':r.userId})),pagination:{page,totalPages:2,totalDocs:8}})+(malformed?'':'\n'));
+      return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*Number(init.body.get('_1_limit')),page*Number(init.body.get('_1_limit'))).map(r=>({...r,userId:foreign?'foreign-hub':r.userId})),pagination:{page,totalPages:2,totalDocs:8}})+(malformed?'':'\n'));
     }
     if(path==='/home/library/parent-A')return htmlResponse([{name:'AuthProvider',props:{user:{id:'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:liveShape?undefined:false,entitlements:{redemptionGroups:[],downloads:rows.filter(r=>r.type==='download_drm_free').map(entitlement),keys:rows.filter(r=>r.type!=='download_drm_free').map(entitlement)}}}}]);
     throw Error('Unexpected fixture request');
@@ -72,7 +72,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
   try{
     // Real panel, worker and storage with short (still floor-respecting) pacing.
     const transport=syncTransport(Array.from({length:8},(_,n)=>row(n)));await store('replace',state);
-    E.installPanel({fetcher:transport.fetch,settings:{batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-entitlement-pilot');
+    E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-entitlement-pilot');
     check(!!panel,'installed pilot exposes a separate explicitly labeled sync panel');
     const button=action=>panel.querySelector('[data-action="'+action+'"]'),status=panel.querySelector('[role="status"]');
     const until=async(test,label,ms=20000)=>{const deadline=Date.now()+ms;while(!test()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));check(test(),label);};
@@ -115,7 +115,7 @@ function syncTransport(rows){
     if(failNext&&failNext(path,init)){const r=failNext.response;failNext=null;if(r==='network')throw TypeError('Synthetic network failure');return r;}
     if(path==='/_next/static/chunks/synthetic-library.js')return response(`(0,r.createServerReference)("${'a'.repeat(40)}",r.callServer,void 0,r.findSourceMapURL,"filterUserLibrary")`,200,'text/javascript');
     if(path==='/home/library'&&init.method!=='POST')return html([auth,{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]);
-    if(path==='/home/library'&&init.method==='POST'){const page=Number(init.body.get('_1_page'));return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*5,page*5),pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/5)),totalDocs:rows.length}})+'\n');}
+    if(path==='/home/library'&&init.method==='POST'){const page=Number(init.body.get('_1_page'));return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*Number(init.body.get('_1_limit')),page*Number(init.body.get('_1_limit'))),pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/Number(init.body.get('_1_limit')))),totalDocs:rows.length}})+'\n');}
     if(path==='/home/library/parent-A')return html([auth,{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(child)}}}}]);
     throw Error('Unexpected fixture request');
   };
@@ -128,7 +128,7 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   const current=async()=>E.syncView(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS));
   const rows=Array.from({length:23},(_,n)=>row(n)),transport=syncTransport(rows);
   await store('replace',{...state,libraryEntitlements:{version:1,scopes:[]}});
-  let runner=E.createSync({fetcher:transport.fetch,store,settings:{batchPages:2},...fast});
+  let runner=E.createSync({fetcher:transport.fetch,store,settings:{pageSize:5,batchPages:2},...fast});
   let writes=0;const counted=changes=>{if(changes.libraryEntitlements)writes++;};chrome.storage.onChanged.addListener(counted);
   await runner.start({mode:'full',context,confirmed:true});await new Promise(resolve=>setTimeout(resolve,100));chrome.storage.onChanged.removeListener(counted);
   let view=await current();
@@ -139,32 +139,39 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   check(!JSON.stringify(await chrome.storage.local.get(null)).includes('SYNTHETIC_SECRET'),'installed sync persistence excludes key values');
 
   transport.fail((path,init)=>init.method==='POST'&&init.body.get('_1_page')==='4','network');
-  runner=E.createSync({fetcher:transport.fetch,store,settings:{batchPages:2},...fast});await runner.start({mode:'full',context,confirmed:true});
+  runner=E.createSync({fetcher:transport.fetch,store,settings:{pageSize:5,batchPages:2},...fast});await runner.start({mode:'full',context,confirmed:true});
   view=await current();check(view.checkpoint.status==='completed'&&view.checkpoint.refreshed===23&&view.saved===23,'installed interrupted network request retries and completes without duplicates');
 
   let signedOut=false;
-  runner=E.createSync({fetcher:async(path,init)=>signedOut&&path==='/home/library'?{ok:false,status:0,type:'opaqueredirect',headers:{get:()=>null},text:async()=>''}:transport.fetch(path,init),store,settings:{batchPages:2},...fast});
+  runner=E.createSync({fetcher:async(path,init)=>signedOut&&path==='/home/library'?{ok:false,status:0,type:'opaqueredirect',headers:{get:()=>null},text:async()=>''}:transport.fetch(path,init),store,settings:{pageSize:5,batchPages:2},...fast});
   runner.subscribe(v=>{if(v.phase==='waiting'&&v.checkpoint?.nextPage===3)signedOut=true;});await runner.start({mode:'full',context,confirmed:true});
   view=await current();check(runner.view.error==='signed-out'&&view.checkpoint.status==='stopped'&&view.checkpoint.reason==='signed-out'&&view.checkpoint.nextPage===3,'installed sign-in expiry stops safely at the checkpoint');
   signedOut=false;await runner.start({mode:'full',resume:view.checkpoint,context,confirmed:true});
   view=await current();check(view.checkpoint.status==='completed','installed stopped sync resumes after sign-in');
 
   const snapshot=H.createLibraryBackup(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS));let restored=false;
-  runner=E.createSync({fetcher:transport.fetch,store,settings:{batchPages:2},...fast});
+  runner=E.createSync({fetcher:transport.fetch,store,settings:{pageSize:5,batchPages:2},...fast});
   runner.subscribe(v=>{if(!restored&&v.phase==='waiting'&&v.checkpoint?.nextPage===3){restored=true;store('replace',H.restoreBackupState(snapshot));}});
   await runner.start({mode:'full',context,confirmed:true});
   view=await current();check(runner.view.error==='superseded'&&view.checkpoint.status==='completed'&&view.saved===23,'installed restore during a sync supersedes it and keeps the restored records');
 
   rows.unshift(row(100),row(101));
-  runner=E.createSync({fetcher:transport.fetch,store,settings:{batchPages:2,refreshPages:1},...fast});await runner.start({mode:'refresh',context,confirmed:true});
+  runner=E.createSync({fetcher:transport.fetch,store,settings:{pageSize:5,batchPages:2,refreshPages:1},...fast});await runner.start({mode:'refresh',context,confirmed:true});
   view=await current();check(view.checkpoint.mode==='refresh'&&view.checkpoint.coverage==='recent-pages'&&view.checkpoint.added===2&&view.saved===25,'installed recent-purchase refresh adds new purchases without a full traversal');
   check(view.checkpoint.lastFull?.coverage==='accessible-pages-traversed','installed refresh keeps the last full sync result');
   await unchanged('installed refresh and restore preserve legacy purchases, history and corrections');
 
+  // Default 1,000-row pages through the installed worker and storage.
+  await store('replace',{...state,libraryEntitlements:{version:1,scopes:[]}});
+  const large=syncTransport(Array.from({length:2345},(_,n)=>row(1000+n)));writes=0;chrome.storage.onChanged.addListener(counted);
+  await E.createSync({fetcher:large.fetch,store,...fast}).start({mode:'full',context,confirmed:true});await new Promise(resolve=>setTimeout(resolve,100));chrome.storage.onChanged.removeListener(counted);
+  view=await current();check(view.checkpoint.status==='completed'&&view.checkpoint.coverage==='accessible-pages-traversed'&&view.checkpoint.pageSize===1000&&view.checkpoint.batches===3&&writes===3&&view.saved===2345,'installed default sync reads 1,000-row pages with one atomic write per page');
+  await unchanged('installed large-page sync preserves legacy purchases, history and corrections');
+
   // Leave an interrupted sync (status running, lease held) for the reload/restart phase.
   await store('replace',state);
   const interrupted=syncTransport(Array.from({length:8},(_,n)=>row(n)));let posts=0;interrupted.hang((path,init)=>init.method==='POST'&&++posts>1);
-  E.createSync({fetcher:interrupted.fetch,store,settings:{batchPages:1},...fast}).start({mode:'full',context,confirmed:true});
+  E.createSync({fetcher:interrupted.fetch,store,settings:{pageSize:5,batchPages:1},...fast}).start({mode:'full',context,confirmed:true});
   const deadline=Date.now()+10000;while((await current()).checkpoint?.nextPage!==2&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
   view=await current();check(view.checkpoint?.status==='running'&&view.checkpoint.nextPage===2&&view.saved===8,'installed sync is interrupted mid-run with a persisted checkpoint');
 }
@@ -172,7 +179,7 @@ async function installedSyncResume({store,check,checks}){
   const E=HumbleLibraryEntitlements,before=await chrome.storage.local.get(null),view=E.syncView(before);
   check(view.checkpoint?.status==='running'&&view.checkpoint.nextPage===2&&before.hclLibraryEntitlementLease,'installed interrupted checkpoint and lease survive reload and extension restart');
   const row=n=>({id:'native-'+n,title:'Synthetic game '+n,type:'steam',userId:'hub-A',productEntitlementId:'parent-A'});
-  const runner=E.createSync({fetcher:syncTransport(Array.from({length:8},(_,n)=>row(n))).fetch,store,settings:{batchPages:1},sleep:async()=>{}});
+  const runner=E.createSync({fetcher:syncTransport(Array.from({length:8},(_,n)=>row(n))).fetch,store,settings:{pageSize:5,batchPages:1},sleep:async()=>{}});
   await runner.start({mode:'full',resume:view.checkpoint,context:await store('entitlementContext'),confirmed:true});
   const after=await chrome.storage.local.get(null),done=E.syncView(after);
   check(done.checkpoint.status==='completed'&&done.checkpoint.coverage==='accessible-pages-traversed'&&done.saved===8&&done.checkpoint.added===0&&done.checkpoint.refreshed===8,'installed sync resumes after restart from the checkpoint without duplicates');

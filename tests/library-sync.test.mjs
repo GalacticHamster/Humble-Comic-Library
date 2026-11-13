@@ -8,7 +8,7 @@ const many=(n,prefix='id')=>Array.from({length:n},(_,i)=>row(prefix+'-'+i,'Synth
 const scope=f=>f.stored.libraryEntitlements?.scopes[0];
 const preserved=f=>{for(const [k,v] of Object.entries(legacy))assert.deepEqual(f.stored[k],v,'legacy '+k+' changed');};
 const setup=(options={})=>{const rows=options.rows??many(37);return fixture({initial:legacy,rows,children:options.children??rows.map(r=>child(r.id,r.title,r.type)),...options});};
-const runner=(f,{fetcher=f.fetcher,settings={},sleep=async()=>{}}={})=>f.E.createSync({fetcher,store:f.store,settings:{batchPages:3,...settings},sleep});
+const runner=(f,{fetcher=f.fetcher,settings={},sleep=async()=>{}}={})=>f.E.createSync({fetcher,store:f.store,settings:{batchPages:3,pageSize:5,refreshPages:6,...settings},sleep});
 const start=async(f,s,options={})=>s.start({mode:'full',context:await f.store('entitlementContext'),confirmed:true,...options});
 const posts=f=>f.requests.filter(r=>r.method==='POST');
 const pages=f=>posts(f).length;
@@ -146,7 +146,8 @@ test('storage failure rolls back the whole batch, then a retry commits; persiste
 test('overlapping and duplicate native IDs deduplicate; conflicting records mark coverage uncertain',async()=>{
   const rows=many(15),pagesData=[rows.slice(0,5),[rows[4],...rows.slice(5,9)],rows.slice(9,14)];
   const f=setup({rows,pages:pagesData,pagination:()=>({totalDocs:15,totalPages:3})});await start(f,runner(f));
-  assert.equal(scope(f).observations.length,14);assert.equal(scope(f).sync.duplicates>=1,true);assert.equal(scope(f).sync.coverage,'accessible-pages-traversed');
+  // Humble reports 15 rows but its pages served 14: the repeated boundary row hid a skipped one.
+  assert.equal(scope(f).observations.length,14);assert.equal(scope(f).sync.duplicates>=1,true);assert.equal(scope(f).sync.coverage,'incomplete');assert.deepEqual(scope(f).sync.uncertainty,['items-missed']);
   const bad=[rows.slice(0,5),[{...rows[4],title:'Conflicting'},...rows.slice(5,9)],rows.slice(9,14)];
   const g=setup({rows,pages:bad,pagination:()=>({totalDocs:15,totalPages:3})});await start(g,runner(g));
   assert.equal(scope(g).sync.status,'completed');assert.equal(scope(g).sync.coverage,'incomplete');assert(scope(g).sync.uncertainty.includes('duplicate-conflict'));assert(scope(g).sync.uncertainty.includes('items-unresolved'));
@@ -168,9 +169,9 @@ test('changed totals and reordering are reported as uncertainty, extend the rang
 
 test('request pacing and backoff timings honour conservative settings floors',async()=>{
   const f=setup({rows:many(10)}),delays=[];await start(f,runner(f,{settings:{batchPages:1},sleep:async ms=>{delays.push(ms);}}));
-  assert(delays.includes(10000),'batches wait between them');
+  assert(delays.includes(5000),'batches wait between them');
   assert(delays.filter(v=>v<=1000).length>0,'requests are spaced');
-  for(const bad of [{requestSpacingMs:10},{batchDelayMs:0},{batchPages:11},{retryDelaysMs:[1]},{refreshPages:41},{maxSessionRequests:0}])assert.throws(()=>f.E.createSync({fetcher:f.fetcher,store:f.store,settings:bad}),/settings/);
+  for(const bad of [{requestSpacingMs:10},{batchDelayMs:0},{batchPages:11},{retryDelaysMs:[1]},{refreshPages:41},{maxSessionRequests:0},{pageSize:1000},{pageSize:250}])assert.throws(()=>f.E.createSync({fetcher:f.fetcher,store:f.store,settings:bad}),/settings/);
   const g=setup({rows:many(40)}),t=runner(g,{settings:{batchPages:1,maxSessionRequests:6}});await start(g,t);
   assert.equal(t.view.phase,'paused');assert.equal(t.view.error,'session-limit');assert.equal(scope(g).sync.reason,'session-limit');assert(scope(g).sync.nextPage<9);
 });
@@ -220,9 +221,10 @@ test('worker rejects forged progress, stale revisions, foreign leases and contra
     assert.throws(()=>E.checkpoint(forged));
   const backup=H.createLibraryBackup(f.stored);backup.libraryEntitlements.scopes[0].sync.status='completed';backup.libraryEntitlements.scopes[0].sync.nextPage=1;assert.throws(()=>H.restoreBackupState(backup),/checkpoint/);
   const lease='33333333-3333-4333-8333-333333333333',id='44444444-4444-4444-8444-444444444444',scopeRef={principalId:'principal-A',userId:'hub-A'};
-  await assert.rejects(f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id,revision:0,mode:'full',startPage:1,lease,claim:false}}),/superseded/);
-  await assert.rejects(f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id:cp.id,revision:cp.revision+1,mode:'full',startPage:cp.nextPage,lease,claim:true}}),/superseded/);
-  const begun=await f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id,revision:0,mode:'full',startPage:1,lease,claim:true}});
+  await assert.rejects(f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id,revision:0,mode:'full',startPage:1,pageSize:5,lease,claim:false}}),/superseded/);
+  await assert.rejects(f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id:cp.id,revision:cp.revision+1,mode:'full',startPage:cp.nextPage,pageSize:5,lease,claim:true}}),/superseded/);
+  for(const pageSize of [undefined,250,50])await assert.rejects(f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id,revision:0,mode:'full',startPage:1,pageSize,lease,claim:true}}),/Invalid Library sync request/);
+  const begun=await f.store('entitlementBegin',{confirmed:true,scope:scopeRef,sync:{id,revision:0,mode:'full',startPage:1,pageSize:5,lease,claim:true}});
   const scan={checkedAt:new Date().toISOString(),acquisition:'finished',coverage:'bounded',firstPage:1,pagesRead:1,reportedPages:3,reportedTotal:12,verifiedItems:0,unresolvedItems:0,duplicateItems:0,conflictingItems:0,failures:[]};
   await assert.rejects(f.store('entitlementCommit',begun.token,{scope:scopeRef,observations:[],scan,sync:{nextPage:3,signature:null,orderingChanged:false,uncertainty:[],status:'running',reason:null}}),/progress/);
   assert.deepEqual(scope(f).sync,cp);preserved(f);
@@ -238,4 +240,48 @@ test('a second tab claiming the sync supersedes the first without double commits
 
 test('disabled build exposes no sync runner',()=>{
   const f=fixture({enabled:false});assert.throws(()=>f.E.createSync({fetcher:f.fetcher,store:f.store}),/not enabled/);
+});
+
+// Default page sizes: the read-only action honours larger limits than the site's pager.
+const fast=(f,options={})=>runner(f,{...options,settings:{pageSize:null,refreshPages:1,...options.settings}});
+const limits=f=>[...new Set(posts(f).map(r=>r.limit))];
+const tracked=f=>async(path,init)=>{const r=await f.fetcher(path,init);if(init.method==='POST')f.requests.at(-1).limit=init.body.get('_1_limit');return r;};
+test('full sync reads 1,000-row pages in one atomic batch per page, including the final partial page',async()=>{
+  const f=setup({rows:many(2345)});await start(f,fast(f,{fetcher:tracked(f)}));
+  const cp=scope(f).sync;
+  assert.equal(cp.status,'completed');assert.equal(cp.coverage,'accessible-pages-traversed');assert.equal(cp.pageSize,1000);assert.deepEqual(cp.uncertainty,[]);
+  assert.equal(cp.targetPages,3);assert.equal(cp.nextPage,4);assert.equal(cp.batches,3);assert.equal(cp.added,2345);assert.equal(scope(f).observations.length,2345);
+  assert.deepEqual(limits(f),['1000']);assert.equal(pages(f),3+2,'three pages plus one boundary re-read per later batch');
+  const writes=f.writes.filter(w=>w.libraryEntitlements);assert.deepEqual(writes.map(w=>w.libraryEntitlements.scopes[0].observations.length),[1000,2000,2345]);
+  assert.equal(scope(f).lastScan.pageSize,1000);assert.equal(f.stored.hclLibraryEntitlementLease,null);preserved(f);
+});
+test('a row Humble skips at a large-page boundary is reported as missed, never as complete coverage',async()=>{
+  const rows=many(2000),pagesData=[rows.slice(0,1000),[rows[999],...rows.slice(1001,2000)]];
+  const f=setup({rows,pages:pagesData});await start(f,fast(f));
+  const cp=scope(f).sync;assert.equal(cp.status,'completed');assert.equal(cp.coverage,'incomplete');assert.deepEqual(cp.uncertainty,['items-missed']);
+  assert.equal(scope(f).observations.length,1999);assert(!scope(f).observations.some(r=>r.nativeId==='id-1000'));assert.equal(cp.lastFull.coverage,'incomplete');preserved(f);
+});
+test('if Humble caps the page size, the sync stops instead of skipping rows',async()=>{
+  const f=setup({rows:many(1500)});
+  const capped=async(path,init)=>{if(init.method==='POST'){init.body.set('_1_limit','500');}return f.fetcher(path,init);};
+  const s=fast(f,{fetcher:capped});await start(f,s);
+  assert.equal(s.view.phase,'stopped');assert.equal(s.view.error,'failed');assert.notEqual(scope(f)?.sync?.status,'completed');
+  assert.equal(scope(f)?.observations.length??0,0);preserved(f);
+});
+test('an unfinished 5-row checkpoint resumes at its own page size after the upgrade',async()=>{
+  const f=setup(),s=runner(f);s.subscribe(v=>{if(v.phase==='waiting'&&v.checkpoint?.nextPage===4)s.pause();});await start(f,s);
+  assert.equal(scope(f).sync.pageSize,5);
+  const t=fast(f,{fetcher:tracked(f)});await t.start({mode:'full',resume:scope(f).sync,context:await f.store('entitlementContext'),confirmed:true});
+  const cp=scope(f).sync;assert.equal(cp.status,'completed');assert.equal(cp.pageSize,5);assert.equal(cp.coverage,'accessible-pages-traversed');assert.equal(scope(f).observations.length,37);
+  assert.deepEqual(limits(f).filter(Boolean),['5']);preserved(f);
+});
+test('refresh reads one 50-row page by default and widens by 50-row pages for new purchases',async()=>{
+  const rows=many(140),children=rows.map(r=>child(r.id,r.title)),f=setup({rows,children});await start(f,fast(f));
+  const full=scope(f).sync;assert.equal(full.coverage,'accessible-pages-traversed');
+  await fast(f,{fetcher:tracked(f)}).start({mode:'refresh',context:await f.store('entitlementContext'),confirmed:true});
+  let cp=scope(f).sync;assert.equal(cp.pageSize,50);assert.equal(cp.targetPages,1);assert.equal(cp.coverage,'recent-pages');assert.equal(cp.added,0);assert.equal(cp.refreshed,50);
+  const added=many(60,'fresh');rows.unshift(...added);children.push(...added.map(r=>child(r.id,r.title)));
+  await fast(f,{fetcher:tracked(f)}).start({mode:'refresh',context:await f.store('entitlementContext'),confirmed:true});
+  cp=scope(f).sync;assert.equal(cp.targetPages,4,'growth of 60 widens to ceil(60/50)+2 pages, here every reported page');assert.equal(cp.added,60);assert.equal(scope(f).observations.length,200);
+  assert.deepEqual(cp.lastFull,full.lastFull);preserved(f);
 });

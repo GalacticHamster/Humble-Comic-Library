@@ -38,13 +38,13 @@ Secret key fields, signed URLs and download payloads are not projected, persiste
 
 Read the authenticated Library HTML envelope, parse only literal embedded Flight bootstrap strings without executing scripts, resolve the current public UserLibrary `filterUserLibrary` action without executing code, then use the observed native FormData encoding. GET requests accept HTML; action POSTs accept Flight. Redirects are refused. No fixed deployment action hash is shipped. Unknown Flight/action encodings fail closed. All account-provider components must contain the same valid principal; conflicting or missing principals abort acquisition.
 
-A single bounded check reads five Purchased pages by default, ten at most, with five rows per page. Additional per-check ceilings: twenty distinct parent reads, eight public assets, two account-envelope reads. HTML bootstrap module lists include shared dependencies; discovery examines at most eight trailing module chunks and fails if no unique exact action reference is found. Failed parents are cached as unresolved. There are no known-ID early stops or periodic scans. Network deadlines and response/framing/reference bounds apply. Full traversal uses the resumable sync below, which is made of these same bounded checks.
+A single bounded check reads five Purchased pages by default, ten at most. A check uses the site's own five rows per page unless the sync asks for 50 or 1,000; one check never reads more than 1,000 rows. Additional per-check ceilings: twenty distinct parent reads, eight public assets, two account-envelope reads. HTML bootstrap module lists include shared dependencies; discovery examines at most eight trailing module chunks and fails if no unique exact action reference is found. Failed parents are cached as unresolved. There are no known-ID early stops or periodic scans. Network deadlines and response/framing/reference bounds apply. Full traversal uses the resumable sync below, which is made of these same bounded checks.
 
 Requests never follow redirects (`redirect: 'manual'`). A redirect, 401 or 403 means sign-in is required, and the account scope becomes fatal. A 429, or a 503 with Retry-After, means the provider asked for fewer requests; the sync stops without retrying around it. Network failures, timeouts, 408 and other 5xx responses are transient. A transient parent-detail failure rolls back that whole page, so a retry reads it again rather than recording it as unresolved.
 
 ## Resumable full-Library sync
 
-The user explicitly starts a sync from the pilot panel on the signed-in Library page and confirms the account. It runs only in that tab while the page is open; nothing runs in the background or on a timer. A runner (`createSync`) executes sequential batches. Each batch is one `collect` call: envelope → begin → pages → envelope → commit. Defaults: ten pages per batch, at least one second between provider requests (all request types share one gate), ten seconds between batches, three retries for transient no-progress batches (15 s, 60 s, 180 s), and session limits of 12,000 requests or eight hours. After a session limit the sync pauses and the user resumes it. Settings validation enforces floors (≥ 500 ms spacing, ≥ 2 s between batches, ≥ 5 s per retry delay, ≤ 10 pages per batch), so settings cannot make the sync aggressive. Within a session the runner reuses the discovered action and account-checked parent details (at most 300, for at most 20 minutes); each batch still verifies the account before and after reading.
+The user explicitly starts a sync from the pilot panel on the signed-in Library page and confirms the account. It runs only in that tab while the page is open; nothing runs in the background or on a timer. A runner (`createSync`) executes sequential batches. Each batch is one `collect` call: envelope → begin → pages → envelope → commit. Defaults: one 1,000-row page per full-sync batch, at least one second between provider requests (all request types share one gate), five seconds between batches, three retries for transient no-progress batches (15 s, 60 s, 180 s), and session limits of 12,000 requests or eight hours. After a session limit the sync pauses and the user resumes it. Settings validation enforces floors (≥ 500 ms spacing, ≥ 2 s between batches, ≥ 5 s per retry delay, ≤ 10 pages per batch), so settings cannot make the sync aggressive. Within a session the runner reuses the discovered action and account-checked parent details (at most 300, for at most 20 minutes); each batch still verifies the account before and after reading.
 
 ### Checkpoint
 
@@ -139,9 +139,51 @@ The two remaining rows are parent-level rows, not individual entitlements:
 
 Neither has an exact typed native child, so both stay unresolved. Titles are not used to link them.
 
+### Full-sync performance
+
+The second live full sync took 77.5 minutes: 166 batches at about 28 s each.
+
+Each batch made at least 13 paced requests: two account envelopes, one overlap re-read and ten 5-row pages. Parent-detail misses came on top. It then waited 10 s. About 2,400 requests ran at one per second, so spacing and pauses, not parsing or storage, set the duration.
+
+Humble's frontend sends `limit` as an explicit form field of the read-only `filterUserLibrary` action, hard-coded to `"5"` (`cursor` is `5 × page` and is ignored). Bounded memory-only live tests found that the action honours larger limits:
+
+- Limits of 50, 100, 250, 500 and 1,000 all returned the requested number of rows, with `totalPages = ceil(totalDocs / limit)` and every row bound to the account.
+- The final partial page was correct.
+- Latency was 0.3–1 s per request at every size; a 1,000-row page is about 0.9 MB.
+
+The same tests showed that the 5-row pager was also incomplete. Humble's `mostRecent` order is not stable across page requests, so a row can repeat at a page boundary while another is skipped:
+
+| Rows per page | Requests | Rows read | Unique rows | Rows skipped |
+|---:|---:|---:|---:|---:|
+| 5 (first 100 rows only) | 20 | 100 | 84 | 16 |
+| 250 | 33 | 8,235 | 8,234 | 1 |
+| 1,000 | 9 | 8,235 | 8,235 | 0 |
+
+The two 5-row full syncs therefore saw about 8,157 distinct rows of 8,235. Their 68 "duplicates" hid roughly 77 rows that were never served.
+
+The full sync now reads 1,000-row pages, one page per atomic batch, with five seconds between batches. Refresh reads 50-row pages. Everything else is unchanged:
+
+- request spacing (one per second), retries, 429/Retry-After and sign-in handling;
+- account checks before and after each batch, and the parent-detail checks;
+- overlap re-reads, which now compare the boundary tail;
+- checkpoint atomicity, pause/resume, cancellation and backup.
+
+The checkpoint and scan record `pageSize`, and older records are 5. An unfinished 5-row sync resumes at 5 rows. A `pageSize: 5` setting reproduces the site's pager. A full pass that ends with fewer distinct rows than Humble reports is marked `items-missed` and stays `incomplete`. If Humble stops honouring the limit, short pages fail validation and the sync stops; it never skips rows.
+
+`node tests/library-sync-benchmark.mjs` runs both configurations on 8,235 synthetic rows across 206 bundle, 20 store and 1 widget parent. It models network time from the measured latencies and measures CPU time directly:
+
+| Configuration | Batches | Requests | Per 1,000 rows | Network | Spacing | Batch pauses | CPU | Projected |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5-row pages, 10 s pauses | 165 | 2,369 | 288 | 19.0 min | 21.1 min | 27.3 min | 0.9 min | 68.5 min (measured live: 77.5) |
+| 1,000-row pages, 5 s pauses | 9 | 263 | 32 | 2.4 min | 2.0 min | 0.7 min | 0.05 min | 5.1 min |
+
+Parent-detail reads (227, one per distinct parent) are now 86% of requests. The peak rate is unchanged at one request per second, and total requests to Humble fall by 89%.
+
+A live memory-only run of the production collector with 1,000-row pages read page 1 (1,000 rows, including action discovery) in 33 s and the final page (235 rows) in 19 s: 46 requests in total. Every row was verified as Purchased, with no unresolved, duplicate or conflicting rows.
+
 ### Refresh
 
-**Check recent purchases** reads the six most recent pages (sort `mostRecent`). It widens to `ceil(growth / 5) + 2` pages, at most 40, when the reported total has grown since the previous run. It continues through that whole range even when it sees known IDs, and completes as `recent-pages`, which never claims full coverage. The last full-sync result (`lastFull`) is kept. Users can run the full sync again at any time.
+**Check recent purchases** reads the most recent 50-row page (sort `mostRecent`). It widens to `ceil(growth / 50) + 2` pages, at most 40, when the reported total has grown since the previous run. It continues through that whole range even when it sees known IDs, and completes as `recent-pages`, which never claims full coverage. The last full-sync result (`lastFull`) is kept. Users can run the full sync again at any time.
 
 Identical overlaps deduplicate by scoped native identity. Conflicting duplicates are withheld, retaining any previously saved record. Whole-page loops, changing totals, inconsistent ranges, malformed/truncated responses and later failures are reported incomplete. Independently verified earlier records may commit; auth/account uncertainty aborts the batch. Unknown parent sources remain unresolved.
 

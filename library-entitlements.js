@@ -8,9 +8,14 @@
   const DETAIL_PARENT_TYPES = new Set(['storefront','widget']);
   const SYNC_STATUSES = ['running','paused','completed','cancelled','stopped'];
   const SYNC_REASONS = ['user','rate-limited','signed-out','account','superseded','failed','incompatible','session-limit'];
-  const UNCERTAINTY = ['totals-changed','ordering-changed','items-unresolved','duplicate-conflict','pagination-loop'];
+  const UNCERTAINTY = ['totals-changed','ordering-changed','items-unresolved','duplicate-conflict','pagination-loop','items-missed'];
   // Conservative defaults. Validation enforces floors so settings cannot make the scan aggressive.
-  const SYNC_DEFAULTS = Object.freeze({ batchPages: 10, refreshPages: 6, requestSpacingMs: 1000, batchDelayMs: 10000, retryDelaysMs: Object.freeze([15000, 60000, 180000]), maxSessionRequests: 12000, maxSessionMs: 8 * 3600 * 1000 });
+  // Rows per Library request. The site's own pager asks for 5, but the same read-only action
+  // honours larger limits. Fewer page boundaries also lose fewer rows to Humble's unstable
+  // most-recent order. Records without a size were read 5 rows at a time.
+  const PAGE_SIZES = Object.freeze({ full: 1000, refresh: 50 }), LEGACY_PAGE_SIZE = 5, BATCH_ROWS = 1000;
+  const rowsPerPage = v => { const n = v ?? LEGACY_PAGE_SIZE; if (![LEGACY_PAGE_SIZE, PAGE_SIZES.full, PAGE_SIZES.refresh].includes(n)) throw Error('Invalid Library page size.'); return n; };
+  const SYNC_DEFAULTS = Object.freeze({ batchPages: 10, refreshPages: 1, requestSpacingMs: 1000, batchDelayMs: 5000, retryDelaysMs: Object.freeze([15000, 60000, 180000]), maxSessionRequests: 12000, maxSessionMs: 8 * 3600 * 1000, pageSize: null });
   const object = v => v && typeof v === 'object' && !Array.isArray(v);
   const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(v);
   const count = v => { if (!Number.isSafeInteger(v) || v < 0 || v > 1000000) throw Error('Invalid Library sync count.'); return v; };
@@ -104,12 +109,12 @@
       r[k] = raw[k];
     }
     // Resumable batches start later in the range. Older records lack the field and began at page one.
-    r.firstPage = raw.firstPage ?? 1;
+    r.firstPage = raw.firstPage ?? 1; r.pageSize = rowsPerPage(raw.pageSize);
     if (!Number.isSafeInteger(r.firstPage) || r.firstPage < 1 || r.firstPage > 1000000) throw Error('Invalid Library scan count.');
     const codes = new Set(['page-failed','item-unresolved','duplicate-conflict','pagination-loop','pagination-inconsistent','request-bound','unsupported-parent']);
     if (!Array.isArray(raw.failures) || raw.failures.length > 20 || raw.failures.some(v => !codes.has(v))) throw Error('Invalid Library failure code.');
     r.failures = [...new Set(raw.failures)];
-    if (r.pagesRead > MAX_PAGES || r.verifiedItems > r.pagesRead * 5 || r.conflictingItems > r.unresolvedItems || (r.failures.length || r.unresolvedItems) && r.acquisition !== 'partial'
+    if (r.pagesRead > MAX_PAGES || r.verifiedItems > r.pagesRead * r.pageSize || r.conflictingItems > r.unresolvedItems || (r.failures.length || r.unresolvedItems) && r.acquisition !== 'partial'
       || r.coverage === 'accessible-pages-traversed' && (r.firstPage !== 1 || r.pagesRead !== r.reportedPages || r.acquisition !== 'finished')
       || r.coverage === 'bounded' && (r.firstPage === 1 ? r.pagesRead >= r.reportedPages : r.firstPage - 1 + r.pagesRead > r.reportedPages)
       || r.acquisition === 'partial' && r.coverage !== 'incomplete') throw Error('Contradictory Library scan evidence.');
@@ -125,7 +130,7 @@
       startedAt: date(raw.startedAt).value, updatedAt: date(raw.updatedAt).value, lastProgressAt: raw.lastProgressAt === null ? null : date(raw.lastProgressAt).value };
     if (!r.startedAt || !r.updatedAt || r.lastProgressAt === undefined) throw Error('Invalid Library sync checkpoint.');
     for (const k of ['revision','nextPage','targetPages','reportedPages','reportedTotal','initialTotal','pagesRead','batches','added','refreshed','unresolved','conflicts','duplicates']) r[k] = count(raw[k]);
-    r.baselineTotal = raw.baselineTotal === null ? null : count(raw.baselineTotal);
+    r.baselineTotal = raw.baselineTotal === null ? null : count(raw.baselineTotal); r.pageSize = rowsPerPage(raw.pageSize);
     if (!Array.isArray(raw.uncertainty) || raw.uncertainty.some(v => !UNCERTAINTY.includes(v))) throw Error('Invalid Library sync checkpoint.');
     r.uncertainty = [...new Set(raw.uncertainty)];
     if (raw.lastSignature !== null && (!Array.isArray(raw.lastSignature) || raw.lastSignature.length > 5 || raw.lastSignature.some(v => !Array.isArray(v) || v.length !== 2))) throw Error('Invalid Library sync checkpoint.');
@@ -137,27 +142,27 @@
     if (r.revision < 1 || r.nextPage < 1 || ['running','completed'].includes(r.status) !== (r.reason === null)
       || r.status === 'completed' && (r.nextPage <= r.targetPages || r.coverage === 'in-progress') || unfinished !== (r.coverage === 'in-progress')
       || r.coverage === 'accessible-pages-traversed' && (r.mode !== 'full' || r.uncertainty.length) || r.coverage === 'recent-pages' && r.mode !== 'refresh'
-      || r.mode === 'refresh' && r.targetPages > MAX_REFRESH_PAGES) throw Error('Contradictory Library sync checkpoint.');
+      || r.mode === 'refresh' && r.targetPages > MAX_REFRESH_PAGES || r.pageSize !== LEGACY_PAGE_SIZE && r.pageSize !== PAGE_SIZES[r.mode]) throw Error('Contradictory Library sync checkpoint.');
     return r;
   }
   // Validates a batch request against the stored checkpoint and the tab's lease.
   function syncBegin(q, cp, lease) {
     if (!object(q) || !uuid(q.id) || !uuid(q.lease) || !Number.isSafeInteger(q.revision) || q.revision < 0 || !Number.isSafeInteger(q.startPage) || q.startPage < 1
-      || !['full','refresh'].includes(q.mode) || typeof q.claim !== 'boolean') throw Error('Invalid Library sync request.');
+      || !['full','refresh'].includes(q.mode) || typeof q.claim !== 'boolean' || (q.revision === 0 ? ![PAGE_SIZES[q.mode], LEGACY_PAGE_SIZE].includes(q.pageSize) : rowsPerPage(q.pageSize) !== cp?.pageSize)) throw Error('Invalid Library sync request.');
     const superseded = () => Error('Library sync superseded by another tab, account change, clear or restore.');
     if (!q.claim && (lease?.id !== q.lease || lease?.syncId !== q.id)) throw superseded();
     if (q.revision === 0) {
       if (q.startPage !== 1 || cp?.id === q.id || q.mode === 'refresh' && (!Number.isInteger(q.targetPages) || q.targetPages < 1 || q.targetPages > MAX_REFRESH_PAGES)) throw Error('Invalid Library sync request.');
       if (q.claim && cp && ['running','paused','stopped'].includes(cp.status) && q.replace !== true) throw Error('An unfinished Library sync exists. Resume or cancel it first.');
-      return { id: q.id, revision: 0, mode: q.mode, startPage: 1, targetPages: q.mode === 'refresh' ? q.targetPages : 0, lease: q.lease };
+      return { id: q.id, revision: 0, mode: q.mode, startPage: 1, targetPages: q.mode === 'refresh' ? q.targetPages : 0, lease: q.lease, pageSize: q.pageSize };
     }
     if (!cp || cp.id !== q.id || cp.revision !== q.revision || cp.nextPage !== q.startPage || cp.mode !== q.mode || !(q.claim ? ['running','paused','stopped'] : ['running']).includes(cp.status)) throw superseded();
-    return { id: q.id, revision: q.revision, mode: q.mode, startPage: q.startPage, targetPages: cp.targetPages, lease: q.lease };
+    return { id: q.id, revision: q.revision, mode: q.mode, startPage: q.startPage, targetPages: cp.targetPages, lease: q.lease, pageSize: cp.pageSize };
   }
   // Worker-side checkpoint advance. Counters come from validated scan/upsert results;
   // caller-supplied evidence can only add uncertainty, never remove it.
-  function advance({ previous, carried, run, scan: s, request: q, added, refreshed, at }) {
-    if (!object(q) || !['running','paused','cancelled','stopped'].includes(q.status) || s.firstPage !== run.startPage || q.nextPage !== s.firstPage + s.pagesRead
+  function advance({ previous, carried, run, scan: s, request: q, added, refreshed, observed, at }) {
+    if (!object(q) || !['running','paused','cancelled','stopped'].includes(q.status) || s.firstPage !== run.startPage || s.pageSize !== run.pageSize || q.nextPage !== s.firstPage + s.pagesRead
       || q.reason !== null && !SYNC_REASONS.includes(q.reason) || typeof q.orderingChanged !== 'boolean' || !Array.isArray(q.uncertainty) || q.uncertainty.some(v => !UNCERTAINTY.includes(v))) throw Error('Invalid Library sync progress.');
     const uncertainty = new Set([...(previous?.uncertainty ?? []), ...q.uncertainty]), known = s.reportedPages > 0;
     if (q.orderingChanged) uncertainty.add('ordering-changed');
@@ -170,15 +175,18 @@
     let targetPages = reportedPages;
     if (run.mode === 'refresh') {
       // New purchases push older rows later, so widen a refresh by the observed growth (bounded).
-      const growth = baselineTotal !== null && reportedTotal > baselineTotal ? Math.ceil((reportedTotal - baselineTotal) / 5) + 2 : 0;
+      const growth = baselineTotal !== null && reportedTotal > baselineTotal ? Math.ceil((reportedTotal - baselineTotal) / run.pageSize) + 2 : 0;
       targetPages = Math.min(MAX_REFRESH_PAGES, Math.max(previous?.targetPages ?? run.targetPages, growth));
       if (known) targetPages = Math.min(targetPages, reportedPages);
     }
     const completed = reportedPages > 0 && q.nextPage > targetPages, status = completed ? 'completed' : q.status;
+    // Humble can repeat a row across a page boundary and skip another. A full pass that
+    // observed fewer distinct rows than Humble reports did not see every row.
+    if (completed && run.mode === 'full' && observed !== undefined && count(observed) + (previous?.unresolved ?? 0) + s.unresolvedItems < reportedTotal) uncertainty.add('items-missed');
     const coverage = completed ? run.mode === 'refresh' ? 'recent-pages' : uncertainty.size ? 'incomplete' : 'accessible-pages-traversed' : ['running','paused'].includes(status) ? 'in-progress' : 'incomplete';
     return checkpoint({ version: 1, id: run.id, mode: run.mode, status, reason: completed || status === 'running' ? null : q.reason ?? 'user', coverage,
       startedAt: previous?.startedAt ?? run.startedAt, updatedAt: at, lastProgressAt: s.pagesRead ? at : previous?.lastProgressAt ?? null,
-      revision: (previous?.revision ?? 0) + 1, nextPage: q.nextPage, targetPages, reportedPages, reportedTotal, initialTotal: previous?.initialTotal || reportedTotal, baselineTotal,
+      revision: (previous?.revision ?? 0) + 1, pageSize: run.pageSize, nextPage: q.nextPage, targetPages, reportedPages, reportedTotal, initialTotal: previous?.initialTotal || reportedTotal, baselineTotal,
       pagesRead: (previous?.pagesRead ?? 0) + s.pagesRead, batches: (previous?.batches ?? 0) + 1, added: (previous?.added ?? 0) + added, refreshed: (previous?.refreshed ?? 0) + refreshed,
       unresolved: (previous?.unresolved ?? 0) + s.unresolvedItems, conflicts: (previous?.conflicts ?? 0) + s.conflictingItems, duplicates: (previous?.duplicates ?? 0) + s.duplicateItems,
       uncertainty: [...uncertainty], lastSignature: s.pagesRead ? q.signature : previous?.lastSignature ?? null,
@@ -415,24 +423,24 @@
   }
   const halts = error => error.fatalScope || error.rateLimited;
   async function collect({ fetcher = global.fetch.bind(global), store, pageLimit = 5, confirmed = false, expectedContext, progress = () => {},
-    startPage = 1, overlap = null, parentLimit = MAX_PARENTS, parentCache = null, action: knownAction = null, shouldStop = () => false, sync } = {}) {
+    startPage = 1, overlap = null, parentLimit = MAX_PARENTS, parentCache = null, action: knownAction = null, shouldStop = () => false, sync, pageSize = LEGACY_PAGE_SIZE } = {}) {
     if (!ENABLED) throw Error('Library entitlement collection is not enabled.');
     if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > MAX_PAGES || !confirmed) throw Error('Confirm the account and choose a bounded Library check.');
-    if (!Number.isSafeInteger(startPage) || startPage < 1 || !Number.isInteger(parentLimit) || parentLimit < 1 || parentLimit > MAX_PAGES * 5) throw Error('Choose a bounded Library check.');
+    if (!Number.isSafeInteger(startPage) || startPage < 1 || !Number.isInteger(parentLimit) || parentLimit < 1 || parentLimit > BATCH_ROWS || rowsPerPage(pageSize) * pageLimit > Math.max(BATCH_ROWS, MAX_PAGES * LEGACY_PAGE_SIZE)) throw Error('Choose a bounded Library check.');
     if (typeof store !== 'function') throw Error('Library storage is unavailable.');
     const context = expectedContext ?? await store('entitlementContext');
     const first = await envelope(fetcher), started = await store('entitlementBegin', { scope: first.scope, confirmed, expectedAccountId: context.accountId, expectedProfileLabel: context.profileLabel, ...(sync ? { sync } : {}) }), token = started.token;
     let finished = false;
     try {
       const action = knownAction ?? await actionFromModule(fetcher, first), rows = new Map(), seenRows = new Map(), conflicted = new Set(), parents = new Map(), pageSignatures = new Set();
-      const result = { acquisition: 'finished', coverage: 'bounded', historicalComplete: false, reconciliationAuthority: 'none', checkedAt: new Date().toISOString(), firstPage: startPage,
+      const result = { acquisition: 'finished', coverage: 'bounded', historicalComplete: false, reconciliationAuthority: 'none', checkedAt: new Date().toISOString(), firstPage: startPage, pageSize,
         pagesRead: 0, reportedTotal: 0, reportedPages: 0, verifiedItems: 0, unresolvedItems: 0, duplicateItems: 0, conflictingItems: 0, failures: [] };
       const batch = { action, pageError: null, orderingChanged: false, signature: null, requested: null };
       const fail = code => { result.acquisition = 'partial'; result.coverage = 'incomplete'; if (!result.failures.includes(code)) result.failures.push(code); };
       let parentReads = 0, totalsKnown = false;
       const requestPage = async page => {
         const body = new FormData();
-        for (const [k,v] of Object.entries({ requestId: 'hcl-entitlement-' + page, query: '', sort: 'mostRecent', cursor: String(5 * page), page: String(page), limit: '5', hideRevealed: 'false', hideExpired: 'false', dateExpires: '' })) body.append('_1_' + k, v);
+        for (const [k,v] of Object.entries({ requestId: 'hcl-entitlement-' + page, query: '', sort: 'mostRecent', cursor: String(pageSize * page), page: String(page), limit: String(pageSize), hideRevealed: 'false', hideExpired: 'false', dateExpires: '' })) body.append('_1_' + k, v);
         body.append('0', JSON.stringify([{ results: [], pagination: { page: 1, totalPages: 1, totalDocs: 0 }, success: true }, '$K1']));
         const f = await read(fetcher, '/home/library', { method: 'POST', headers: { 'Next-Action': action }, body });
         const found = [...f.models.values()].filter(v => object(v) && Object.hasOwn(v,'results') && Object.hasOwn(v,'pagination'));
@@ -445,16 +453,17 @@
         try { ({ f, data } = await requestPage(page)); }
         catch (error) { if (halts(error)) throw error; batch.pageError = error.transient ? 'transient' : 'incompatible'; fail('page-failed'); return null; }
         const p = data.pagination;
-        if (data.success !== true || !Array.isArray(data.results) || data.results.length > 5 || !object(p) || p.page !== page
+        if (data.success !== true || !Array.isArray(data.results) || data.results.length > pageSize || !object(p) || p.page !== page
           || !Number.isSafeInteger(p.totalPages) || p.totalPages < page || p.totalPages > 1000000 || !Number.isSafeInteger(p.totalDocs) || p.totalDocs < 0 || p.totalDocs > 1000000
-          || p.totalPages !== Math.max(1,Math.ceil(p.totalDocs/5)) || data.results.length !== Math.min(5,Math.max(0,p.totalDocs - (page-1)*5))
+          || p.totalPages !== Math.max(1,Math.ceil(p.totalDocs/pageSize)) || data.results.length !== Math.min(pageSize,Math.max(0,p.totalDocs - (page-1)*pageSize))
           || totalsKnown && (result.reportedPages !== p.totalPages || result.reportedTotal !== p.totalDocs)) { batch.pageError = 'changed'; fail('pagination-inconsistent'); return null; }
         result.reportedPages = p.totalPages; result.reportedTotal = p.totalDocs; totalsKnown = true;
         const pairs = data.results.map(r => [f.resolve(r.id),f.resolve(r.type)]), signature = JSON.stringify(pairs);
         if (data.results.length && pageSignatures.has(signature)) { batch.pageError = 'loop'; fail('pagination-loop'); return null; }
         pageSignatures.add(signature);
         let safe = null;
-        try { safe = pairs.map(([n,t]) => [id(n), enumeration(t)]); } catch {}
+        // The boundary tail is enough to notice rows shifting between batches.
+        try { safe = pairs.slice(-5).map(([n,t]) => [id(n), enumeration(t)]); } catch {}
         return { f, data, pairs: safe };
       };
       // Pages are not assumed stable between batches: re-read the previous batch's last
@@ -549,7 +558,7 @@
   function syncSettings(raw = {}) {
     const c = { ...SYNC_DEFAULTS, ...raw };
     if (!Number.isInteger(c.batchPages) || c.batchPages < 1 || c.batchPages > MAX_PAGES || !Number.isInteger(c.refreshPages) || c.refreshPages < 1 || c.refreshPages > MAX_REFRESH_PAGES
-      || !(c.requestSpacingMs >= 500) || !(c.batchDelayMs >= 2000) || !Array.isArray(c.retryDelaysMs) || c.retryDelaysMs.length > 5 || c.retryDelaysMs.some(v => !(v >= 5000))
+      || c.pageSize !== null && c.pageSize !== LEGACY_PAGE_SIZE || !(c.requestSpacingMs >= 500) || !(c.batchDelayMs >= 2000) || !Array.isArray(c.retryDelaysMs) || c.retryDelaysMs.length > 5 || c.retryDelaysMs.some(v => !(v >= 5000))
       || !Number.isInteger(c.maxSessionRequests) || c.maxSessionRequests < 1 || c.maxSessionRequests > 50000 || !(c.maxSessionMs > 0 && c.maxSessionMs <= 24 * 3600 * 1000)) throw Error('Invalid Library sync settings.');
     return c;
   }
@@ -579,6 +588,9 @@
     async function loop({ mode, resume, context, replace }) {
       let cp = resume, id = cp?.id ?? global.crypto.randomUUID(), revision = cp?.revision ?? 0, startPage = cp?.nextPage ?? 1, overlap = cp?.lastSignature ?? null;
       let claim = true, failures = 0, action = null, requests = 0, last = -Infinity;
+      // An unfinished sync keeps the page size its checkpoint positions were counted in.
+      // A pageSize setting of 5 reproduces the site's own pager.
+      const pageSize = cp?.pageSize ?? config.pageSize ?? PAGE_SIZES[mode], batchLimit = Math.max(1, Math.min(config.batchPages, Math.floor(BATCH_ROWS / pageSize)));
       const lease = global.crypto.randomUUID(), began = now(), parentCache = new Map();
       // Every provider request, including parent details and assets, shares one pacing gate.
       const paced = async (path, init) => { const delay = last + config.requestSpacingMs - now(); if (delay > 0) await sleep(delay); last = now(); requests++; return fetcher(path, init); };
@@ -592,12 +604,12 @@
         if (stop) { const saved = await settleRemote(revision ? cp : null, stop, 'user'); return finish(stop, { checkpoint: saved ?? cp, error: null }); }
         if (requests >= config.maxSessionRequests || now() - began >= config.maxSessionMs) { const saved = await settleRemote(revision ? cp : null, 'paused', 'session-limit'); return finish('paused', { checkpoint: saved ?? cp, error: 'session-limit' }); }
         const target = cp?.mode === mode && cp.targetPages || (mode === 'refresh' ? config.refreshPages : 0);
-        const pageLimit = mode === 'refresh' ? Math.max(1, Math.min(config.batchPages, target - startPage + 1)) : config.batchPages;
+        const pageLimit = mode === 'refresh' ? Math.max(1, Math.min(batchLimit, target - startPage + 1)) : batchLimit;
         emit({ phase: 'reading', retry: null, pageRange: [startPage, startPage + pageLimit - 1] });
         let result;
         try {
-          result = await collect({ fetcher: paced, store, confirmed: true, expectedContext: context, pageLimit, startPage, overlap, parentLimit: pageLimit * 5, parentCache, action,
-            shouldStop: () => stop, sync: { id, revision, mode, startPage, lease, claim, replace: replace === true, ...(revision === 0 && mode === 'refresh' ? { targetPages: config.refreshPages } : {}) } });
+          result = await collect({ fetcher: paced, store, confirmed: true, expectedContext: context, pageLimit, pageSize, startPage, overlap, parentLimit: pageLimit * pageSize, parentCache, action,
+            shouldStop: () => stop, sync: { id, revision, mode, startPage, pageSize, lease, claim, replace: replace === true, ...(revision === 0 && mode === 'refresh' ? { targetPages: config.refreshPages } : {}) } });
         } catch (error) {
           const kind = failureKind(error);
           action = null;
@@ -651,7 +663,7 @@
     return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0 };
   }
   const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
-    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page' };
+    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'Humbleâ€™s pages did not show every listed item' };
   const STOP_TEXT = {
     'rate-limited': 'Humble asked for fewer requests, so the sync stopped. Progress is saved; resume later.',
     'signed-out': 'You appear to be signed out of Humble. Sign in, reload this page, then resume. Progress is saved.',
@@ -757,6 +769,6 @@
     panel.append(heading, description, label, actions, bar, status, facts, note, savedItems);
     document.body.append(panel); panel.dataset.installed = 'true'; render();
   }
-  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
+  global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
     matchingItems, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel });
 })(globalThis);
