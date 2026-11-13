@@ -27,6 +27,14 @@
   const libraryPageSize = document.querySelector('#library-page-size');
   const libraryPrevious = document.querySelector('#library-previous');
   const libraryNext = document.querySelector('#library-next');
+  const libraryViewTitles = document.querySelector('#library-view-titles');
+  const libraryViewGroups = document.querySelector('#library-view-groups');
+  const librarySearchLabel = document.querySelector('#library-search-label');
+  const librarySearchScope = document.querySelector('#library-search-scope');
+  const libraryGroupMedia = document.querySelector('#library-group-media');
+  const libraryGroupFilter = document.querySelector('#library-group-filter');
+  const libraryGroupType = document.querySelector('#library-group-type');
+  const libraryGroupSort = document.querySelector('#library-group-sort');
 
   async function editWishlist(action,items) {
     try {
@@ -113,7 +121,16 @@
     metadata: '',
     sort: 'title-asc',
     pageSize: 50,
-    page: 0
+    page: 0,
+    // Titles stays the default view; its search matches titles unless another scope is chosen.
+    view: 'titles',
+    scope: 'title',
+    groupScope: 'both',
+    groupMedia: '',
+    groupFilter: '',
+    groupType: '',
+    groupSort: 'name-asc',
+    groupPage: 0
   };
 
   function loadLibraryState() {
@@ -361,6 +378,12 @@
     return consolidated;
   }
 
+  function bundleNamesOf(item) {
+    if (!item || typeof item !== 'object') return [];
+    return [...extractItemProvenance(item).map((rec) => rec.sourceBundle), item.sourceBundle, item.bundle?.title]
+      .filter((name) => typeof name === 'string' && name.trim()).map((name) => name.toLowerCase());
+  }
+
   function filterAndSortLibrary(items, optionsOrSearch = {}, maybeMedia = '', maybeMetadata = '', maybeSort = 'title-asc') {
     const collator = globalThis.LibraryTitleSort || new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
     let result = Array.isArray(items) ? consolidateLibrary(items) : [];
@@ -369,12 +392,14 @@
     let media = '';
     let metadata = '';
     let sort = 'title-asc';
+    let scope = 'title';
 
     if (optionsOrSearch && typeof optionsOrSearch === 'object') {
       search = typeof optionsOrSearch.search === 'string' ? optionsOrSearch.search : '';
       media = typeof optionsOrSearch.media === 'string' ? optionsOrSearch.media : '';
       metadata = typeof optionsOrSearch.metadata === 'string' ? optionsOrSearch.metadata : '';
       sort = typeof optionsOrSearch.sort === 'string' ? optionsOrSearch.sort : 'title-asc';
+      scope = ['bundle', 'both'].includes(optionsOrSearch.scope) ? optionsOrSearch.scope : 'title';
     } else {
       search = typeof optionsOrSearch === 'string' ? optionsOrSearch : '';
       media = typeof maybeMedia === 'string' ? maybeMedia : '';
@@ -386,7 +411,8 @@
     if (query) {
       result = result.filter((item) => {
         const title = (typeof item === 'string' ? item : (item.title || '')).toLowerCase();
-        return title.includes(query);
+        if (scope !== 'bundle' && title.includes(query)) return true;
+        return scope !== 'title' && bundleNamesOf(item).some((name) => name.includes(query));
       });
     }
 
@@ -678,11 +704,185 @@
     return row;
   }
 
+  const GROUP_TYPE_LABELS = { bundle: 'Bundle', store: 'Store purchase', widget: 'Widget purchase' };
+  const CATEGORY_LABELS = { game: ['game', 'games'], book: ['book / comic', 'books / comics'], software: ['software item', 'software items'], audiobook: ['audiobook', 'audiobooks'], video: ['video', 'videos'], unknown: ['unknown media', 'unknown media'] };
+  const NAMESPACE_LABELS = { steam: 'Steam key', download_drm_free: 'DRM-free download', gog: 'GOG key', nintendo: 'Nintendo key', playstation: 'PlayStation key', epic_keyless: 'Epic Games', rockstar_social: 'Rockstar key', external_key: 'External key', generic: 'Other entitlement' };
+  const GROUP_CONTENT_BATCH = 100;
+  const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+  let latestGroupModel = { groups: [], native: { enabled: false, present: false, error: false, unresolved: 0, coverage: null } };
+
+  // Opens only routes built by HumbleLibraryBrowser from native IDs; the URL is never shown.
+  function openOnHumble(url) {
+    if (typeof url === 'string' && url.startsWith('https://www.humblebundle.com/home/library/')) chrome.tabs.create({ url });
+  }
+
+  function humbleButton(url, label) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary library-open-humble';
+    button.textContent = 'Open on Humble';
+    button.setAttribute('aria-label', label);
+    button.addEventListener('click', (event) => { event.stopPropagation?.(); openOnHumble(url); });
+    return button;
+  }
+
+  function groupName(group) {
+    if (group.name) return group.name;
+    return group.source === 'native' ? 'Humble purchase (name appears after the next full sync)' : 'Order without a recorded name';
+  }
+
+  function groupContentRow(entry, matched) {
+    const li = document.createElement('li');
+    li.className = matched ? 'library-group-item library-group-match' : 'library-group-item';
+    const primary = document.createElement('div');
+    primary.className = 'library-provenance-primary';
+    primary.textContent = (matched ? 'Match: ' : '') + (entry.title || 'Untitled item');
+    const parts = [entry.source === 'native' ? (entry.category === 'game' ? 'Game' : 'Media unknown') : mediaTypeLabel(entry.kind)];
+    if (entry.source === 'native') {
+      parts.push(NAMESPACE_LABELS[entry.namespace] || 'Entitlement');
+      if (entry.namespace === 'steam') parts.push('Activation unknown');
+      parts.push(entry.excluded ? (entry.gifted ? 'Excluded: gifted' : 'Excluded') : 'Purchased');
+    }
+    const secondary = document.createElement('div');
+    secondary.className = 'library-provenance-secondary';
+    secondary.textContent = parts.join(' · ');
+    li.append(primary, secondary);
+    if (entry.route) li.append(humbleButton(entry.route, `Open ${entry.title || 'this item'} on Humble`));
+    return li;
+  }
+
+  // Contents render only when a group is expanded, in batches, so 200 groups stay light.
+  function renderGroupContents(container, group, matches) {
+    const matched = new Set(matches);
+    const order = [...matches, ...group.items.map((_, i) => i).filter((i) => !matched.has(i))];
+    let shown = 0;
+    const list = document.createElement('ul');
+    list.className = 'library-provenance-list library-group-contents';
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'secondary library-group-more';
+    const step = () => {
+      const next = order.slice(shown, shown + GROUP_CONTENT_BATCH);
+      list.append(...next.map((i) => groupContentRow(group.items[i], matched.has(i))));
+      shown += next.length;
+      more.hidden = shown >= order.length;
+      more.textContent = `Show ${Math.min(GROUP_CONTENT_BATCH, order.length - shown)} more of ${order.length - shown} remaining titles`;
+    };
+    more.addEventListener('click', step);
+    step();
+    if (!order.length) {
+      const empty = document.createElement('p');
+      empty.className = 'library-provenance-empty';
+      empty.textContent = 'No media titles were imported from this purchase.';
+      container.append(empty);
+      return;
+    }
+    container.append(list, more);
+  }
+
+  function groupFacts(group) {
+    const facts = [];
+    const media = Object.entries(group.categories).map(([key, n]) => plural(n, ...CATEGORY_LABELS[key]));
+    if (media.length) facts.push(`Contains ${media.join(', ')}${group.media === 'mixed' ? ' (mixed media)' : ''}.`);
+    if (group.source === 'native') {
+      facts.push('Native Library purchase, verified against the signed-in account.');
+      if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
+    } else {
+      facts.push(group.orderRecorded ? 'Historical import from the original purchase importer.' : 'Historical import without an order key: purchases with this bundle name are grouped together.');
+      if (group.listedCount !== null && group.listedCount !== group.items.length) facts.push(`Humble listed ${plural(group.listedCount, 'item')} in this order; ${plural(group.items.length, 'media title')} were imported.`);
+    }
+    if (group.excluded) facts.push(`${plural(group.excluded, 'item')} excluded (gifted, revoked or temporary).`);
+    if (group.sameNamePurchases > 1) facts.push(`One of ${group.sameNamePurchases} separate purchases with this name.`);
+    if (group.sharedNameUnconfirmed) facts.push('The other purchase source has a purchase with the same name. They are not confirmed to be the same purchase.');
+    if (!group.route) facts.push(group.source === 'native' ? 'No verified Humble page for this purchase.' : 'Humble has no verified page for orders from the original importer, so there is no direct link.');
+    return facts;
+  }
+
+  function renderGroupRow({ group, nameMatch, matches }) {
+    const row = document.createElement('li');
+    row.className = 'library-item library-group';
+    const details = document.createElement('details');
+    details.className = 'library-item-details';
+    const summary = document.createElement('summary');
+    summary.className = 'library-item-summary';
+    const date = formatPurchaseDate(group.purchasedAt);
+    const parts = [
+      GROUP_TYPE_LABELS[group.type] || (group.source === 'historical' ? 'Order' : 'Purchase'),
+      plural(group.items.length, 'title'),
+      date ? `Purchased ${date}` : 'Date not recorded',
+      group.source === 'native' ? 'Native Library' : 'Historical import'
+    ];
+    if (matches.length && !nameMatch) parts.push(`${plural(matches.length, 'matching title')}`);
+    summary.textContent = `${groupName(group)} — ${parts.join(' · ')}`;
+    details.append(summary);
+    let rendered = false;
+    details.addEventListener('toggle', () => {
+      if (rendered || details.open === false) return;
+      rendered = true;
+      const facts = document.createElement('ul');
+      facts.className = 'library-group-facts';
+      facts.append(...groupFacts(group).map((text) => { const li = document.createElement('li'); li.textContent = text; return li; }));
+      details.append(facts);
+      if (group.route) details.append(humbleButton(group.route, `Open ${groupName(group)} on Humble`));
+      renderGroupContents(details, group, matches);
+    });
+    row.append(details);
+    return row;
+  }
+
+  function syncViewControls() {
+    const groups = libraryBrowserState.view === 'groups';
+    if (libraryViewTitles) libraryViewTitles.checked = !groups;
+    if (libraryViewGroups) libraryViewGroups.checked = groups;
+    for (const label of document.querySelectorAll?.('.library-title-only') ?? []) label.hidden = groups;
+    for (const label of document.querySelectorAll?.('.library-group-only') ?? []) label.hidden = !groups;
+    const scope = groups ? libraryBrowserState.groupScope : libraryBrowserState.scope;
+    if (librarySearchScope && librarySearchScope.value !== scope) librarySearchScope.value = scope;
+    if (librarySearchLabel) librarySearchLabel.textContent = groups ? 'Find bundles and orders' : 'Find titles';
+    if (librarySearch) librarySearch.placeholder = groups ? 'Filter by bundle name or contained title…' : scope === 'title' ? 'Filter by title…' : 'Filter by title or bundle name…';
+    for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort']]) {
+      if (select && select.value !== libraryBrowserState[key]) select.value = libraryBrowserState[key];
+    }
+  }
+
+  function renderGroupBrowser() {
+    const model = latestGroupModel;
+    const results = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.filterGroups(model.groups, {
+      search: libraryBrowserState.search, scope: libraryBrowserState.groupScope, media: libraryBrowserState.groupMedia,
+      filter: libraryBrowserState.groupFilter, type: libraryBrowserState.groupType, sort: libraryBrowserState.groupSort
+    }) : [];
+    const pageSize = libraryBrowserState.pageSize || 50;
+    const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+    libraryBrowserState.groupPage = Math.max(0, Math.min(libraryBrowserState.groupPage, totalPages - 1));
+    saveLibraryState(libraryBrowserState);
+    const start = libraryBrowserState.groupPage * pageSize;
+    const pageGroups = results.slice(start, start + pageSize);
+    preview.start = start + 1;
+    preview.replaceChildren(...pageGroups.map(renderGroupRow));
+    if (libraryPrevious) libraryPrevious.disabled = libraryBrowserState.groupPage === 0;
+    if (libraryNext) libraryNext.disabled = (libraryBrowserState.groupPage + 1) * pageSize >= results.length;
+    const note = document.querySelector('#preview-note');
+    if (!note) return;
+    const nativeNote = model.native.error ? ' Native Library records could not be read.'
+      : model.native.present && model.native.unresolved ? ` ${plural(model.native.unresolved, 'native Library row')} could not be verified and ${model.native.unresolved === 1 ? 'is' : 'are'} not listed.` : '';
+    if (!model.groups.length) {
+      note.textContent = 'No bundles or orders are stored yet. Import purchases or restore a backup to browse them.' + nativeNote;
+    } else if (!results.length) {
+      note.textContent = `No bundles or orders match your search or filter criteria (0 of ${model.groups.length} purchase groups).` + nativeNote;
+    } else {
+      const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.groupPage + 1} of ${totalPages})` : '';
+      const filterInfo = results.length !== model.groups.length ? ` (filtered from ${model.groups.length})` : '';
+      note.textContent = `Showing ${pageGroups.length} of ${results.length} purchase groups${filterInfo}${pageInfo}.` + nativeNote;
+    }
+  }
+
   let latestLibraryItems = [];
 
   function renderLibraryBrowser(items = latestLibraryItems) {
     latestLibraryItems = Array.isArray(items) ? items : [];
     if (!preview) return;
+    syncViewControls();
+    if (libraryBrowserState.view === 'groups') return renderGroupBrowser();
 
     if (librarySearch && librarySearch.value !== libraryBrowserState.search) librarySearch.value = libraryBrowserState.search;
     if (libraryFilterMedia && libraryFilterMedia.value !== libraryBrowserState.media) libraryFilterMedia.value = libraryBrowserState.media;
@@ -693,6 +893,7 @@
     const uniqueItems = consolidateLibrary(latestLibraryItems);
     const processed = filterAndSortLibrary(uniqueItems, {
       search: libraryBrowserState.search,
+      scope: libraryBrowserState.scope,
       media: libraryBrowserState.media,
       metadata: libraryBrowserState.metadata,
       sort: libraryBrowserState.sort
@@ -730,8 +931,33 @@
     }
   }
 
+  // View, scope and group controls keep each view's own page; switching views keeps both.
+  for (const radio of [libraryViewTitles, libraryViewGroups]) {
+    radio?.addEventListener('change', () => {
+      if (!radio.checked) return;
+      libraryBrowserState.view = radio.value === 'groups' ? 'groups' : 'titles';
+      saveLibraryState(libraryBrowserState);
+      renderLibraryBrowser();
+    });
+  }
+  librarySearchScope?.addEventListener('change', () => {
+    const value = ['title', 'bundle', 'both'].includes(librarySearchScope.value) ? librarySearchScope.value : 'title';
+    if (libraryBrowserState.view === 'groups') { libraryBrowserState.groupScope = value; libraryBrowserState.groupPage = 0; }
+    else { libraryBrowserState.scope = value; libraryBrowserState.page = 0; }
+    saveLibraryState(libraryBrowserState);
+    renderLibraryBrowser();
+  });
+  for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort']]) {
+    select?.addEventListener('change', () => {
+      libraryBrowserState[key] = select.value;
+      libraryBrowserState.groupPage = 0;
+      saveLibraryState(libraryBrowserState);
+      renderLibraryBrowser();
+    });
+  }
   librarySearch?.addEventListener('input', () => {
     libraryBrowserState.page = 0;
+    libraryBrowserState.groupPage = 0;
     libraryBrowserState.search = librarySearch.value;
     saveLibraryState(libraryBrowserState);
     renderLibraryBrowser();
@@ -757,16 +983,19 @@
   libraryPageSize?.addEventListener('change', () => {
     libraryBrowserState.page = 0;
     libraryBrowserState.pageSize = Number(libraryPageSize.value) || 50;
+    libraryBrowserState.groupPage = 0;
     saveLibraryState(libraryBrowserState);
     renderLibraryBrowser();
   });
   libraryPrevious?.addEventListener('click', () => {
-    libraryBrowserState.page--;
+    if (libraryBrowserState.view === 'groups') libraryBrowserState.groupPage--;
+    else libraryBrowserState.page--;
     saveLibraryState(libraryBrowserState);
     renderLibraryBrowser();
   });
   libraryNext?.addEventListener('click', () => {
-    libraryBrowserState.page++;
+    if (libraryBrowserState.view === 'groups') libraryBrowserState.groupPage++;
+    else libraryBrowserState.page++;
     saveLibraryState(libraryBrowserState);
     renderLibraryBrowser();
   });
@@ -955,6 +1184,13 @@
           count.textContent += ` Storage usage: ${mb} MB.`;
         }
       } catch (_) {}
+    }
+    const { libraryEntitlements = null, humbleAccountId = null } = await chrome.storage.local.get({ libraryEntitlements: null, humbleAccountId: null });
+    if (globalThis.HumbleLibraryBrowser) {
+      latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
+      // Native-only choices stay unavailable until this account has native Library records.
+      for (const value of ['native', 'shared-name']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
+      for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
     }
     renderLibraryBrowser(items);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
@@ -1228,6 +1464,7 @@
     getState: () => ({ ...libraryBrowserState }),
     setState: (next) => { Object.assign(libraryBrowserState, next); saveLibraryState(libraryBrowserState); renderLibraryBrowser(); },
     render: () => renderLibraryBrowser(),
+    getGroups: () => latestGroupModel,
     renderOptions: () => render()
   };
   render();

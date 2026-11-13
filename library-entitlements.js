@@ -73,6 +73,8 @@
       namespace: enumeration(raw.namespace), nativeId: id(raw.nativeId), title: text(raw.title),
       parentId: id(raw.parentId), source: 'authenticated-humble-library', observedAt: date(raw.observedAt).value,
       eligibility: eligibility(raw.eligibility) };
+    // The parent purchase's display name. Older records were saved without it.
+    if (raw.parentTitle !== undefined && raw.parentTitle !== null) r.parentTitle = text(raw.parentTitle);
     if (r.namespace === 'unknown' || !r.observedAt) throw Error('Library identity or timestamp is missing.');
     // No title-based media inference. DRM-free files may be books, games or software.
     r.mediaType = r.namespace === 'steam' ? 'game' : 'unknown';
@@ -96,7 +98,7 @@
     const evidence = {...next.eligibility};
     for (const field of ['revoked','temporaryAccess']) if (evidence[field] === null && old.eligibility[field] === true) evidence[field] = true;
     if (evidence.giftStatus === 'unknown' && old.eligibility.giftStatus === 'gifted') evidence.giftStatus = 'gifted';
-    return observation({...next,eligibility:evidence});
+    return observation({...next,eligibility:evidence,parentTitle:next.parentTitle ?? old.parentTitle});
   }
   function scan(raw) {
     if (raw == null) return null;
@@ -413,7 +415,10 @@
     const revoked = [row.revoked, ...listing.map(c=>c.revoked), accessFlag(t(parent.revoked)), accessFlag(t(child.revoked))];
     const temporary = [row.temporaryAccess, ...listing.map(c=>c.temporaryAccess), accessFlag(t(parent.temporaryAccess)), accessFlag(t(child.temporaryAccess))];
     const gifted = row.giftStatus === 'gifted' || listing.some(c=>c.giftStatus === 'gifted');
-    return observation({ scope, nativeId: t(child.id), namespace, title: providerTitle(t(child.title)), parentId: t(row.productEntitlementId), source: 'authenticated-humble-library', observedAt: checkedAt,
+    // Display name of the account-checked parent; an unusable name never rejects the purchase.
+    let parentTitle = null;
+    try { parentTitle = providerTitle(t(parent.title)); } catch {}
+    return observation({ scope, nativeId: t(child.id), namespace, title: providerTitle(t(child.title)), parentId: t(row.productEntitlementId), parentTitle, source: 'authenticated-humble-library', observedAt: checkedAt,
       eligibility: { expired: boolean(t(child.expired)), preOrdered: boolean(t(child.preOrdered)), outOfStock: boolean(t(child.outOfStock)), redeemable: boolean(t(child.redeemable)), directRedeem,
         revoked: revoked.includes(true) ? true : boolean(t(child.revoked)), temporaryAccess: temporary.includes(true) ? true : boolean(t(child.temporaryAccess)),
         parentPreOrder: boolean(t(parent.preOrder)), parentType, giftStatus: gifted ? 'gifted' : enumeration(t(child.giftStatus)),

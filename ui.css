@@ -66,7 +66,23 @@ code { font-family: ui-monospace, monospace; }
 .library-search-row { display:flex; flex-direction:column; gap:.35rem; }
 .library-search-row label { font-size:.9rem; font-weight:600; margin:0; }
 .library-search-row input[type="search"] { width:100%; box-sizing:border-box; }
+.library-view-row { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem 1.1rem; border:0; padding:0; margin:0; }
+.library-view-row legend { float:left; margin-right:.6rem; padding:0; font-size:.9rem; font-weight:600; }
+.library-view-row label { display:inline-flex; align-items:center; gap:.35rem; margin:0; font-size:.9rem; cursor:pointer; }
+.library-search-inputs { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; }
+.library-search-inputs input[type="search"] { flex:1 1 16rem; min-width:0; }
+.library-search-scope { display:inline-flex; align-items:center; gap:.4rem; margin:0; font-size:.85rem; white-space:nowrap; }
 .library-filter-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(9.5rem, 1fr)); gap:.75rem; }
+.library-filter-row label[hidden] { display:none; }
+.library-group-facts { margin:.35rem 0 .45rem 1.6rem; padding:0; list-style:none; font-size:.8rem; color:var(--gh-text-muted); }
+.library-group-facts li { margin:.15rem 0; overflow-wrap:anywhere; }
+.library-group > .library-item-details > .library-open-humble { margin:.1rem 0 .4rem 1.6rem; }
+.library-group-item { display:grid; grid-template-columns:minmax(0, 1fr) auto; column-gap:.75rem; align-items:center; }
+.library-group-item > .library-provenance-secondary { grid-column:1; }
+.library-group-item > .library-open-humble { grid-column:2; grid-row:1 / span 2; }
+.library-group-match > .library-provenance-primary { color:var(--gh-link, #60a5fa); }
+.library-open-humble { padding:.2rem .55rem; font-size:.78rem; }
+.library-group-more { margin:0 0 .5rem 1.6rem; font-size:.8rem; }
 .library-filter-row label { display:flex; flex-direction:column; gap:.35rem; font-size:.85rem; margin:0; }
 .library-filter-row select { width:100%; box-sizing:border-box; }
 .library-navigation { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin:.75rem 0 .25rem; }

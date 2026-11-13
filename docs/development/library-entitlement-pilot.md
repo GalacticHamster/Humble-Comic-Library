@@ -200,6 +200,36 @@ Identical overlaps deduplicate by scoped native identity. Conflicting duplicates
 
 Coverage is `bounded`, `incomplete` or `accessible-pages-traversed`. The latter refers only to the response's explicit accessible range within the bound, always with `historicalComplete:false` and `reconciliationAuthority:'none'`. It does not prove omission-free migrated history. A batch that starts after page one is never `accessible-pages-traversed` by itself; only a completed sync checkpoint can carry that coverage, under the same limits.
 
+## Options library browser
+
+The Options page browses by **Titles**, the default and unchanged historical title catalog, or by **Bundles & Orders**. `library-browser.js` is a read-only presentation model; it never writes storage or legacy records.
+
+Groups:
+
+- **Historical groups** are keyed by order key, with names, dates and listed item counts from `purchaseSummaries`. A record without an order key is grouped by bundle name and says so.
+- **Native groups** are keyed by parent ID, from the active account's scope only, and only when the collector is enabled.
+- Distinct order keys and parent IDs stay distinct purchases. Repeats with the same name are labelled "one of N separate purchases".
+- Historical and native records share no identifier, so they are never joined. A shared name is shown as unconfirmed.
+
+Each observation stores the account-checked parent's name as optional `parentTitle`. Records saved before this field show a placeholder name until the next full sync.
+
+Search scope is explicit:
+
+- **Titles** keeps the original title-only match.
+- **Bundle & order names** matches group names.
+- **Both** matches either.
+
+In Bundles & Orders, title matches are counted in the summary and listed first, marked "Match:". Group filters cover contained media (never inferred), source, repeat purchases, excluded items and native purchase type. Sorting is by name, date (unknown dates last) or title count. Pagination is shared at 20/50/100/200, each view keeps its own page, and contents render only when a group is expanded, 100 titles at a time.
+
+**Open on Humble** uses only routes from Humble's own frontend route manifest, verified read-only against the signed-in account:
+
+- `/home/library/{parentId}` for a bundle, store or widget purchase;
+- `/home/library/content/{entitlementId}`, which shows exactly that entitlement (checked for DRM-free and Steam items; an unknown ID shows nothing).
+
+Both require UUID native IDs and open in a new tab without displaying the URL. Historical order keys have no verified page. `/home/purchases/{id}` takes the new order system's UUID, and the old `/downloads?key=` link now redirects to the generic Library. Historical groups therefore explain that there is no direct link.
+
+On the same Firefox library, a read-only check showed 460 groups: 234 historical, plus 226 native (206 bundles and 20 store purchases), with 2 unresolved rows noted. With 200 groups per page, the view rendered in 4 ms with 600 DOM nodes, and searches took about 1 ms. Storage was unchanged. Synthetic tests use 7,000 titles in 240 orders and 8,233 native entitlements across 226 parents.
+
 ## Companion boundary
 
 Observations never enter legacy libraryItems, summaries, reminders, corrections or companion transaction snapshots. Old GL/FAN cannot receive them as fabricated purchases or Steam ownership.

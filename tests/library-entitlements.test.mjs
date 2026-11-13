@@ -307,3 +307,13 @@ test('live titles with line breaks or tabs are normalized display metadata, not 
     const g=fixture({rows:[row('bad',rowTitle)],children:[child('bad',childTitle)]});const bad=await g.collect();assert.equal(bad.saved,0);assert.equal(bad.scan.unresolvedItems,1);
   }
 });
+test('the account-checked parent name is saved as display metadata and never rejects a purchase',async()=>{
+  const f=fixture({parent:{title:'Synthetic\nIndie Bundle'}});await f.collect();
+  assert(observations(f).every(o=>o.parentTitle==='Synthetic Indie Bundle'));
+  for(const title of [undefined,'',42,'x'.repeat(501)]){const g=fixture({parent:{title}});await g.collect();assert.equal(observations(g).length,8);assert(observations(g).every(o=>!('parentTitle'in o)));}
+  // A refresh that cannot read the name keeps the saved one; older records without it stay valid.
+  const h=fixture({initial:{libraryEntitlements:f.stored.libraryEntitlements},parent:{title:undefined}});await h.collect();
+  assert(observations(h).every(o=>o.parentTitle==='Synthetic Indie Bundle'));
+  const older=copy(f.stored.libraryEntitlements);for(const o of older.scopes[0].observations)delete o.parentTitle;assert.equal(f.E.collection(older).scopes[0].observations.length,8);
+  assert.throws(()=>f.E.observation({...observations(f)[0],parentTitle:'bad\ttitle'}),/text/);
+});

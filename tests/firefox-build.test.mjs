@@ -23,6 +23,7 @@ const runtimeFiles = [
   'content.js',
   'content.css',
   'options.html',
+  'library-browser.js',
   'options.js',
   'popup.html',
   'popup.js',

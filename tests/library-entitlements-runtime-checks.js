@@ -10,6 +10,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     const result=await chrome.runtime.sendMessage({type:'HCL_STORE',operation:'entitlementBegin',args:[{confirmed:true,scope:{principalId:'a',userId:'b'}}]});
     check(!result.ok,'installed default worker independently rejects entitlement writes');
     E.installPanel();check(!document.getElementById('hcl-library-entitlement-pilot'),'installed default package exposes no collector controls');
+    await LibraryBrowser.renderOptions();check(LibraryBrowser.getGroups().native.enabled===false&&!LibraryBrowser.getGroups().groups.some(g=>g.source==='native'),'installed default package shows no native purchase groups');
     let runner=false;try{E.createSync({store,fetcher:async()=>{throw Error('Must not fetch');}});runner=true;}catch{}
     check(!runner,'installed default package cannot create a sync runner');
     const sync=await chrome.runtime.sendMessage({type:'HCL_STORE',operation:'entitlementSync',args:[{id:'44444444-4444-4444-8444-444444444444',revision:1,status:'cancelled'}]});
@@ -121,6 +122,31 @@ function syncTransport(rows){
   };
   return {fetch,requests:()=>requests,fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
 }
+// Drives the real Options page: 2,345 synthetic native entitlements under one parent whose IDs are not UUIDs.
+async function installedBrowserChecks({check}){
+  const before=JSON.stringify(await chrome.storage.local.get(null)),tick=()=>new Promise(resolve=>setTimeout(resolve,50));
+  const fire=(el,type)=>el.dispatchEvent(new Event(type,{bubbles:true}));
+  await LibraryBrowser.renderOptions();
+  const groupsRadio=document.getElementById('library-view-groups');groupsRadio.checked=true;fire(groupsRadio,'change');
+  let rows=[...document.querySelectorAll('#library-preview > li.library-group')];
+  const native=rows.find(r=>/Native Library/.test(r.textContent)),legacy=rows.find(r=>/Historical import/.test(r.textContent));
+  check(rows.length===2&&native&&legacy&&/2345 titles/.test(native.textContent)&&/name appears after the next full sync/.test(native.textContent),'installed Bundles & Orders view lists the native purchase and the historical order separately');
+  check([...document.querySelectorAll('.library-title-only')].every(l=>l.hidden)&&[...document.querySelectorAll('.library-group-only')].every(l=>!l.hidden)&&document.getElementById('library-search-scope').value==='both','installed view switch shows that view\'s filters and search scope');
+  check(!native.querySelector('.library-group-contents'),'installed group contents are not rendered until expanded');
+  const details=native.querySelector('details');details.open=true;await tick();
+  const contents=details.querySelectorAll('.library-group-contents > li'),more=details.querySelector('.library-group-more');
+  check(contents.length===100&&more&&!more.hidden&&!details.querySelector('.library-open-humble')&&/No verified Humble page/.test(details.textContent)&&/Activation unknown/.test(contents[0].textContent),'installed expanded group renders in batches and offers no unverified Humble link');
+  more.click();check(details.querySelectorAll('.library-group-contents > li').length===200,'installed group shows more titles on request');
+  const search=document.getElementById('library-search');search.value='Synthetic game 1042';fire(search,'input');
+  rows=[...document.querySelectorAll('#library-preview > li.library-group')];
+  check(rows.length===1&&/1 matching title/.test(rows[0].textContent),'installed contained-title search reports matching titles');
+  rows[0].querySelector('details').open=true;await tick();
+  check(/^Match: Synthetic game 1042$/.test(rows[0].querySelector('.library-group-contents > li .library-provenance-primary').textContent),'installed matching titles are listed first and marked');
+  search.value='';fire(search,'input');
+  const titlesRadio=document.getElementById('library-view-titles');titlesRadio.checked=true;fire(titlesRadio,'change');
+  check(document.getElementById('library-search-label').textContent==='Find titles'&&[...document.querySelectorAll('.library-group-only')].every(l=>l.hidden),'installed Titles view returns with its own controls');
+  check(JSON.stringify(await chrome.storage.local.get(null))===before,'installed browsing writes nothing to storage');
+}
 async function installedSyncChecks({store,state,baseline,row,check}){
   const E=HumbleLibraryEntitlements,H=HumbleComicLibrary,fast={sleep:async()=>{}},context=await store('entitlementContext');
   const legacy=['libraryItems','purchaseSummaries','mediaTypeOverrides','historicalLibraryItems','historicalPurchaseSummaries'];
@@ -167,6 +193,8 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   await E.createSync({fetcher:large.fetch,store,...fast}).start({mode:'full',context,confirmed:true});await new Promise(resolve=>setTimeout(resolve,100));chrome.storage.onChanged.removeListener(counted);
   view=await current();check(view.checkpoint.status==='completed'&&view.checkpoint.coverage==='accessible-pages-traversed'&&view.checkpoint.pageSize===1000&&view.checkpoint.batches===3&&writes===3&&view.saved===2345,'installed default sync reads 1,000-row pages with one atomic write per page');
   await unchanged('installed large-page sync preserves legacy purchases, history and corrections');
+  await installedBrowserChecks({check});
+  await unchanged('installed Bundles & Orders browsing preserves legacy purchases, history and corrections');
 
   // Leave an interrupted sync (status running, lease held) for the reload/restart phase.
   await store('replace',state);
