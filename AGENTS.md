@@ -18,3 +18,18 @@ See [.githooks/README.md](.githooks/README.md) for installation, effective-ident
 ## Audit document maintenance
 
 When an implementation change fully resolves findings in a tracked audit document, update that document in the same implementation commit or remove it only if it is obsolete, contains no unique enduring technical information, and no active workflow depends on it. Preserve architectural decisions, contracts, recovery procedures, regression cases, diagnostics and unresolved limitations. Check source, test, script and documentation references before removal; retain uncertain material and label historical findings clearly rather than presenting them as current behavior. This policy applies to future ordinary commits and does not authorize rewriting history.
+
+## Testing workflow
+
+Rules:
+- During development, run focused tests for the files and behaviors changed.
+- Add integration runs when a change touches shared synchronization, account isolation, storage preservation or cross-extension behavior.
+- Reserve the full Chrome+Firefox release battery for final release validation, significant architectural changes, or a focused failure that suggests a broader regression. Never rerun it automatically after each fix.
+- Before starting any suite expected to take more than 15 minutes, state why it is needed and ask the owner.
+- Never skip, delete or weaken tests to save time. Speed-ups must keep coverage.
+- Focused passes are not release validation. Release gates remain unchanged.
+
+Typical runtimes on the development machine:
+- Development: `npm test` (about 1 min) or `node --test tests/<file>.test.mjs`. For an installed check of the changed area, use `node tests/runtime.mjs [--library-entitlements|--partial|--quota] [--firefox]` (seconds each). For content-script or badge changes, use `node tests/browser.mjs [--redesign] [--firefox]`.
+- Integration: from GalacticLibrary, `node scripts/check-purchase-handoff-browser.mjs --native | --native-upgrade | --collision` (under 1 min each, add `--firefox`). Add `--automatic` (about 4 min) and the default manual-handoff mode (about 5-8 min) only when automatic sync or the manual handoff changes.
+- Release: every runtime/browser mode in both browsers, runtime checks against the exact ZIPs (`HB_RUNTIME_PACKAGE`), and all cross-extension modes in both browsers (about 25 min).
