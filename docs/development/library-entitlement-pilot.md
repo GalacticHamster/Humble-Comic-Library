@@ -228,7 +228,13 @@ In Bundles & Orders, title matches are counted in the summary and listed first, 
 
 Both require UUID native IDs and open in a new tab without displaying the URL. Historical order keys have no verified page. `/home/purchases/{id}` takes the new order system's UUID, and the old `/downloads?key=` link now redirects to the generic Library. Historical groups therefore explain that there is no direct link.
 
-On the same Firefox library, a read-only check showed 460 groups: 234 historical, plus 226 native (206 bundles and 20 store purchases), with 2 unresolved rows noted. With 200 groups per page, the view rendered in 4 ms with 600 DOM nodes, and searches took about 1 ms. Storage was unchanged. Synthetic tests use 7,000 titles in 240 orders and 8,233 native entitlements across 226 parents.
+On the same Firefox library, a read-only check showed 460 groups: 234 historical, plus 226 native (206 bundles and 20 store purchases), with 2 unresolved rows noted. A later full sync (5 minutes 49 seconds; all 8,235 rows accounted for, 0 new, 2 unresolved) named all 226 native purchases consistently. The names had no control characters and none were generic. The live view then:
+
+- found a comic bundle and a store purchase both by name and by contained title;
+- kept same-named historical and native purchases as separate groups;
+- opened a store purchase's verified link to the matching Humble page.
+
+Names and observations survived an extension reload. With 200 groups per page, the view rendered in 4 ms with 600 DOM nodes, and searches took about 1 ms. Storage was unchanged. Synthetic tests use 7,000 titles in 240 orders and 8,233 native entitlements across 226 parents.
 
 ## Companion boundary
 
