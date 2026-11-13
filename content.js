@@ -277,7 +277,7 @@ function initialiseRedesignedHumble() {
     if(comparison) comparison.job++;
     // Clear old-route annotations immediately; asynchronous GL results cannot
     // repopulate a new route because their comparison job is invalidated.
-    if(route!==previousRoute){document.querySelector('#hcl-library-entitlement-pilot')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
+    if(route!==previousRoute){document.querySelector('#hcl-library-sync')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
     timer=setTimeout(async()=>{
       if(globalThis.HumbleLibraryEntitlements?.ENABLED&&route.startsWith('/home/library')){HumbleLibraryEntitlements.installPanel();return;}
       if(/^\/home\/(?:purchases|library)(?:\/|$)/u.test(route)){ensurePurchaseImporter();return;}

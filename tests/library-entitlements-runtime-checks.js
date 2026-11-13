@@ -9,7 +9,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     check(rejected&&!fetched&&!E.ENABLED,'withdrawn collector gate prevents acquisition');
     const result=await chrome.runtime.sendMessage({type:'HCL_STORE',operation:'entitlementBegin',args:[{confirmed:true,scope:{principalId:'a',userId:'b'}}]});
     check(!result.ok,'withdrawn collector: worker independently rejects entitlement writes');
-    E.installPanel();check(!document.getElementById('hcl-library-entitlement-pilot'),'withdrawn collector exposes no controls');
+    E.installPanel();check(!document.getElementById('hcl-library-sync'),'withdrawn collector exposes no controls');
     await LibraryBrowser.renderOptions();check(LibraryBrowser.getGroups().native.enabled===false&&!LibraryBrowser.getGroups().groups.some(g=>g.source==='native'),'withdrawn collector shows no native purchase groups');
     let runner=false;try{E.createSync({store,fetcher:async()=>{throw Error('Must not fetch');}});runner=true;}catch{}
     check(!runner,'withdrawn collector cannot create a sync runner');
@@ -73,8 +73,9 @@ async function installedEntitlementChecks(disabled=false,phase) {
   try{
     // Real panel, worker and storage with short (still floor-respecting) pacing.
     const transport=syncTransport(Array.from({length:8},(_,n)=>row(n)));await store('replace',state);
-    E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-entitlement-pilot');
-    check(panel?.querySelector('strong').textContent==='Sync purchases from your Humble Library','installed release exposes the Library sync panel');
+    E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-sync');
+    check(panel?.querySelector('.library-import-description > strong').textContent==='Humble Library'&&panel.classList.contains('hcl-importer'),'installed release shows the Library sync as the Humble Library importer section');
+    check(/^Not synced yet/.test(panel.querySelector('[role="status"]').textContent)&&!panel.querySelector('.hcl-sync-confirm').hidden&&panel.querySelector('.hcl-sync-progress').hidden,'installed idle state: not synced yet, confirmation asked once, no progress row');
     const button=action=>panel.querySelector('[data-action="'+action+'"]'),status=panel.querySelector('[role="status"]');
     const until=async(test,label,ms=20000)=>{const deadline=Date.now()+ms;while(!test()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));check(test(),label);};
     button('full').click();
@@ -89,15 +90,29 @@ async function installedEntitlementChecks(disabled=false,phase) {
     await until(()=>/^Finished: read all 2 pages/.test(status.textContent),'installed Resume completes the accessible range from the checkpoint');
     check(/not proof of your complete purchase history/.test(status.textContent),'installed completion does not claim complete purchase history');
     check([...panel.querySelectorAll('.hcl-sync-facts li')].some(li=>/0 new, 8 already saved/.test(li.textContent)),'installed panel separates new and refreshed observations');
-    check([...panel.querySelectorAll('details li')].some(li=>/Purchased/.test(li.textContent)),'installed panel lists saved Purchased items');
-    // Live pilot regression: an open 50-item list must not push status/controls off screen.
+    const scan=panel.querySelector('details.hcl-sync-details');
+    check(!scan.open&&[...scan.querySelectorAll('li')].some(li=>/Coverage: every page Humble currently shows was read/.test(li.textContent))&&/Pages 2 of 2/.test(panel.querySelector('.hcl-sync-progress').textContent),'installed details stay in a collapsed Scan details section; the progress row summarizes');
+    // Layout: an in-flow section before the page's main content, never a fixed overlay.
     const style=document.createElement('style');style.textContent=await (await fetch(chrome.runtime.getURL('content.css'))).text();document.head.append(style);
-    const details=panel.querySelector('details'),list=details.querySelector('ul');while(list.children.length<50)list.append(Object.assign(document.createElement('li'),{textContent:'Synthetic saved item — Purchased · Media: Unknown'}));details.open=true;
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-    const box=panel.getBoundingClientRect();
-    check(box.top>=0&&box.bottom<=innerHeight&&list.scrollHeight>list.clientHeight&&status.getBoundingClientRect().top>=0,'installed panel keeps status on screen with the saved-items list open');
+    const cs=getComputedStyle(panel),main=document.querySelector('body > main');
+    check(cs.position==='static'&&panel.parentElement===document.body&&(!main||panel.nextElementSibling===main)&&panel.getBoundingClientRect().width<=document.documentElement.clientWidth,'installed section sits in the page flow before the main content and fits the width');
     style.remove();
-  }finally{document.getElementById('hcl-library-entitlement-pilot')?.remove();await store('replace',state);}
+    // An account already bound to its Humble Library syncs without confirming again; the worker still checks it.
+    panel.remove();E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const bound=document.getElementById('hcl-library-sync'),bstatus=bound.querySelector('[role="status"]');
+    await until(()=>!bound.querySelector('.hcl-sync-account').hidden,'installed bound account shows its saved name');
+    check(bound.querySelector('.hcl-sync-confirm').hidden&&/Saved account: “Synthetic A”/.test(bound.querySelector('.hcl-sync-account').textContent),'installed bound account is not asked to confirm again');
+    bound.querySelector('[data-action="refresh"]').click();
+    await until(()=>/^Checked your most recent Library/.test(bstatus.textContent),'installed recent-purchase check runs for a bound account without the checkbox');
+    bound.remove();
+    // State matrix from stored checkpoints: incomplete and stopped (failed) render plainly; details hold the reasons.
+    const stateOf=async patch=>{const now=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS),e=structuredClone(now.libraryEntitlements);Object.assign(e.scopes[0].sync,patch);await store('replace',{...now,libraryEntitlements:e});E.installPanel({fetcher:transport.fetch});const node=document.getElementById('hcl-library-sync');await new Promise(r=>setTimeout(r,300));const out={status:node.querySelector('[role="status"]').textContent,note:node.querySelector('.hcl-sync-note').textContent,buttons:[...node.querySelectorAll('.hcl-import-actions button')].filter(b=>!b.hidden).map(b=>b.dataset.action)};node.remove();return out;};
+    const done=(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS)).libraryEntitlements.scopes[0].sync;
+    const incomplete=await stateOf({mode:'full',status:'completed',reason:null,coverage:'incomplete',uncertainty:['items-missed'],targetPages:done.reportedPages,nextPage:done.reportedPages+1});
+    check(/^Finished, but some purchases may have been missed/.test(incomplete.status)&&/did not show every listed item/.test(incomplete.note)&&incomplete.buttons.includes('full'),'installed incomplete state explains itself in Scan details and offers a new full sync');
+    const failed=await stateOf({mode:'full',status:'stopped',reason:'signed-out',coverage:'incomplete',uncertainty:[],targetPages:2,nextPage:2});
+    check(/signed out/.test(failed.status)&&failed.buttons.includes('resume')&&failed.buttons.includes('cancel'),'installed stopped (signed-out) state explains recovery and offers Resume or Cancel');
+  }finally{document.getElementById('hcl-library-sync')?.remove();await store('replace',state);}
   await installedSyncChecks({store,state,baseline:committedBaseline,row,check});
   return {checks};
 }
