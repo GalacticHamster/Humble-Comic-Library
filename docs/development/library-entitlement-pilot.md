@@ -236,6 +236,49 @@ On the same Firefox library, a read-only check showed 460 groups: 234 historical
 
 Names and observations survived an extension reload. With 200 groups per page, the view rendered in 4 ms with 600 DOM nodes, and searches took about 1 ms. Storage was unchanged. Synthetic tests use 7,000 titles in 240 orders and 8,233 native entitlements across 226 parents.
 
+### Historical/native reconciliation
+
+Historical order keys and native IDs share no identifier: a live check found no historical value equal to a native ID and no UUID-like historical values. So **Grouped**, the default when native records exist, combines purchases only on inferred evidence, for presentation. Nothing is written, and **Separate sources** shows the original records.
+
+Matching works in four steps:
+
+1. **Candidate pairs.** Titles are normalized and indexed, so pairs come from shared titles rather than all-pairs comparison. A pair qualifies by one of two rules:
+   - the same normalized name, with at least half of the smaller record's titles shared;
+   - similar names (token overlap ≥ 0.5), with the smaller record wholly contained.
+
+   Content alone never qualifies. On live data, all 11 high-overlap pairs with different names were smaller bundles nested inside larger ones.
+2. **Reciprocal rounds.** Pairs are accepted in rounds when each side is the other's unique best (name evidence first, then coverage, shared titles and similarity). Results therefore do not depend on input order, and later rounds resolve siblings.
+3. **Interchangeable repeats.** A repeated-name set with equal counts, every cross pair a candidate, and identical contents on one side is paired in a fixed order and labelled "one of N identical purchases".
+4. **Everything else stays separate.** Ties are ambiguous, same-name pairs with under 20% overlap conflict, and groups without candidates are unmatched.
+
+A combined group:
+
+- keeps both source groups, the historical date and order evidence, and the native parent ID and route;
+- shows a title present in both records once, with its historical classification and native status;
+- counts extra historical records of that title on the same entry;
+- never collapses distinct native entitlements;
+- keeps one-sided titles, labelled.
+
+Nothing (classification, corrections or ownership) is transferred between records.
+
+Live result on the same library (234 historical and 226 native groups):
+
+| Outcome | Groups |
+|---|---:|
+| Combined (215 same name, 9 renamed store purchases; 20 of them interchangeable repeats) | 224 |
+| Ambiguous: one order against two identical native purchases | 3 |
+| Historical only: mixed orders with no native counterpart, and one order without titles | 9 |
+| Native only | 0 |
+| Conflicting | 0 |
+
+The combined groups:
+
+- every match shares all titles of the smaller record;
+- 1,190 native-only titles stay listed;
+- 493 repeated historical records of matched titles are counted rather than listed again.
+
+The Bundles & Orders view drops from 460 to 236 groups. Reconciliation takes about 40 ms and is identical for reversed and shuffled input and after an extension reload. Browsing and switching sources leave protected storage unchanged.
+
 ## Companion boundary
 
 Observations never enter legacy libraryItems, summaries, reminders, corrections or companion transaction snapshots. Old GL/FAN cannot receive them as fabricated purchases or Steam ownership.

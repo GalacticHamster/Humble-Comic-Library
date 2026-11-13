@@ -28,6 +28,18 @@
       ? [{ purchaseKey: item.purchaseKey || '', sourceBundle: item.sourceBundle || item.bundle?.title || '', purchasedAt: item.purchasedAt || null }] : [];
   }
 
+  const COLLATOR = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+  // Derived search and filter fields. A title seen under two spellings is searchable by both.
+  function finishGroup(g) {
+    g.nameLower = lower(g.name) + (g.historicalName ? '\n' + lower(g.historicalName) : '');
+    g.titlesLower = g.items.map(i => lower(i.title) + (i.historicalTitle ? '\n' + lower(i.historicalTitle) : ''));
+    g.categories = {};
+    for (const i of g.items) g.categories[i.category] = (g.categories[i.category] ?? 0) + 1;
+    const known = Object.keys(g.categories).filter(c => c !== 'unknown');
+    g.media = known.length > 1 ? 'mixed' : known[0] ?? 'unknown';
+    g.excluded = g.items.filter(i => i.excluded).length;
+  }
+
   function group(key, fields) {
     return { key, name: null, type: 'unknown', purchasedAt: null, listedCount: null, orderRecorded: false, parentId: null, route: null, items: [], ...fields };
   }
@@ -75,18 +87,11 @@
       g.items.push({ title: r.title, kind: r.mediaType, category: r.mediaType === 'game' ? 'game' : 'unknown', source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
         gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId) });
     }
-    const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
     const list = [...groups.values()];
     const names = new Map();
     for (const g of list) {
-      g.items.sort((a, b) => collator.compare(a.title, b.title));
-      g.nameLower = lower(g.name);
-      g.titlesLower = g.items.map(i => lower(i.title));
-      g.categories = {};
-      for (const i of g.items) g.categories[i.category] = (g.categories[i.category] ?? 0) + 1;
-      const known = Object.keys(g.categories).filter(c => c !== 'unknown');
-      g.media = known.length > 1 ? 'mixed' : known[0] ?? 'unknown';
-      g.excluded = g.items.filter(i => i.excluded).length;
+      g.items.sort((a, b) => COLLATOR.compare(a.title, b.title));
+      finishGroup(g);
       if (g.name) { const k = g.nameLower.trim(); if (!names.has(k)) names.set(k, { historical: 0, native: 0 }); names.get(k)[g.source]++; }
     }
     for (const g of list) {
@@ -100,6 +105,124 @@
       unresolved: native.scope?.sync?.unresolved ?? 0, coverage: native.scope?.sync?.coverage ?? null } };
   }
 
+  // Read-only historical/native reconciliation for presentation. Historical order keys and
+  // native IDs share nothing, so a match is inferred from evidence and never stored:
+  // the same normalized name with most of the smaller record's titles shared, or similar
+  // names with the smaller record wholly contained. Content alone is not enough, because
+  // smaller bundles nest inside larger ones. Pairs are accepted in rounds when each side is
+  // the other's unique best candidate, so the result does not depend on input order.
+  const matchKey = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[‘’“”'"`]/gu, '').replace(/&/gu, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const NAME_STOP = new Set(['the', 'and', 'bundle', 'humble', 'of', 'by']);
+  const nameTokens = s => new Set(matchKey(s).split(' ').filter(w => w.length > 1 && !NAME_STOP.has(w)));
+  function similarity(a, b) {
+    let shared = 0;
+    for (const w of a) if (b.has(w)) shared++;
+    const union = a.size + b.size - shared;
+    return union ? shared / union : 0;
+  }
+  function titleCounts(g) {
+    const counts = new Map();
+    for (const i of g.items) { const k = matchKey(i.title); if (k) counts.set(k, (counts.get(k) ?? 0) + 1); }
+    return counts;
+  }
+  const signature = counts => JSON.stringify([...counts].sort((a, b) => a[0] < b[0] ? -1 : 1));
+  // Candidate rank: name evidence first, then coverage of the smaller record, shared titles, name similarity.
+  const rank = c => [c.sameName ? 1 : 0, c.ratio, c.shared, c.similarity];
+  function compareRank(a, b) { const x = rank(a), y = rank(b); for (let k = 0; k < x.length; k++) if (x[k] !== y[k]) return y[k] - x[k]; return 0; }
+  function uniqueBest(list) {
+    if (!list?.length) return null;
+    const sorted = [...list].sort(compareRank);
+    return sorted[1] && compareRank(sorted[0], sorted[1]) === 0 ? 'tie' : sorted[0];
+  }
+
+  function mergeItems(h, n) {
+    const native = new Map();
+    for (const i of n.items) { const k = matchKey(i.title); if (!native.has(k)) native.set(k, []); native.get(k).push(i); }
+    const items = [], paired = new Map();
+    for (const i of h.items) {
+      const key = matchKey(i.title), twin = native.get(key)?.shift();
+      // A title present in both records is shown once; native entitlements are never collapsed.
+      if (twin) {
+        const entry = { ...twin, source: 'both', kind: i.kind, category: i.category !== 'unknown' ? i.category : twin.category, historicalTitle: i.title !== twin.title ? i.title : null, historicalRecords: 1 };
+        items.push(entry); paired.set(key + '\n' + i.kind, entry);
+        continue;
+      }
+      // The old importer could record one title more than once in an order; extra records of
+      // a matched title and kind are counted on that entry rather than listed again.
+      const same = paired.get(key + '\n' + i.kind);
+      if (same) same.historicalRecords++;
+      else items.push({ ...i });
+    }
+    for (const rest of native.values()) items.push(...rest);
+    return items;
+  }
+
+  function unify(h, n, evidence) {
+    const items = mergeItems(h, n).sort((a, b) => COLLATOR.compare(a.title, b.title));
+    const g = { key: 'u:' + h.key + '|' + n.key, source: 'unified', historical: h, native: n, evidence,
+      name: n.name || h.name, historicalName: h.name !== n.name ? h.name : null, type: n.type, purchasedAt: h.purchasedAt, listedCount: h.listedCount, orderRecorded: h.orderRecorded,
+      parentId: n.parentId, route: n.route, items, matchState: 'matched', sameNamePurchases: Math.max(h.sameNamePurchases, n.sameNamePurchases), sharedNameUnconfirmed: false,
+      onlyNative: items.filter(i => i.source === 'native').length, onlyHistorical: items.filter(i => i.source === 'historical').length };
+    finishGroup(g);
+    return g;
+  }
+
+  function reconcile(groups) {
+    const H = groups.filter(g => g.source === 'historical'), N = groups.filter(g => g.source === 'native');
+    const info = new Map(groups.map(g => [g, { name: matchKey(g.name), tokens: nameTokens(g.name), titles: titleCounts(g) }]));
+    const index = new Map(), byName = new Map();
+    for (const n of N) {
+      for (const k of info.get(n).titles.keys()) { if (!index.has(k)) index.set(k, []); index.get(k).push(n); }
+      const name = info.get(n).name; if (name) { if (!byName.has(name)) byName.set(name, []); byName.get(name).push(n); }
+    }
+    const candidates = [], conflicts = new Set();
+    for (const h of H) {
+      const hi = info.get(h), shared = new Map();
+      for (const k of hi.titles.keys()) for (const n of index.get(k) ?? []) shared.set(n, (shared.get(n) ?? 0) + 1);
+      for (const n of byName.get(hi.name) ?? []) if (!shared.has(n)) shared.set(n, 0);
+      for (const [n, s] of shared) {
+        const ni = info.get(n), smaller = Math.min(hi.titles.size, ni.titles.size), sameName = Boolean(hi.name) && hi.name === ni.name;
+        const c = { h, n, shared: s, ratio: smaller ? s / smaller : 0, sameName, similarity: similarity(hi.tokens, ni.tokens) };
+        if (s && (sameName ? c.ratio >= 0.5 : c.ratio === 1 && c.similarity >= 0.5)) candidates.push(c);
+        // Same name but clearly different contents: different purchases, never combined.
+        else if (sameName && smaller >= 3 && c.ratio < 0.2) { conflicts.add(h); conflicts.add(n); }
+      }
+    }
+    const matched = new Map(), taken = new Set();
+    const accept = (c, extra = {}) => { matched.set(c.h, { ...c, ...extra }); taken.add(c.n); };
+    for (let progress = true; progress;) {
+      progress = false;
+      const live = candidates.filter(c => !matched.has(c.h) && !taken.has(c.n)), byH = new Map(), byN = new Map();
+      for (const c of live) { if (!byH.has(c.h)) byH.set(c.h, []); byH.get(c.h).push(c); if (!byN.has(c.n)) byN.set(c.n, []); byN.get(c.n).push(c); }
+      const round = [...byH.values()].map(uniqueBest).filter(c => c && c !== 'tie' && uniqueBest(byN.get(c.n)) === c);
+      for (const c of round) accept(c);
+      if (round.length) { progress = true; continue; }
+      // Repeat purchases of one bundle: with equal counts, every cross pair a candidate and
+      // identical contents on one side, any pairing is equivalent. Pair them in a fixed order.
+      const sets = new Map();
+      for (const c of live) if (c.sameName) { const k = info.get(c.h).name; if (!sets.has(k)) sets.set(k, { hs: new Set(), ns: new Set(), pairs: new Set() }); const s = sets.get(k); s.hs.add(c.h); s.ns.add(c.n); s.pairs.add(c); }
+      for (const s of sets.values()) {
+        const hs = [...s.hs], ns = [...s.ns];
+        if (hs.length < 2 || hs.length !== ns.length || s.pairs.size !== hs.length * ns.length) continue;
+        const same = list => new Set(list.map(g => signature(info.get(g).titles))).size === 1;
+        if (!same(hs) && !same(ns)) continue;
+        hs.sort((a, b) => (a.purchasedAt ?? Infinity) - (b.purchasedAt ?? Infinity) || (a.key < b.key ? -1 : 1));
+        ns.sort((a, b) => a.key < b.key ? -1 : 1);
+        hs.forEach((h, i) => accept([...s.pairs].find(c => c.h === h && c.n === ns[i]), { interchangeable: hs.length }));
+        progress = true;
+      }
+    }
+    const pending = new Set(candidates.flatMap(c => matched.has(c.h) || taken.has(c.n) ? [] : [c.h, c.n]));
+    const state = g => matched.has(g) || taken.has(g) ? 'matched' : conflicts.has(g) ? 'conflicting' : pending.has(g) ? 'ambiguous' : 'unmatched';
+    for (const g of groups) g.matchState = state(g);
+    const unified = [...matched.values()].map(c => unify(c.h, c.n, { sameName: c.sameName, shared: c.shared, smaller: Math.round(c.shared / c.ratio), interchangeable: c.interchangeable ?? 0 }));
+    const rest = groups.filter(g => g.matchState !== 'matched');
+    const count = s => groups.filter(g => g.matchState === s).length;
+    return { groups: [...unified, ...rest], stats: { historical: H.length, native: N.length, matched: unified.length, interchangeable: unified.filter(g => g.evidence.interchangeable).length,
+      similarName: unified.filter(g => !g.evidence.sameName).length, ambiguous: count('ambiguous'), conflicting: count('conflicting'), unmatchedHistorical: H.filter(g => g.matchState === 'unmatched').length,
+      unmatchedNative: N.filter(g => g.matchState === 'unmatched').length, unified: unified.length + rest.length } };
+  }
+
   // scope: 'title' (contained titles), 'bundle' (group names) or 'both'.
   function filterGroups(groups, { search = '', scope = 'both', media = '', filter = '', type = '', sort = 'name-asc' } = {}) {
     const q = lower(search).trim(), collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
@@ -107,7 +230,9 @@
     for (const g of groups) {
       if (media && (media === 'mixed' ? g.media !== 'mixed' : media === 'unknown' ? g.media !== 'unknown' : !g.categories[media])) continue;
       if (type && g.type !== type) continue;
-      if (filter === 'historical' && g.source !== 'historical' || filter === 'native' && g.source !== 'native' || filter === 'shared-name' && !g.sharedNameUnconfirmed
+      // Source filters mean "not combined with the other source" in both display modes.
+      if (filter === 'both' && g.matchState !== 'matched' || filter === 'historical' && (g.source !== 'historical' || g.matchState === 'matched')
+        || filter === 'native' && (g.source !== 'native' || g.matchState === 'matched') || filter === 'ambiguous' && g.matchState !== 'ambiguous' && g.matchState !== 'conflicting'
         || filter === 'repeat' && g.sameNamePurchases < 2 || filter === 'excluded' && !g.excluded) continue;
       let nameMatch = false, matches = [];
       if (q) {
@@ -126,5 +251,5 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, filterGroups, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, purchaseRoute, entitlementRoute, category });
 })(globalThis);

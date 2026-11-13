@@ -123,7 +123,7 @@ function syncTransport(rows){
   return {fetch,requests:()=>requests,fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
 }
 // Drives the real Options page: 2,345 synthetic native entitlements under one parent whose IDs are not UUIDs.
-async function installedBrowserChecks({check}){
+async function installedBrowserChecks({check,store}){
   const before=JSON.stringify(await chrome.storage.local.get(null)),tick=()=>new Promise(resolve=>setTimeout(resolve,50));
   const fire=(el,type)=>el.dispatchEvent(new Event(type,{bubbles:true}));
   await LibraryBrowser.renderOptions();
@@ -146,6 +146,24 @@ async function installedBrowserChecks({check}){
   const titlesRadio=document.getElementById('library-view-titles');titlesRadio.checked=true;fire(titlesRadio,'change');
   check(document.getElementById('library-search-label').textContent==='Find titles'&&[...document.querySelectorAll('.library-group-only')].every(l=>l.hidden),'installed Titles view returns with its own controls');
   check(JSON.stringify(await chrome.storage.local.get(null))===before,'installed browsing writes nothing to storage');
+
+  // Grouped vs separate sources: name the synthetic parent and add a matching historical order.
+  const H=HumbleComicLibrary,prior=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS),entitlements=structuredClone(prior.libraryEntitlements);
+  for(const o of entitlements.scopes[0].observations)o.parentTitle='Synthetic Bundle';
+  const order=Array.from({length:12},(_,n)=>({title:'Synthetic game '+(1000+n),kind:'game',source:'humble',purchaseKey:'synthorder',sourceBundle:'Synthetic Bundle',purchasedAt:'2024-03-01T00:00:00.000Z'}));
+  await store('replace',{...prior,libraryItems:[...prior.libraryItems,...order],libraryEntitlements:entitlements});
+  const scenario=JSON.stringify(await chrome.storage.local.get(null));
+  await LibraryBrowser.renderOptions();groupsRadio.checked=true;fire(groupsRadio,'change');
+  const summaries=()=>[...document.querySelectorAll('#library-preview > li.library-group summary')].map(s=>s.textContent);
+  check(summaries().some(t=>/^Synthetic Bundle — Bundle · 2345 titles · Purchased 2024-03-01 · Historical \+ Native · Likely match$/.test(t))&&summaries().length===2&&/1 purchase combined/.test(document.getElementById('preview-note').textContent),'installed Grouped view combines a likely historical/native match into one purchase');
+  const mode=document.getElementById('library-group-mode');mode.value='separate';fire(mode,'change');
+  check(summaries().length===3&&summaries().filter(t=>t.startsWith('Synthetic Bundle — ')).length===2,'installed Separate sources shows the historical and native records independently');
+  mode.value='grouped';fire(mode,'change');titlesRadio.checked=true;fire(titlesRadio,'change');
+  // The scenario's replace lets the companion coordinator update its own keys; purchase data must not change.
+  const protectedKeys=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','keyReminders','keyReminderScan','mediaTypeOverrides','rejectedPurchaseItems','lastImport','libraryEntitlements','humbleAccountId','humbleProfileLabel','profileArchives','customCollectionMappings','wishlistItems'];
+  const afterScenario=await chrome.storage.local.get(null),scenarioState=JSON.parse(scenario),changedKeys=protectedKeys.filter(k=>JSON.stringify(afterScenario[k])!==JSON.stringify(scenarioState[k]));
+  check(!changedKeys.length,'installed grouping and source switching leave purchases, history, entitlements and accounts unchanged'+(changedKeys.length?': '+changedKeys.join(','):''));
+  await store('replace',prior);await LibraryBrowser.renderOptions();
 }
 async function installedSyncChecks({store,state,baseline,row,check}){
   const E=HumbleLibraryEntitlements,H=HumbleComicLibrary,fast={sleep:async()=>{}},context=await store('entitlementContext');
@@ -193,7 +211,7 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   await E.createSync({fetcher:large.fetch,store,...fast}).start({mode:'full',context,confirmed:true});await new Promise(resolve=>setTimeout(resolve,100));chrome.storage.onChanged.removeListener(counted);
   view=await current();check(view.checkpoint.status==='completed'&&view.checkpoint.coverage==='accessible-pages-traversed'&&view.checkpoint.pageSize===1000&&view.checkpoint.batches===3&&writes===3&&view.saved===2345,'installed default sync reads 1,000-row pages with one atomic write per page');
   await unchanged('installed large-page sync preserves legacy purchases, history and corrections');
-  await installedBrowserChecks({check});
+  await installedBrowserChecks({check,store});
   await unchanged('installed Bundles & Orders browsing preserves legacy purchases, history and corrections');
 
   // Leave an interrupted sync (status running, lease held) for the reload/restart phase.

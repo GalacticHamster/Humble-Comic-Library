@@ -115,11 +115,16 @@
               <option value="mixed">Mixed media</option>
               <option value="unknown">Only unknown media</option>
             </select></label>
+            <label class="library-group-only" hidden>Sources <select id="library-group-mode">
+              <option value="grouped">Grouped</option>
+              <option value="separate">Separate sources</option>
+            </select></label>
             <label class="library-group-only" hidden>Show <select id="library-group-filter">
               <option value="">All purchases</option>
-              <option value="historical">Historical imports</option>
-              <option value="native">Native Library (verified)</option>
-              <option value="shared-name">Name in both sources (unconfirmed)</option>
+              <option value="both">Historical + Native</option>
+              <option value="historical">Historical only</option>
+              <option value="native">Native only</option>
+              <option value="ambiguous">Not combined (ambiguous)</option>
               <option value="repeat">Bought more than once</option>
               <option value="excluded">With excluded items</option>
             </select></label>

@@ -35,6 +35,7 @@
   const libraryGroupFilter = document.querySelector('#library-group-filter');
   const libraryGroupType = document.querySelector('#library-group-type');
   const libraryGroupSort = document.querySelector('#library-group-sort');
+  const libraryGroupMode = document.querySelector('#library-group-mode');
 
   async function editWishlist(action,items) {
     try {
@@ -130,7 +131,9 @@
     groupFilter: '',
     groupType: '',
     groupSort: 'name-asc',
-    groupPage: 0
+    groupPage: 0,
+    // Likely historical/native matches are combined unless the user asks for separate sources.
+    groupMode: 'grouped'
   };
 
   function loadLibraryState() {
@@ -710,6 +713,7 @@
   const GROUP_CONTENT_BATCH = 100;
   const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
   let latestGroupModel = { groups: [], native: { enabled: false, present: false, error: false, unresolved: 0, coverage: null } };
+  let latestReconciliation = null;
 
   // Opens only routes built by HumbleLibraryBrowser from native IDs; the URL is never shown.
   function openOnHumble(url) {
@@ -738,10 +742,16 @@
     primary.className = 'library-provenance-primary';
     primary.textContent = (matched ? 'Match: ' : '') + (entry.title || 'Untitled item');
     const parts = [entry.source === 'native' ? (entry.category === 'game' ? 'Game' : 'Media unknown') : mediaTypeLabel(entry.kind)];
-    if (entry.source === 'native') {
+    if (entry.source !== 'historical') {
       parts.push(NAMESPACE_LABELS[entry.namespace] || 'Entitlement');
       if (entry.namespace === 'steam') parts.push('Activation unknown');
       parts.push(entry.excluded ? (entry.gifted ? 'Excluded: gifted' : 'Excluded') : 'Purchased');
+    }
+    if (entry.unified) {
+      if (entry.source === 'native') parts.push('Humble Library only');
+      if (entry.source === 'historical') parts.push('Historical import only');
+      if (entry.historicalTitle) parts.push(`Historical title: ${entry.historicalTitle}`);
+      if (entry.historicalRecords > 1) parts.push(`${entry.historicalRecords} historical records`);
     }
     const secondary = document.createElement('div');
     secondary.className = 'library-provenance-secondary';
@@ -763,7 +773,7 @@
     more.className = 'secondary library-group-more';
     const step = () => {
       const next = order.slice(shown, shown + GROUP_CONTENT_BATCH);
-      list.append(...next.map((i) => groupContentRow(group.items[i], matched.has(i))));
+      list.append(...next.map((i) => groupContentRow(group.source === 'unified' ? { ...group.items[i], unified: true } : group.items[i], matched.has(i))));
       shown += next.length;
       more.hidden = shown >= order.length;
       more.textContent = `Show ${Math.min(GROUP_CONTENT_BATCH, order.length - shown)} more of ${order.length - shown} remaining titles`;
@@ -784,6 +794,20 @@
     const facts = [];
     const media = Object.entries(group.categories).map(([key, n]) => plural(n, ...CATEGORY_LABELS[key]));
     if (media.length) facts.push(`Contains ${media.join(', ')}${group.media === 'mixed' ? ' (mixed media)' : ''}.`);
+    if (group.source === 'unified') {
+      const e = group.evidence;
+      facts.push(`Likely the same purchase in your historical import and Humble Library: ${e.sameName ? 'the same name' : 'similar names'}, and ${e.shared === e.smaller ? 'all' : e.shared + ' of'} ${plural(e.smaller, 'title')} of the smaller record appear in the other.`);
+      if (e.interchangeable) facts.push(`One of ${e.interchangeable} identical purchases with this name; which order date belongs to which Humble Library purchase cannot be told apart.`);
+      if (group.historicalName) facts.push(`Historical name: ${group.historicalName}`);
+      const split = [group.onlyNative ? `${plural(group.onlyNative, 'title')} only in the Humble Library` : '', group.onlyHistorical ? `${plural(group.onlyHistorical, 'title')} only in the historical import` : ''].filter(Boolean);
+      if (split.length) facts.push(split.join('; ') + '.');
+      if (group.listedCount !== null && group.listedCount !== group.historical.items.length) facts.push(`Humble listed ${plural(group.listedCount, 'item')} in this order; ${plural(group.historical.items.length, 'media title')} were imported.`);
+      facts.push('Humble Library purchase verified against the signed-in account.');
+      if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
+      if (group.excluded) facts.push(`${plural(group.excluded, 'item')} excluded (gifted, revoked or temporary).`);
+      if (group.sameNamePurchases > 1) facts.push(`One of ${group.sameNamePurchases} separate purchases with this name.`);
+      return facts;
+    }
     if (group.source === 'native') {
       facts.push('Native Library purchase, verified against the signed-in account.');
       if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
@@ -793,7 +817,9 @@
     }
     if (group.excluded) facts.push(`${plural(group.excluded, 'item')} excluded (gifted, revoked or temporary).`);
     if (group.sameNamePurchases > 1) facts.push(`One of ${group.sameNamePurchases} separate purchases with this name.`);
-    if (group.sharedNameUnconfirmed) facts.push('The other purchase source has a purchase with the same name. They are not confirmed to be the same purchase.');
+    if (group.matchState === 'matched' && libraryBrowserState.groupMode === 'separate') facts.push('Shown combined with its likely match in the Grouped view.');
+    if (group.matchState === 'ambiguous') facts.push('Not combined: more than one purchase in the other source fits equally well.');
+    if (group.matchState === 'conflicting') facts.push('Not combined: the other source has a purchase with this name but different contents.');
     if (!group.route) facts.push(group.source === 'native' ? 'No verified Humble page for this purchase.' : 'Humble has no verified page for orders from the original importer, so there is no direct link.');
     return facts;
   }
@@ -810,7 +836,7 @@
       GROUP_TYPE_LABELS[group.type] || (group.source === 'historical' ? 'Order' : 'Purchase'),
       plural(group.items.length, 'title'),
       date ? `Purchased ${date}` : 'Date not recorded',
-      group.source === 'native' ? 'Native Library' : 'Historical import'
+      group.source === 'unified' ? 'Historical + Native · Likely match' : group.source === 'native' ? 'Native Library' : 'Historical import'
     ];
     if (matches.length && !nameMatch) parts.push(`${plural(matches.length, 'matching title')}`);
     summary.textContent = `${groupName(group)} — ${parts.join(' · ')}`;
@@ -840,14 +866,16 @@
     if (librarySearchScope && librarySearchScope.value !== scope) librarySearchScope.value = scope;
     if (librarySearchLabel) librarySearchLabel.textContent = groups ? 'Find bundles and orders' : 'Find titles';
     if (librarySearch) librarySearch.placeholder = groups ? 'Filter by bundle name or contained title…' : scope === 'title' ? 'Filter by title…' : 'Filter by title or bundle name…';
-    for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort']]) {
+    for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort'], [libraryGroupMode, 'groupMode']]) {
       if (select && select.value !== libraryBrowserState[key]) select.value = libraryBrowserState[key];
     }
   }
 
   function renderGroupBrowser() {
     const model = latestGroupModel;
-    const results = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.filterGroups(model.groups, {
+    const grouped = Boolean(latestReconciliation) && libraryBrowserState.groupMode !== 'separate';
+    const groups = grouped ? latestReconciliation.groups : model.groups;
+    const results = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.filterGroups(groups, {
       search: libraryBrowserState.search, scope: libraryBrowserState.groupScope, media: libraryBrowserState.groupMedia,
       filter: libraryBrowserState.groupFilter, type: libraryBrowserState.groupType, sort: libraryBrowserState.groupSort
     }) : [];
@@ -865,14 +893,15 @@
     if (!note) return;
     const nativeNote = model.native.error ? ' Native Library records could not be read.'
       : model.native.present && model.native.unresolved ? ` ${plural(model.native.unresolved, 'native Library row')} could not be verified and ${model.native.unresolved === 1 ? 'is' : 'are'} not listed.` : '';
-    if (!model.groups.length) {
+    const combined = grouped && latestReconciliation.stats.matched ? ` ${plural(latestReconciliation.stats.matched, 'purchase')} combined from historical and Humble Library records.` : '';
+    if (!groups.length) {
       note.textContent = 'No bundles or orders are stored yet. Import purchases or restore a backup to browse them.' + nativeNote;
     } else if (!results.length) {
-      note.textContent = `No bundles or orders match your search or filter criteria (0 of ${model.groups.length} purchase groups).` + nativeNote;
+      note.textContent = `No bundles or orders match your search or filter criteria (0 of ${groups.length} purchase groups).` + nativeNote;
     } else {
       const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.groupPage + 1} of ${totalPages})` : '';
-      const filterInfo = results.length !== model.groups.length ? ` (filtered from ${model.groups.length})` : '';
-      note.textContent = `Showing ${pageGroups.length} of ${results.length} purchase groups${filterInfo}${pageInfo}.` + nativeNote;
+      const filterInfo = results.length !== groups.length ? ` (filtered from ${groups.length})` : '';
+      note.textContent = `Showing ${pageGroups.length} of ${results.length} purchase groups${filterInfo}${pageInfo}.` + combined + nativeNote;
     }
   }
 
@@ -947,7 +976,7 @@
     saveLibraryState(libraryBrowserState);
     renderLibraryBrowser();
   });
-  for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort']]) {
+  for (const [select, key] of [[libraryGroupMedia, 'groupMedia'], [libraryGroupFilter, 'groupFilter'], [libraryGroupType, 'groupType'], [libraryGroupSort, 'groupSort'], [libraryGroupMode, 'groupMode']]) {
     select?.addEventListener('change', () => {
       libraryBrowserState[key] = select.value;
       libraryBrowserState.groupPage = 0;
@@ -1188,8 +1217,11 @@
     const { libraryEntitlements = null, humbleAccountId = null } = await chrome.storage.local.get({ libraryEntitlements: null, humbleAccountId: null });
     if (globalThis.HumbleLibraryBrowser) {
       latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
+      // Reconciled once per data load; it is presentation only and never stored.
+      latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
+      if (libraryGroupMode) libraryGroupMode.disabled = !latestReconciliation;
       // Native-only choices stay unavailable until this account has native Library records.
-      for (const value of ['native', 'shared-name']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
+      for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
       for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
     }
     renderLibraryBrowser(items);
@@ -1465,6 +1497,7 @@
     setState: (next) => { Object.assign(libraryBrowserState, next); saveLibraryState(libraryBrowserState); renderLibraryBrowser(); },
     render: () => renderLibraryBrowser(),
     getGroups: () => latestGroupModel,
+    getReconciliation: () => latestReconciliation,
     renderOptions: () => render()
   };
   render();

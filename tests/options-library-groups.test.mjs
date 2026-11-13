@@ -98,22 +98,33 @@ test('contained-title search marks matches, lists every purchase containing the 
   assert.equal(ui.rows().length, 2);
 });
 
-test('native purchases appear separately from same-named history, with verified links, gifts, unknown activation and batching', async () => {
+test('grouped by default: a likely historical/native match is one purchase; Separate sources shows both, keeping search', async () => {
   const { E } = load();
   const obs = [nativeObservation(E, { id: 1, parent: 100, title: 'Celeste', namespace: 'steam', parentTitle: 'Indie Bundle' }), nativeObservation(E, { id: 2, parent: 100, title: 'Gifted Game', namespace: 'steam', gifted: true, parentTitle: 'Indie Bundle' }),
     ...Array.from({ length: 250 }, (_, i) => nativeObservation(E, { id: 10 + i, parent: 200, title: `Store item ${i}`, parentType: 'storefront' }))];
   const ui = await harness({ libraryItems: [historical('Celeste', 'K1', 'Indie Bundle', { kind: 'game' })], libraryEntitlements: entitlements(obs, ACCOUNT, null) });
   await ui.view('groups');
-  assert.match(ui.note(), /Showing 3 of 3 purchase groups/);
-  await ui.change('#library-group-filter', 'shared-name');
-  assert.deepEqual(summaries(ui).sort(), ['Indie Bundle — Bundle · 2 titles · Date not recorded · Native Library', 'Indie Bundle — Order · 1 title · Purchased 2024-03-01 · Historical import']);
-  const native = ui.expand(ui.rows().find((r) => /Native Library/.test(text(r))));
-  assert.match(text(native), /not confirmed to be the same purchase/);
-  assert.match(text(native), /Steam activation is unknown/);
-  assert.match(text(native), /Celeste Game · Steam key · Activation unknown · Purchased/);
-  assert.match(text(native), /Gifted Game Game · Steam key · Activation unknown · Excluded: gifted/);
-  await native.children.find((c) => c.className?.includes('library-open-humble')).listeners.click({});
+  assert.equal(ui.get('#library-group-mode').value, 'grouped');
+  assert.match(ui.note(), /Showing 2 of 2 purchase groups\. 1 purchase combined from historical and Humble Library records\./);
+  await ui.change('#library-group-filter', 'both');
+  assert.deepEqual(summaries(ui), ['Indie Bundle — Bundle · 2 titles · Purchased 2024-03-01 · Historical + Native · Likely match']);
+  const unified = ui.expand(ui.rows()[0]);
+  assert.match(text(unified), /the same name, and all 1 title of the smaller record appear in the other/);
+  assert.match(text(unified), /1 title only in the Humble Library/);
+  assert.match(text(unified), /Steam activation is unknown/);
+  assert.match(text(unified), /Celeste Game · Steam key · Activation unknown · Purchased/, 'a title in both records is shown once with both classifications');
+  assert.match(text(unified), /Gifted Game Game · Steam key · Activation unknown · Excluded: gifted · Humble Library only/);
+  assert.doesNotMatch(text(unified), /not confirmed/);
+  await unified.children.find((c) => c.className?.includes('library-open-humble')).listeners.click({});
   await ui.change('#library-group-filter', '');
+  await ui.input('#library-search', 'celeste');
+  await ui.change('#library-group-mode', 'separate');
+  assert.deepEqual(summaries(ui).sort(), ['Indie Bundle — Bundle · 2 titles · Date not recorded · Native Library · 1 matching title', 'Indie Bundle — Order · 1 title · Purchased 2024-03-01 · Historical import · 1 matching title']);
+  assert.match(text(ui.expand(ui.rows()[0])), /Shown combined with its likely match in the Grouped view/);
+  assert.equal(ui.get('#library-search').value, 'celeste', 'switching modes keeps the search');
+  await ui.change('#library-group-mode', 'grouped');
+  assert.equal(ui.rows().length, 1);
+  await ui.input('#library-search', '');
   await ui.change('#library-group-type', 'store');
   assert.deepEqual(summaries(ui), ['Humble purchase (name appears after the next full sync) — Store purchase · 250 titles · Date not recorded · Native Library']);
   const store = ui.expand(ui.rows()[0]);
@@ -123,6 +134,14 @@ test('native purchases appear separately from same-named history, with verified 
   await list.children[0].children[2].listeners.click({});
   assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/00000000-0000-4000-8000-000000000100', 'https://www.humblebundle.com/home/library/content/00000000-0000-4000-8000-000000000010']);
   assert.equal(ui.writes.length, 0);
+});
+
+test('without native records the Sources control is unavailable and history shows as before', async () => {
+  const ui = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')] });
+  await ui.view('groups');
+  assert.equal(ui.get('#library-group-mode').disabled, true);
+  assert.deepEqual(summaries(ui), ['Image Bundle — Order · 1 title · Purchased 2024-03-01 · Historical import']);
+  assert.doesNotMatch(ui.note(), /combined/);
 });
 
 test('native records from another account, a disabled collector or an empty library show no native groups', async () => {
