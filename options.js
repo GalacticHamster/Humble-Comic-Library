@@ -529,10 +529,14 @@
     summary.textContent = headerText;
     details.append(summary);
 
-    if (records.length > 0) {
+    // One list of purchases: each imported order, sharing its row with a Humble Library copy only when
+    // the two are safely associated (see HumbleLibraryBrowser.titlePurchases), then any other copies.
+    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
+    const { rows: purchases, rest } = copies.length ? HumbleLibraryBrowser.titlePurchases(records, copies) : { rows: records.map(record => ({ record, copy: null })), rest: [] };
+    if (records.length > 0 || rest.length > 0) {
       const list = document.createElement('ul');
-      list.className = 'library-provenance-list';
-      for (const rec of records) {
+      list.className = copies.length ? 'library-provenance-list library-title-purchases' : 'library-provenance-list';
+      for (const { record: rec, copy } of purchases) {
         const li = document.createElement('li');
         li.className = 'library-provenance-item';
 
@@ -575,6 +579,7 @@
             secondaryParts.push('Format details require library rescan');
           }
         }
+        if (copy) secondaryParts.push(copy.purchase && copy.purchase !== rec.sourceBundle ? `Likely match: ${copy.purchase} in Humble Library` : 'Likely match in Humble Library');
 
         if (secondaryParts.length > 0) {
           const secondary = document.createElement('div');
@@ -582,6 +587,9 @@
           secondary.textContent = secondaryParts.join(' · ');
           li.append(secondary);
         }
+        // With Library copies, every purchase row uses the Bundles & Orders row layout.
+        if (copies.length) li.className = 'library-provenance-item library-group-item';
+        if (copy) li.append(humbleButton(copy.route, `Open ${title} on Humble`));
 
         const legacyParts = [];
         if (rec.sourceBundle) legacyParts.push(`Bundle: ${rec.sourceBundle}`);
@@ -611,6 +619,7 @@
 
         list.append(li);
       }
+      list.append(...rest.map(copy => titleCopyRow(copy, title)));
       details.append(list);
     } else {
       const empty = document.createElement('p');
@@ -690,22 +699,9 @@
       classificationRow.append(resetBtn);
     }
 
-    // The same title in this account's Humble Library, by verified entitlement.
-    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
-    if (copies.length) {
-      const heading = document.createElement('div');
-      heading.className = 'library-provenance-secondary';
-      heading.textContent = copies.length === 1 ? 'In your Humble Library:' : `In your Humble Library (${copies.length} copies):`;
-      const list = document.createElement('ul');
-      list.className = 'library-provenance-list library-title-copies';
-      list.append(...copies.map(copy => titleCopyRow(copy, title)));
-      details.append(heading, list);
-    }
-
     details.append(classificationRow);
 
     row.append(details);
-    appendTitleLinks(row, details, title, copies);
 
     try {
       Object.defineProperty(row, 'textContent', {
@@ -936,7 +932,7 @@
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
         if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
       }
     }
@@ -948,38 +944,26 @@
   let latestTitleLinks = null;
   const titleRowKey = title => 't:' + String(title ?? '').normalize('NFKC').trim().toLowerCase();
 
+  // A Humble Library copy with its own row in a title's purchases, laid out like Bundles & Orders contents.
+  // Copies not combined with an imported order say why in a few words; nothing is inferred from names.
   function titleCopyRow(copy, title) {
     const li = document.createElement('li');
     li.className = 'library-provenance-item library-group-item';
     const primary = document.createElement('div');
     primary.className = 'library-provenance-primary';
-    primary.textContent = copy.purchase ? `Purchase: ${copy.purchase}` : 'Humble Library purchase';
+    primary.textContent = copy.purchase ? `${GROUP_TYPE_LABELS[copy.type] || 'Purchase'}: ${copy.purchase}` : 'Humble Library purchase';
     const media = copy.media ?? (copy.kind && copy.kind !== 'unknown' ? copy.kind : null);
+    const parts = ['Purchased on Humble', `Media: ${media ? mediaTypeLabel(media) : 'Unknown'}`];
+    if (copy.steam) parts.push('Steam activation: Unknown');
+    if (copy.interchangeable) parts.push(`One of ${copy.interchangeable} identical purchases`);
+    else if (copy.matchState === 'ambiguous') parts.push('Not combined: ambiguous match');
+    else if (copy.matchState === 'conflicting') parts.push('Not combined: contents differ');
     const secondary = document.createElement('div');
     secondary.className = 'library-provenance-secondary';
-    secondary.textContent = `Purchased on Humble · Media: ${media ? mediaTypeLabel(media) : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
+    secondary.textContent = parts.join(' · ');
     li.append(primary, secondary);
     if (copy.route) li.append(humbleButton(copy.route, `Open ${title}${copy.purchase ? ` from ${copy.purchase}` : ''} on Humble`));
     return li;
-  }
-
-  // One linked copy opens directly from the row; several are chosen from the title's details.
-  function appendTitleLinks(row, details, title, copies) {
-    const linked = copies.filter(copy => copy.route);
-    if (!linked.length) return;
-    const actions = document.createElement('div');
-    actions.className = 'library-title-links';
-    if (linked.length === 1) actions.append(humbleButton(linked[0].route, `Open ${title} on Humble`));
-    else {
-      const choose = document.createElement('button');
-      choose.type = 'button';
-      choose.className = 'secondary library-open-humble library-choose-copy';
-      choose.textContent = `Open on Humble (${linked.length} copies)`;
-      choose.setAttribute('aria-label', `Choose which of ${linked.length} copies of ${title} to open on Humble`);
-      choose.addEventListener('click', () => { details.open = true; details.querySelector?.('.library-title-copies')?.scrollIntoView?.({ block: 'nearest' }); });
-      actions.append(choose);
-    }
-    row.append(actions);
   }
 
   function renderNativeTitleRow(item) {
@@ -993,11 +977,10 @@
     const copies = item.nativeCopies.length;
     summary.textContent = `${item.title} — Humble Library${copies > 1 ? ` · ${copies} copies` : ''}`;
     const list = document.createElement('ul');
-    list.className = 'library-provenance-list library-title-copies';
+    list.className = 'library-provenance-list library-title-purchases';
     list.append(...item.nativeCopies.map(copy => titleCopyRow(copy, item.title)));
     details.append(summary, list);
     row.append(details);
-    appendTitleLinks(row, details, item.title, item.nativeCopies);
     return row;
   }
 

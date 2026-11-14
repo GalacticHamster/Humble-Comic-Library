@@ -20,7 +20,7 @@ async function installedRuntimeChecks(phase){
     // After a page reload (and, in Firefox, an add-on restart) the page reads the same account's records.
     await until(()=>LibraryBrowser.getGroups().native.present,'reloaded Options reads native records for the active account');
     await view('titles');await search('saga');
-    check(rowFor('Saga #1')?.querySelector('.library-title-links button')?.textContent==='Open on Humble','reloaded Options still offers the verified Saga #1 link');
+    check(rowFor('Saga #1')?.querySelector('.library-title-purchases .library-open-humble')?.textContent==='Open on Humble','reloaded Options still offers the verified Saga #1 link');
     const state=await chrome.storage.local.get(['humbleAccountId','libraryEntitlements']);
     check(state.humbleAccountId===account&&state.libraryEntitlements.scopes.every(s=>s.localAccountId===account),'reloaded Options shows only the active account; no other account was created');
     return {checks};
@@ -35,7 +35,7 @@ async function installedRuntimeChecks(phase){
     purchaseSummaries:[{purchaseKey:'K1',sourceBundle:'Image Comics Bundle',itemCount:2},{purchaseKey:'K2',sourceBundle:'Old Bundle',itemCount:1},{purchaseKey:'K3',sourceBundle:'Filler Bundle',itemCount:120}]};
   await store('replace',baseline);await LibraryBrowser.renderOptions();await settled('Options settles after the historical library is saved');
   const preserved=await chrome.storage.local.get(['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','mediaTypeOverrides','keyReminders','humbleProfileLabel']);
-  check(!LibraryBrowser.getGroups().native.present&&!document.querySelector('.library-title-links'),'Options is open before any native records exist');
+  check(!LibraryBrowser.getGroups().native.present&&!document.querySelector('.library-title-purchases .library-open-humble'),'Options is open before any native records exist');
 
   // Synthetic Humble Library: UUID purchases and entitlements, DRM-free comics, one gifted copy.
   const parents=new Map([[101,'Image Comics Bundle'],[102,'Indie Comics Bundle'],[103,'Monstress Deluxe Bundle']]);
@@ -91,12 +91,17 @@ async function installedRuntimeChecks(phase){
   // Combined purchases and direct links.
   check(LibraryBrowser.getReconciliation()?.stats.matched===1,'the historical order and the synced purchase are combined (presentation only)');
   await search('saga');
-  const saga=rowFor('Saga #1')?.querySelector('.library-title-links button');
-  check(saga?.textContent==='Open on Humble','Titles offers Open on Humble for Saga #1');
+  // Collapsed titles are one line, with nothing beside or below the summary.
+  check(rows().every(r=>r.children.length===1&&r.getBoundingClientRect().height<=r.querySelector('summary').getBoundingClientRect().height+2),'collapsed title rows are a single line with no link controls');
+  const sagaRow=rowFor('Saga #1');sagaRow.querySelector('details').open=true;await tick(50);
+  const sagaItems=[...sagaRow.querySelectorAll('.library-provenance-list > li')],saga=sagaRow.querySelector('.library-title-purchases .library-open-humble');
+  check(sagaRow.querySelectorAll('.library-provenance-list').length===1&&sagaItems.length===1&&/Likely match in Humble Library/.test(sagaItems[0].textContent+sagaItems[0].querySelector('.library-provenance-secondary').textContent),'the expanded title lists its imported order and Library copy as one purchase row');
+  const sagaBox=sagaItems[0].getBoundingClientRect(),buttonBox=saga.getBoundingClientRect();
+  check(saga.textContent==='Open on Humble'&&buttonBox.right>sagaBox.right-4&&buttonBox.top<sagaBox.bottom&&buttonBox.bottom>sagaBox.top,'the verified link sits at the right of its purchase row, as in Bundles & Orders');
   saga.click();check(opened.at(-1)===content(1),'Open on Humble opens Saga #1’s own Library item page');
-  await search('old comic');check(rowFor('Old Comic')&&!rowFor('Old Comic').querySelector('.library-title-links, .library-title-copies'),'a historical-only title has no link');
+  await search('old comic');check(rowFor('Old Comic')&&!rowFor('Old Comic').querySelector('.library-open-humble'),'a historical-only title has no link');
   await search('gift');check(!rows().some(r=>/Gift Comic/.test(r.textContent)),'a gifted copy is not offered as an owned title');
-  await search('new comic');check(rowFor('New Comic')?.querySelector('.library-title-links button')&&(rowFor('New Comic').querySelector('.library-title-links button').click(),opened.at(-1)===content(3)),'a title only in the Humble Library links to its item');
+  await search('new comic');check(rowFor('New Comic')?.querySelector('.library-title-purchases .library-open-humble')&&(rowFor('New Comic').querySelector('.library-title-purchases .library-open-humble').click(),opened.at(-1)===content(3)),'a title only in the Humble Library links to its item');
 
   // Bundles & Orders, grouped, searching one title, its purchase expanded; a second sync adds another copy.
   await view('groups');await search('monstress');
@@ -110,10 +115,10 @@ async function installedRuntimeChecks(phase){
   const still=rows().find(r=>r.dataset.rowKeys.split('\n')[0]===purchaseKey);
   check(still?.querySelector('details').open&&still.querySelector('.library-group-contents .library-open-humble'),'the expanded purchase stays expanded with its item links');
   await view('titles');await search('monstress');
-  const chooser=rowFor('Monstress #1')?.querySelector('.library-title-links button');
-  check(chooser?.textContent==='Open on Humble (2 copies)','Titles offers a choice between the two Monstress #1 copies');
-  chooser.click();const copyButtons=[...rowFor('Monstress #1').querySelectorAll('.library-title-copies .library-open-humble')];
-  check(rowFor('Monstress #1').querySelector('details').open&&copyButtons.length===2,'the chooser opens the title’s details listing each copy');
+  const monstress=rowFor('Monstress #1');check(monstress.children.length===1,'a title bought twice still collapses to one line');
+  monstress.querySelector('details').open=true;await tick(50);
+  const copyButtons=[...monstress.querySelectorAll('.library-title-purchases .library-open-humble')],purchaseRows=[...monstress.querySelectorAll('.library-provenance-list > li')];
+  check(purchaseRows.length===2&&copyButtons.length===2&&/Monstress Deluxe Bundle/.test(purchaseRows[1].textContent),'the two genuine copies are two purchase rows, each with its own link');
   for(const b of copyButtons)b.click();check(JSON.stringify(opened.slice(-2).sort())===JSON.stringify([content(2),content(5)].sort()),'each copy opens its own Library item');
 
   // Repeated notifications with unchanged data: no duplicate rows or extra rebuilds.
@@ -126,9 +131,9 @@ async function installedRuntimeChecks(phase){
 
   // Switching the active account: the other account’s records disappear, and return on switching back.
   await store('replace',{...current,humbleAccountId:other});await settled('Options settles after an account change');
-  check(!LibraryBrowser.getGroups().native.present&&!document.querySelector('.library-title-links'),'after an account change no native records or links of the previous account are shown');
+  check(!LibraryBrowser.getGroups().native.present&&!document.querySelector('.library-title-purchases .library-open-humble'),'after an account change no native records or links of the previous account are shown');
   await store('replace',current);await settled('Options settles after switching back');
-  check(LibraryBrowser.getGroups().native.present&&rowFor('Monstress #1')?.querySelector('.library-title-links'),'switching back shows that account’s records again');
+  check(LibraryBrowser.getGroups().native.present&&rowFor('Monstress #1')?.querySelector('.library-title-purchases .library-open-humble'),'switching back shows that account’s records again');
 
   const kept=await chrome.storage.local.get(Object.keys(preserved));
   check(JSON.stringify(kept)===JSON.stringify(preserved),'syncs and live refreshes left historical purchases, history, corrections, reminders and the account name unchanged');

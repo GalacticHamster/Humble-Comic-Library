@@ -209,38 +209,51 @@ test('Titles lists synced Humble Library titles, even with no historical library
   assert.equal(mixed.writes.length, 0);
 });
 
-test('Titles opens verified Humble pages: one copy directly, several from the details, never from order keys or exclusions', async () => {
+test('Titles: collapsed rows stay one line; expanded titles list each purchase once, with verified links only where safe', async () => {
   const { E } = load();
+  const content = id => 'https://www.humblebundle.com/home/library/content/' + id;
   const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 2, parent: 10, title: 'Monstress #1', parentTitle: 'Image Bundle' }),
     nativeObservation(E, { id: 3, parent: 11, title: 'Monstress #1', parentTitle: 'Image Bundle Two' }), nativeObservation(E, { id: 4, parent: 12, title: 'Gift Copy', parentTitle: 'Indie', gifted: true }),
     nativeObservation(E, { id: 5, parent: 12, title: 'Revoked Copy', parentTitle: 'Indie', revoked: true }), nativeObservation(E, { id: 6, parent: 13, title: 'Paper Girls Vol 1', parentTitle: 'Image Collected' }),
-    { ...nativeObservation(E, { id: 7, parent: 14, title: 'Broken Id', parentTitle: 'Odd' }), nativeId: 'not-a-uuid' }];
+    { ...nativeObservation(E, { id: 7, parent: 14, title: 'Broken Id', parentTitle: 'Odd' }), nativeId: 'not-a-uuid' },
+    nativeObservation(E, { id: 8, parent: 15, title: 'Twin Comic', parentTitle: 'Twin Bundle' }), nativeObservation(E, { id: 9, parent: 16, title: 'Twin Comic', parentTitle: 'Twin Bundle' }),
+    nativeObservation(E, { id: 10, parent: 17, title: 'Duo', parentTitle: 'Duo Bundle' }), nativeObservation(E, { id: 11, parent: 18, title: 'Duo', parentTitle: 'Duo Bundle' })];
   const ui = await harness({ libraryEntitlements: entitlements(obs), libraryItems: [
     historical('Saga #1', 'K1', 'Image Bundle', { provenance: [{ purchaseKey: 'K1', sourceBundle: 'Image Bundle' }, { purchaseKey: 'K9', sourceBundle: 'Other bundle' }] }), historical('Monstress #1', 'K1', 'Image Bundle'),
-    historical('Gift Copy', 'K4', 'Indie'), historical('Revoked Copy', 'K4', 'Indie'), historical('Paper Girls, Vol. 1', 'K3', 'Image Collected'), historical('Old Comic', 'K5', 'Old bundle'), historical('Broken Id', 'K6', 'Odd')] });
+    historical('Gift Copy', 'K4', 'Indie'), historical('Revoked Copy', 'K4', 'Indie'), historical('Paper Girls, Vol. 1', 'K3', 'Image Collected'), historical('Old Comic', 'K5', 'Old bundle'), historical('Broken Id', 'K6', 'Odd'),
+    historical('Twin Comic', 'K7', 'Twin Bundle', { provenance: [{ purchaseKey: 'K7', sourceBundle: 'Twin Bundle' }, { purchaseKey: 'K8', sourceBundle: 'Twin Bundle' }] }), historical('Duo', 'K10', 'Duo Bundle')] });
   await ui.change('#library-page-size', '100');
   const row = title => ui.rows().find(r => r.children[0].children[0].textContent.startsWith(title + ' —'));
-  const copies = r => r.children[0].children.find(c => c.className?.includes('library-title-copies'));
-  const links = r => r.children.find(c => c.className === 'library-title-links');
-  // One verified entitlement: one button beside the title, even with two historical provenance records.
-  const saga = row('Saga #1');
-  assert.equal(links(saga).children.length, 1);assert.equal(links(saga).children[0].textContent, 'Open on Humble');
-  await links(saga).children[0].listeners.click();
-  assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/content/' + obs[0].nativeId]);
-  assert.equal(copies(saga).children.length, 1);
-  // Several distinct entitlements: a chooser opens the details, which list each copy with its own button.
-  const monstress = row('Monstress #1');
-  assert.equal(links(monstress).children[0].textContent, 'Open on Humble (2 copies)');
-  await links(monstress).children[0].listeners.click();assert.equal(monstress.children[0].open, true);
-  assert.deepEqual(copies(monstress).children.map(li => text(li.children[0]).trim()), ['Purchase: Image Bundle', 'Purchase: Image Bundle Two']);
-  for (const li of copies(monstress).children) await li.children.find(c => c.type === 'button').listeners.click();
-  assert.deepEqual(ui.opened.slice(1), [obs[1].nativeId, obs[2].nativeId].map(id => 'https://www.humblebundle.com/home/library/content/' + id));
-  // A likely historical/native match spelled differently links the native entitlement and is not listed twice.
-  const paper = row('Paper Girls, Vol. 1');
-  await links(paper).children[0].listeners.click();assert.equal(ui.opened.at(-1), 'https://www.humblebundle.com/home/library/content/' + obs[5].nativeId);
-  assert(!row('Paper Girls Vol 1'), 'the paired Library copy is shown under the historical title only');
-  // No link without a verified, non-excluded entitlement.
-  for (const title of ['Gift Copy', 'Revoked Copy', 'Old Comic', 'Broken Id']) { assert.equal(links(row(title)), undefined, title); assert.equal(copies(row(title)), undefined, title); }
+  const list = r => r.children[0].children.find(c => c.className?.startsWith('library-provenance-list'));
+  const purchases = r => list(r).children.map(li => ({ primary: li.children[0].textContent, secondary: li.children[1]?.textContent ?? '', button: li.children.find(c => c.type === 'button') }));
+  // Collapsed rows are one line: nothing beside the title's details, and summaries are unchanged.
+  assert(ui.rows().every(r => r.children.length === 1), 'no Open on Humble controls under collapsed titles');
+  assert.equal(row('Saga #1').children[0].children[0].textContent, 'Saga #1 — in 2 bundles');
+  // A safely associated imported order and Library copy share one row; the other order keeps its own row.
+  const saga = purchases(row('Saga #1'));
+  assert.deepEqual(saga.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Other bundle', false]]);
+  assert.match(saga[0].secondary, / · Likely match in Humble Library$/u);
+  await saga[0].button.listeners.click();assert.deepEqual(ui.opened, [content(obs[0].nativeId)]);
+  assert.equal(row('Saga #1').children[0].children.filter(c => c.className?.startsWith('library-provenance-list')).length, 1, 'one purchase list, no separate link section');
+  // A second genuine copy stays its own row with its own link.
+  const monstress = purchases(row('Monstress #1'));
+  assert.deepEqual(monstress.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Image Bundle Two', true]]);
+  for (const p of monstress) await p.button.listeners.click();
+  assert.deepEqual(ui.opened.slice(1), [content(obs[1].nativeId), content(obs[2].nativeId)]);
+  // Interchangeable repeat purchases are not paired one-to-one: two imported rows, two linked Library rows.
+  const twin = purchases(row('Twin Comic'));
+  assert.deepEqual(twin.map(p => Boolean(p.button)), [false, false, true, true]);
+  assert(twin.slice(2).every(p => / · One of 2 identical purchases$/u.test(p.secondary)));
+  // An ambiguous match is not combined: the imported order and both Library copies stay separate.
+  const duo = purchases(row('Duo'));
+  assert.deepEqual(duo.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Duo Bundle', false], ['Bundle: Duo Bundle', true], ['Bundle: Duo Bundle', true]]);
+  assert(duo.slice(1).every(p => / · Not combined: ambiguous match$/u.test(p.secondary)));
+  // A likely match spelled differently shares the imported row and is not listed again as a Library-only title.
+  const paper = purchases(row('Paper Girls, Vol. 1'));
+  assert.equal(paper.length, 1);await paper[0].button.listeners.click();assert.equal(ui.opened.at(-1), content(obs[5].nativeId));
+  assert(!row('Paper Girls Vol 1'));
+  // No link without a verified, non-excluded entitlement; imported records stay visible.
+  for (const title of ['Gift Copy', 'Revoked Copy', 'Old Comic', 'Broken Id']) { const p = purchases(row(title)); assert.equal(p.length, 1, title); assert.equal(p[0].button, undefined, title); assert.equal(list(row(title)).className, 'library-provenance-list', title); }
   assert.equal(ui.writes.length, 0, 'links are computed for display and never stored');
 });
 
@@ -252,18 +265,20 @@ test('Options follows storage changes made elsewhere: progress updates the summa
   const ui = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')], libraryEntitlements: entitlements([], ACCOUNT) });
   const stats = () => ui.context.LibraryBrowser.getRefreshStats?.() ?? {};
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const sagaLinks = () => ui.rows().find(r => r.children[0].children[0].textContent.startsWith('Saga #1 —'))?.children.find(c => c.className === 'library-title-links');
+  // The verified link in Saga #1's purchase list, if any.
+  const sagaButton = () => ui.rows().find(r => r.children[0].children[0].textContent.startsWith('Saga #1 —'))?.children[0].children
+    .find(c => c.className?.startsWith('library-provenance-list'))?.children.flatMap(li => li.children.filter(c => c.type === 'button'))[0];
   await ui.input('#library-search', 'saga');
   // Sync progress only (checkpoints): the summary follows and the browser is not rebuilt.
   for (let n = 2; n < 6; n++) ui.external({ libraryEntitlements: entitlements([], ACCOUNT, checkpoint(n)) });
   await wait(400);
   assert.match(ui.get('#library-sync-status').textContent, /A full sync is unfinished \(4 of 9 pages read\)/u);
-  assert.equal(sagaLinks(), undefined);
+  assert.equal(sagaButton(), undefined);
   // A batch saves native records: the open page updates without a reload and keeps the search.
   ui.external({ libraryEntitlements: entitlements(first, ACCOUNT, checkpoint(6)) });
   ui.external({ libraryEntitlements: entitlements(first, ACCOUNT, checkpoint(7)) });
   await wait(400);
-  assert.equal(sagaLinks()?.children[0].textContent, 'Open on Humble', 'the open page shows the synced record and its link without a reload');
+  assert.equal(sagaButton()?.textContent, 'Open on Humble', 'the open page shows the synced record and its link without a reload');
   assert.equal(ui.get('#library-search').value, 'saga');
   // The second write repeats the same records with a newer checkpoint, so it is progress too.
   assert.deepEqual([stats().progressOnly, stats().liveRenders, stats().modelBuilds], [5, 1, 2], 'progress never rebuilt the model; the new records rendered once');
@@ -271,6 +286,6 @@ test('Options follows storage changes made elsewhere: progress updates the summa
   ui.external({ humbleAccountId: '22222222-2222-4222-8222-222222222222' });
   await wait(1400);
   assert.equal(stats().modelBuilds, 3);assert.equal(ui.context.LibraryBrowser.getGroups().native.present, false);
-  assert.equal(ui.rows()[0].children.find(c => c.className === 'library-title-links'), undefined);
+  assert.equal(sagaButton(), undefined);
   assert.equal(ui.writes.length, 0);
 });

@@ -252,22 +252,44 @@
   // is linked only through the reconciliation's own pairing inside one likely-matched purchase;
   // that pairing is computed per render and never stored. One entitlement is listed once.
   const titleKey = v => String(v ?? '').normalize('NFKC').trim().toLowerCase();
+  // Each copy also records how the reconciliation placed its purchase: combined with an imported
+  // order (historicalKey), one of several interchangeable repeats, or not combined (matchState).
   function titleLinks(groups, reconciliation = null) {
     const links = new Map(), paired = new Set();
-    const add = (key, entry, g) => {
+    const unified = new Map((reconciliation?.groups ?? []).filter(g => g.source === 'unified').map(g => [g.native.key, g]));
+    const add = (key, entry, native) => {
       if (!key || entry.excluded || !entry.route || entry.route !== entitlementRoute(entry.nativeId)) return;
       const list = links.get(key) ?? [];
       if (list.some(c => c.nativeId === entry.nativeId)) return;
-      list.push({ nativeId: entry.nativeId, route: entry.route, title: entry.title, purchase: g.name || '', namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam' });
+      const u = unified.get(native.key);
+      list.push({ nativeId: entry.nativeId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam',
+        historicalKey: u ? u.historical.key : null, interchangeable: u ? u.evidence.interchangeable : 0, matchState: native.matchState ?? 'unmatched' });
       links.set(key, list);
     };
     for (const g of groups ?? []) if (g.source === 'native') for (const e of g.items) add(titleKey(e.title), e, g);
-    for (const g of reconciliation?.groups ?? []) {
-      if (g.source !== 'unified') continue;
-      for (const e of g.items) if (e.source === 'both' && e.historicalTitle && titleKey(e.historicalTitle) !== titleKey(e.title)) { add(titleKey(e.historicalTitle), e, g); paired.add(e.nativeId); }
+    for (const g of unified.values()) {
+      for (const e of g.items) if (e.source === 'both' && e.historicalTitle && titleKey(e.historicalTitle) !== titleKey(e.title)) { add(titleKey(e.historicalTitle), e, g.native); paired.add(e.nativeId); }
     }
     for (const list of links.values()) list.sort((a, b) => COLLATOR.compare(a.purchase, b.purchase) || (a.nativeId < b.nativeId ? -1 : 1));
     return { links, paired, key: titleKey };
+  }
+
+  // One list of purchases for an expanded title. An imported order and a Library copy share a row only
+  // when the reconciliation combined that order with the copy's purchase, the title appears once on
+  // each side, and the pairing is not one of several interchangeable repeats. That shared row is a
+  // likely match for display, never a stored identity; every other record keeps its own row.
+  function titlePurchases(records, copies) {
+    const keyOf = r => r.purchaseKey ? 'h:' + r.purchaseKey : 'hn:' + lower(r.sourceBundle).trim();
+    const used = new Set();
+    const rows = (records ?? []).map(record => {
+      if (!record?.purchaseKey && !String(record?.sourceBundle ?? '').trim()) return { record, copy: null };
+      const key = keyOf(record);
+      const candidates = (copies ?? []).filter(c => c.historicalKey === key && !c.interchangeable && !used.has(c.nativeId));
+      if (records.filter(r => keyOf(r) === key).length !== 1 || candidates.length !== 1) return { record, copy: null };
+      used.add(candidates[0].nativeId);
+      return { record, copy: candidates[0] };
+    });
+    return { rows, rest: (copies ?? []).filter(c => !used.has(c.nativeId)) };
   }
 
   // What the Options browser shows from the active account's native records. Sync progress
@@ -311,5 +333,5 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, nativeSignature, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);
