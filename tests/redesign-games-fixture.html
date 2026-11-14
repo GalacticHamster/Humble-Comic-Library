@@ -12,5 +12,10 @@
 <script>// Humble renders the cards after the page shell; the headings exist first.
 setTimeout(()=>{const list=document.querySelector('#game-cards');list.append(document.querySelector('#game-card-template').content.cloneNode(true));window.gameNativeNodes=[...list.children];},700);</script>
 <script src="/tests/bundle-fixture.js"></script>
-<script>fixtureStored.libraryItems=[{title:'Synthetic Owned Game',kind:'game',source:'humble',purchaseKey:'synthetic-earlier-1',sourceBundle:'Earlier bundle'},{title:'Synthetic Saga',kind:'game',source:'humble',purchaseKey:'synthetic-earlier-2',sourceBundle:'Earlier bundle'}];</script>
+<script>fixtureStored.libraryItems=[{title:'Synthetic Owned Game',kind:'game',source:'humble',purchaseKey:'synthetic-earlier-1',sourceBundle:'Earlier bundle'},{title:'Synthetic Saga',kind:'game',source:'humble',purchaseKey:'synthetic-earlier-2',sourceBundle:'Earlier bundle'},{title:'Synthetic Shooter 2',kind:'game',source:'humble',purchaseKey:'synthetic-earlier-3',sourceBundle:'Earlier bundle'}];
+// Galactic Library reports one game as owned on another store.
+const fixtureCentral=chrome.runtime.sendMessage;chrome.runtime.sendMessage=async(id,request)=>{const response=await fixtureCentral(id,request);
+ if(request?.type==='MATCH_ITEMS'&&Array.isArray(response?.results))for(const result of response.results){const item=request.items.find(entry=>entry.requestId===result.requestId);
+  if(item?.title==='Synthetic Strategy')result.matches=[{provider:'steam',itemRef:'opaque-steam',title:'Synthetic Strategy',ownership:'owned',relationship:'same-edition',reason:'Exact title in a linked store library',evidence:{source:'steam-library',checkedAt:'2026-11-01'},verifiedAt:'2026-11-01'}];}
+ return response;};</script>
 <script src="/library-entitlements.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/redesign-games-checks.js"></script></body></html>
