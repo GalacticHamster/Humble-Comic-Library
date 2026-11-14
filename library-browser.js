@@ -246,6 +246,44 @@
     return items.length === 1 ? { ...base, kind: 'entitlement', url: items[0].route } : { ...base, kind: 'purchase', url: match.route };
   }
 
+  // Verified Humble pages for the Titles view, keyed like the Titles list (exact normalized title).
+  // Only native entitlement routes are used, never historical order keys or titles, and excluded
+  // (gifted, revoked, temporary) entitlements are left out. A historical title spelled differently
+  // is linked only through the reconciliation's own pairing inside one likely-matched purchase;
+  // that pairing is computed per render and never stored. One entitlement is listed once.
+  const titleKey = v => String(v ?? '').normalize('NFKC').trim().toLowerCase();
+  function titleLinks(groups, reconciliation = null) {
+    const links = new Map(), paired = new Set();
+    const add = (key, entry, g) => {
+      if (!key || entry.excluded || !entry.route || entry.route !== entitlementRoute(entry.nativeId)) return;
+      const list = links.get(key) ?? [];
+      if (list.some(c => c.nativeId === entry.nativeId)) return;
+      list.push({ nativeId: entry.nativeId, route: entry.route, title: entry.title, purchase: g.name || '', namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam' });
+      links.set(key, list);
+    };
+    for (const g of groups ?? []) if (g.source === 'native') for (const e of g.items) add(titleKey(e.title), e, g);
+    for (const g of reconciliation?.groups ?? []) {
+      if (g.source !== 'unified') continue;
+      for (const e of g.items) if (e.source === 'both' && e.historicalTitle && titleKey(e.historicalTitle) !== titleKey(e.title)) { add(titleKey(e.historicalTitle), e, g); paired.add(e.nativeId); }
+    }
+    for (const list of links.values()) list.sort((a, b) => COLLATOR.compare(a.purchase, b.purchase) || (a.nativeId < b.nativeId ? -1 : 1));
+    return { links, paired, key: titleKey };
+  }
+
+  // What the Options browser shows from the active account's native records. Sync progress
+  // (checkpoints) and re-observation times are left out, so progress alone never rebuilds the browser.
+  function nativeSignature(libraryEntitlements, humbleAccountId) {
+    const scope = Array.isArray(libraryEntitlements?.scopes) && typeof humbleAccountId === 'string'
+      ? libraryEntitlements.scopes.find(s => s?.localAccountId === humbleAccountId) : null;
+    if (!scope) return 'none';
+    const parts = [];
+    for (const r of Array.isArray(scope.observations) ? scope.observations : []) {
+      parts.push([r?.namespace, r?.nativeId, r?.title, r?.parentId, r?.parentTitle, r?.mediaType, r?.purchaseStatus, r?.eligibility?.giftStatus, r?.eligibility?.parentType].join('\u0001'));
+    }
+    // Unverified rows are counted in the browser note; other checkpoint fields are sync progress.
+    return scope.localAccountId + '\u0002' + parts.join('\u0002') + '\u0002' + (scope.sync?.unresolved ?? 0);
+  }
+
   function filterGroups(groups, { search = '', scope = 'both', media = '', filter = '', type = '', sort = 'name-asc' } = {}) {
     const q = lower(search).trim(), collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
     const out = [];
@@ -273,5 +311,5 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

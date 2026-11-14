@@ -77,6 +77,7 @@ code { font-family: ui-monospace, monospace; }
 .library-group-facts { margin:.35rem 0 .45rem 1.6rem; padding:0; list-style:none; font-size:.8rem; color:var(--gh-text-muted); }
 .library-group-facts li { margin:.15rem 0; overflow-wrap:anywhere; }
 .library-group > .library-item-details > .library-open-humble { margin:.1rem 0 .4rem 1.6rem; }
+.library-title-links { margin:.1rem 0 .4rem 1.6rem; }
 .library-group-item { display:grid; grid-template-columns:minmax(0, 1fr) auto; column-gap:.75rem; align-items:center; }
 .library-group-item > .library-provenance-secondary { grid-column:1; }
 .library-group-item > .library-open-humble { grid-column:2; grid-row:1 / span 2; }

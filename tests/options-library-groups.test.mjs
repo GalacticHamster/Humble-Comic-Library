@@ -8,7 +8,7 @@ import { load, nativeObservation, entitlements, ACCOUNT } from './library-browse
 // Options page with the native module enabled and the presentation model loaded.
 async function harness(initial = {}, { enabled = true } = {}) {
   const stored = { humbleProfileLabel: 'Main', humbleAccountId: ACCOUNT, profileArchives: [], ...structuredClone(initial) };
-  const elements = new Map(), writes = [], sessionData = new Map(), opened = [];
+  const elements = new Map(), writes = [], sessionData = new Map(), opened = [], changeListeners = [];
   const element = () => ({ listeners: {}, files: [], value: '', children: [], dataset: {}, disabled: false,
     addEventListener(type, handler) { this.listeners[type] = handler; }, append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; }, setAttribute(name, value) { this[name] = value; }, click() {} });
@@ -17,7 +17,7 @@ async function harness(initial = {}, { enabled = true } = {}) {
     sessionStorage: { getItem: (k) => sessionData.get(k) ?? null, setItem: (k, v) => sessionData.set(k, String(v)), removeItem: (k) => sessionData.delete(k), clear: () => sessionData.clear() },
     document: { querySelector(selector) { if (!elements.has(selector)) elements.set(selector, element()); return elements.get(selector); }, createElement: element },
     chrome: { runtime: { id: 'abcdefghijklmnopabcdefghijklmnop' }, tabs: { create: async (o) => { opened.push(o.url); } },
-      storage: { local: { async get(defaults) { return { ...structuredClone(defaults), ...structuredClone(stored) }; }, async set(value) { writes.push(JSON.parse(JSON.stringify(value))); Object.assign(stored, value); }, async remove(keys) { for (const k of [].concat(keys)) delete stored[k]; } } } } };
+      storage: { local: { async get(defaults) { return { ...structuredClone(defaults), ...structuredClone(stored) }; }, async set(value) { writes.push(JSON.parse(JSON.stringify(value))); Object.assign(stored, value); }, async remove(keys) { for (const k of [].concat(keys)) delete stored[k]; } }, onChanged: { addListener: (fn) => changeListeners.push(fn) } } } };
   wireStore(context);
   context.globalThis = context;
   vm.createContext(context);
@@ -26,7 +26,9 @@ async function harness(initial = {}, { enabled = true } = {}) {
   for (const file of ['shared.js', 'collection-mappings.js', 'library-browser.js', 'options.js']) vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   await new Promise((resolve) => setTimeout(resolve, 30));
   const get = (sel) => context.document.querySelector(sel);
-  return { stored, writes, sessionData, opened, context, get,
+  return { stored, writes, sessionData, opened, context, get, changeListeners,
+    // Another context writes storage: the stored values change, then local listeners are notified.
+    external(values) { const changes = {}; for (const [k, v] of Object.entries(values)) { changes[k] = { oldValue: stored[k], newValue: structuredClone(v) }; stored[k] = structuredClone(v); } for (const fn of changeListeners) fn(changes, 'local'); },
     rows: () => get('#library-preview').children,
     note: () => get('#preview-note').textContent,
     async input(sel, value) { get(sel).value = value; await get(sel).listeners.input?.(); },
@@ -205,4 +207,70 @@ test('Titles lists synced Humble Library titles, even with no historical library
   const mixed = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')], libraryEntitlements: entitlements(obs) });
   assert.deepEqual(names(mixed).filter(n => n.startsWith('Saga')), ['Saga #1 — in 1 bundle'], 'a historical title is not listed again');
   assert.equal(mixed.writes.length, 0);
+});
+
+test('Titles opens verified Humble pages: one copy directly, several from the details, never from order keys or exclusions', async () => {
+  const { E } = load();
+  const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 2, parent: 10, title: 'Monstress #1', parentTitle: 'Image Bundle' }),
+    nativeObservation(E, { id: 3, parent: 11, title: 'Monstress #1', parentTitle: 'Image Bundle Two' }), nativeObservation(E, { id: 4, parent: 12, title: 'Gift Copy', parentTitle: 'Indie', gifted: true }),
+    nativeObservation(E, { id: 5, parent: 12, title: 'Revoked Copy', parentTitle: 'Indie', revoked: true }), nativeObservation(E, { id: 6, parent: 13, title: 'Paper Girls Vol 1', parentTitle: 'Image Collected' }),
+    { ...nativeObservation(E, { id: 7, parent: 14, title: 'Broken Id', parentTitle: 'Odd' }), nativeId: 'not-a-uuid' }];
+  const ui = await harness({ libraryEntitlements: entitlements(obs), libraryItems: [
+    historical('Saga #1', 'K1', 'Image Bundle', { provenance: [{ purchaseKey: 'K1', sourceBundle: 'Image Bundle' }, { purchaseKey: 'K9', sourceBundle: 'Other bundle' }] }), historical('Monstress #1', 'K1', 'Image Bundle'),
+    historical('Gift Copy', 'K4', 'Indie'), historical('Revoked Copy', 'K4', 'Indie'), historical('Paper Girls, Vol. 1', 'K3', 'Image Collected'), historical('Old Comic', 'K5', 'Old bundle'), historical('Broken Id', 'K6', 'Odd')] });
+  await ui.change('#library-page-size', '100');
+  const row = title => ui.rows().find(r => r.children[0].children[0].textContent.startsWith(title + ' —'));
+  const copies = r => r.children[0].children.find(c => c.className?.includes('library-title-copies'));
+  const links = r => r.children.find(c => c.className === 'library-title-links');
+  // One verified entitlement: one button beside the title, even with two historical provenance records.
+  const saga = row('Saga #1');
+  assert.equal(links(saga).children.length, 1);assert.equal(links(saga).children[0].textContent, 'Open on Humble');
+  await links(saga).children[0].listeners.click();
+  assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/content/' + obs[0].nativeId]);
+  assert.equal(copies(saga).children.length, 1);
+  // Several distinct entitlements: a chooser opens the details, which list each copy with its own button.
+  const monstress = row('Monstress #1');
+  assert.equal(links(monstress).children[0].textContent, 'Open on Humble (2 copies)');
+  await links(monstress).children[0].listeners.click();assert.equal(monstress.children[0].open, true);
+  assert.deepEqual(copies(monstress).children.map(li => text(li.children[0]).trim()), ['Purchase: Image Bundle', 'Purchase: Image Bundle Two']);
+  for (const li of copies(monstress).children) await li.children.find(c => c.type === 'button').listeners.click();
+  assert.deepEqual(ui.opened.slice(1), [obs[1].nativeId, obs[2].nativeId].map(id => 'https://www.humblebundle.com/home/library/content/' + id));
+  // A likely historical/native match spelled differently links the native entitlement and is not listed twice.
+  const paper = row('Paper Girls, Vol. 1');
+  await links(paper).children[0].listeners.click();assert.equal(ui.opened.at(-1), 'https://www.humblebundle.com/home/library/content/' + obs[5].nativeId);
+  assert(!row('Paper Girls Vol 1'), 'the paired Library copy is shown under the historical title only');
+  // No link without a verified, non-excluded entitlement.
+  for (const title of ['Gift Copy', 'Revoked Copy', 'Old Comic', 'Broken Id']) { assert.equal(links(row(title)), undefined, title); assert.equal(copies(row(title)), undefined, title); }
+  assert.equal(ui.writes.length, 0, 'links are computed for display and never stored');
+});
+
+test('Options follows storage changes made elsewhere: progress updates the summary only, new records rebuild once', async () => {
+  const { E } = load();
+  const first = [nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' })];
+  const checkpoint = n => ({ version: 1, id: '44444444-4444-4444-8444-444444444444', mode: 'full', status: 'running', reason: null, coverage: 'in-progress', startedAt: '2026-11-13T00:00:00.000Z', updatedAt: '2026-11-13T00:05:00.000Z', lastProgressAt: '2026-11-13T00:05:00.000Z',
+    revision: n, nextPage: n, targetPages: 9, reportedPages: 9, reportedTotal: 8500, initialTotal: 8500, baselineTotal: null, pagesRead: n - 1, batches: 1, added: 1, refreshed: 0, unresolved: 0, conflicts: 0, duplicates: 0, pageSize: 1000, uncertainty: [], lastSignature: null, lastFull: null });
+  const ui = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')], libraryEntitlements: entitlements([], ACCOUNT) });
+  const stats = () => ui.context.LibraryBrowser.getRefreshStats?.() ?? {};
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const sagaLinks = () => ui.rows().find(r => r.children[0].children[0].textContent.startsWith('Saga #1 —'))?.children.find(c => c.className === 'library-title-links');
+  await ui.input('#library-search', 'saga');
+  // Sync progress only (checkpoints): the summary follows and the browser is not rebuilt.
+  for (let n = 2; n < 6; n++) ui.external({ libraryEntitlements: entitlements([], ACCOUNT, checkpoint(n)) });
+  await wait(400);
+  assert.match(ui.get('#library-sync-status').textContent, /A full sync is unfinished \(4 of 9 pages read\)/u);
+  assert.equal(sagaLinks(), undefined);
+  // A batch saves native records: the open page updates without a reload and keeps the search.
+  ui.external({ libraryEntitlements: entitlements(first, ACCOUNT, checkpoint(6)) });
+  ui.external({ libraryEntitlements: entitlements(first, ACCOUNT, checkpoint(7)) });
+  await wait(400);
+  assert.equal(sagaLinks()?.children[0].textContent, 'Open on Humble', 'the open page shows the synced record and its link without a reload');
+  assert.equal(ui.get('#library-search').value, 'saga');
+  // The second write repeats the same records with a newer checkpoint, so it is progress too.
+  assert.deepEqual([stats().progressOnly, stats().liveRenders, stats().modelBuilds], [5, 1, 2], 'progress never rebuilt the model; the new records rendered once');
+  // Switching the active account rebuilds for that account; the previous account's records do not appear.
+  ui.external({ humbleAccountId: '22222222-2222-4222-8222-222222222222' });
+  await wait(1400);
+  assert.equal(stats().modelBuilds, 3);assert.equal(ui.context.LibraryBrowser.getGroups().native.present, false);
+  assert.equal(ui.rows()[0].children.find(c => c.className === 'library-title-links'), undefined);
+  assert.equal(ui.writes.length, 0);
 });

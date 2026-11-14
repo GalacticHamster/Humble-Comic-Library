@@ -497,6 +497,7 @@
     row.className = 'library-item';
 
     const title = typeof item === 'string' ? item : (item.title || '');
+    row.dataset.rowKeys = titleRowKey(title);
     const records = sortProvenanceRecords(extractItemProvenance(item));
 
     const distinctBundles = new Set();
@@ -689,9 +690,22 @@
       classificationRow.append(resetBtn);
     }
 
+    // The same title in this account's Humble Library, by verified entitlement.
+    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
+    if (copies.length) {
+      const heading = document.createElement('div');
+      heading.className = 'library-provenance-secondary';
+      heading.textContent = copies.length === 1 ? 'In your Humble Library:' : `In your Humble Library (${copies.length} copies):`;
+      const list = document.createElement('ul');
+      list.className = 'library-provenance-list library-title-copies';
+      list.append(...copies.map(copy => titleCopyRow(copy, title)));
+      details.append(heading, list);
+    }
+
     details.append(classificationRow);
 
     row.append(details);
+    appendTitleLinks(row, details, title, copies);
 
     try {
       Object.defineProperty(row, 'textContent', {
@@ -725,7 +739,7 @@
     button.className = 'secondary library-open-humble';
     button.textContent = 'Open on Humble';
     button.setAttribute('aria-label', label);
-    button.addEventListener('click', (event) => { event.stopPropagation?.(); openOnHumble(url); });
+    button.addEventListener('click', (event) => { event?.stopPropagation?.(); openOnHumble(url); });
     return button;
   }
 
@@ -826,6 +840,8 @@
   function renderGroupRow({ group, nameMatch, matches }) {
     const row = document.createElement('li');
     row.className = 'library-item library-group';
+    // A purchase that becomes combined during a sync keeps its expanded state.
+    row.dataset.rowKeys = ['g:' + group.key, ...(group.source === 'unified' ? ['g:' + group.historical.key, 'g:' + group.native.key] : [])].join('\n');
     const details = document.createElement('details');
     details.className = 'library-item-details';
     const summary = document.createElement('summary');
@@ -915,7 +931,8 @@
     for (const group of model.groups) {
       if (group.source !== 'native') continue;
       for (const entry of group.items) {
-        if (entry.excluded || historical.has(key(entry.title))) continue;
+        // A copy the reconciliation pairs with a differently spelled historical title is listed there.
+        if (entry.excluded || historical.has(key(entry.title)) || latestTitleLinks?.paired.has(entry.nativeId)) continue;
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
@@ -926,9 +943,49 @@
     return [...titles.values()];
   }
 
+  // Titles view links: verified Humble pages from native entitlement IDs only (see
+  // HumbleLibraryBrowser.titleLinks). Rebuilt with the model; never stored.
+  let latestTitleLinks = null;
+  const titleRowKey = title => 't:' + String(title ?? '').normalize('NFKC').trim().toLowerCase();
+
+  function titleCopyRow(copy, title) {
+    const li = document.createElement('li');
+    li.className = 'library-provenance-item library-group-item';
+    const primary = document.createElement('div');
+    primary.className = 'library-provenance-primary';
+    primary.textContent = copy.purchase ? `Purchase: ${copy.purchase}` : 'Humble Library purchase';
+    const media = copy.media ?? (copy.kind && copy.kind !== 'unknown' ? copy.kind : null);
+    const secondary = document.createElement('div');
+    secondary.className = 'library-provenance-secondary';
+    secondary.textContent = `Purchased on Humble · Media: ${media ? mediaTypeLabel(media) : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
+    li.append(primary, secondary);
+    if (copy.route) li.append(humbleButton(copy.route, `Open ${title}${copy.purchase ? ` from ${copy.purchase}` : ''} on Humble`));
+    return li;
+  }
+
+  // One linked copy opens directly from the row; several are chosen from the title's details.
+  function appendTitleLinks(row, details, title, copies) {
+    const linked = copies.filter(copy => copy.route);
+    if (!linked.length) return;
+    const actions = document.createElement('div');
+    actions.className = 'library-title-links';
+    if (linked.length === 1) actions.append(humbleButton(linked[0].route, `Open ${title} on Humble`));
+    else {
+      const choose = document.createElement('button');
+      choose.type = 'button';
+      choose.className = 'secondary library-open-humble library-choose-copy';
+      choose.textContent = `Open on Humble (${linked.length} copies)`;
+      choose.setAttribute('aria-label', `Choose which of ${linked.length} copies of ${title} to open on Humble`);
+      choose.addEventListener('click', () => { details.open = true; details.querySelector?.('.library-title-copies')?.scrollIntoView?.({ block: 'nearest' }); });
+      actions.append(choose);
+    }
+    row.append(actions);
+  }
+
   function renderNativeTitleRow(item) {
     const row = document.createElement('li');
     row.className = 'library-item';
+    row.dataset.rowKeys = titleRowKey(item.title);
     const details = document.createElement('details');
     details.className = 'library-item-details';
     const summary = document.createElement('summary');
@@ -936,29 +993,11 @@
     const copies = item.nativeCopies.length;
     summary.textContent = `${item.title} — Humble Library${copies > 1 ? ` · ${copies} copies` : ''}`;
     const list = document.createElement('ul');
-    list.className = 'library-provenance-list';
-    for (const copy of item.nativeCopies) {
-      const li = document.createElement('li');
-      li.className = 'library-provenance-item';
-      const primary = document.createElement('div');
-      primary.className = 'library-provenance-primary';
-      primary.textContent = copy.purchase ? `Purchase: ${copy.purchase}` : 'Humble Library purchase';
-      const secondary = document.createElement('div');
-      secondary.className = 'library-provenance-secondary';
-      secondary.textContent = `Purchased on Humble · Media: ${copy.media ? mediaTypeLabel(copy.media) : 'Unknown'}${copy.steam ? ' · Steam activation: Unknown' : ''}`;
-      li.append(primary, secondary);
-      if (copy.route) {
-        const open = document.createElement('button');
-        open.type = 'button';
-        open.className = 'library-open-humble';
-        open.textContent = 'Open in Humble';
-        open.addEventListener('click', () => { chrome.tabs.create({ url: copy.route }); });
-        li.append(open);
-      }
-      list.append(li);
-    }
+    list.className = 'library-provenance-list library-title-copies';
+    list.append(...item.nativeCopies.map(copy => titleCopyRow(copy, item.title)));
     details.append(summary, list);
     row.append(details);
+    appendTitleLinks(row, details, item.title, item.nativeCopies);
     return row;
   }
 
@@ -1089,11 +1128,35 @@
     return (await chrome.storage.local.get({ libraryItems: [] })).libraryItems;
   }
 
-  async function render() {
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '' });
-    const items = await library();
-    renderWishlist((await chrome.storage.local.get({ wishlistItems: [] })).wishlistItems);
-    const display=await chrome.storage.local.get({bundleSummaryPreferences:{}}),prefs=HumbleComicLibrary.normalizeSummaryPreferences(display.bundleSummaryPreferences);document.querySelector('#summary-minimized').checked=prefs.minimized;document.querySelector('#summary-position').value=prefs.position;
+  // Renders run one at a time, so a storage change arriving mid-render is applied by the next one.
+  let renderChain = Promise.resolve(), queuedRenders = 0;
+  function render(options) {
+    queuedRenders++;
+    // A failed render (for example after the extension was reloaded) leaves the model to be rebuilt.
+    const run = renderChain.then(() => renderNow(options)).catch((error) => { modelDirty = true; throw error; }).finally(() => { queuedRenders--; });
+    renderChain = run.catch(() => {});
+    return run;
+  }
+  const clock = () => globalThis.performance?.now?.() ?? Date.now();
+  const refreshStats = { renders: 0, liveRenders: 0, modelBuilds: 0, progressOnly: 0, lastRenderMs: 0, lastModelMs: 0, maxModelMs: 0 };
+  // Model inputs: anything else re-renders text without rebuilding groups or reconciliation.
+  // knownSignature is the newest native data this page has been told about, rendered or still pending.
+  let modelDirty = true, knownSignature = null, renderedAccountId = null;
+
+  // A live refresh (storage changed elsewhere) updates data only: form fields, unsent choices and
+  // connection results on this page are left as the user has them.
+  async function renderNow({ live = false } = {}) {
+    const started = clock();
+    const rebuild = !live || modelDirty;
+    modelDirty = false;
+    // One read for every library key, so titles and Library records always come from the same account.
+    const state = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '',
+      libraryItems: [], wishlistItems: [], bundleSummaryPreferences: {}, rejectedPurchaseItems: [], mediaImportVersion: 1, mediaTypeOverrides: {},
+      historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], libraryEntitlements: null, humbleAccountId: null });
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = state;
+    const items = state.libraryItems;
+    renderWishlist(state.wishlistItems);
+    if (!live) { const prefs = HumbleComicLibrary.normalizeSummaryPreferences(state.bundleSummaryPreferences); document.querySelector('#summary-minimized').checked = prefs.minimized; document.querySelector('#summary-position').value = prefs.position; }
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
     const comics = items.filter((item) => item.kind === 'comic' || HumbleComicLibrary.isComicItem(item)).length;
     const books = items.filter((item) => (item.kind === 'book' || !item.kind) && !HumbleComicLibrary.isComicItem(item)).length;
@@ -1122,7 +1185,7 @@
         : ' Scan incomplete; previous entries retained. Repeat a full rescan to reconcile.';
     }
 
-    const { rejectedPurchaseItems = [], mediaImportVersion = 1, mediaTypeOverrides = {} } = await chrome.storage.local.get({ rejectedPurchaseItems: [], mediaImportVersion: 1, mediaTypeOverrides: {} });
+    const { rejectedPurchaseItems = [], mediaImportVersion = 1, mediaTypeOverrides = {} } = state;
     const overrideCount = Object.keys(mediaTypeOverrides).length;
     const diagnostics = document.querySelector('#library-classification-diagnostics');
     if (diagnostics) {
@@ -1256,10 +1319,10 @@
         rejectedList.replaceChildren();
       }
     }
-    const history = await chrome.storage.local.get({ historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel:'', profileArchives:[] });
+    const history = state;
     document.querySelector('#share-hb-profile').textContent=history.humbleProfileLabel||'Not yet named';
     document.querySelector('#share-hb-profile').dataset.profileLabel=history.humbleProfileLabel;
-    document.querySelector('#confirm-reminder-sharing').checked=false;
+    if (!live) document.querySelector('#confirm-reminder-sharing').checked=false;
     count.textContent += ` Active account nickname: ${history.humbleProfileLabel||'Not yet named'}. ${history.profileArchives.length} other saved accounts (selectable above; excluded from active matching). History archive: ${history.historicalLibraryItems.length} titles and ${history.historicalPurchaseSummaries.length} purchase observations (current-account titles may appear as Check ownership; never Owned).`;
     if (chrome.storage?.local?.getBytesInUse) {
       try {
@@ -1270,28 +1333,68 @@
         }
       } catch (_) {}
     }
-    const { libraryEntitlements = null, humbleAccountId = null } = await chrome.storage.local.get({ libraryEntitlements: null, humbleAccountId: null });
+    const { libraryEntitlements = null, humbleAccountId = null } = state;
     if (globalThis.HumbleLibraryBrowser) {
-      latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
-      // Reconciled once per data load; it is presentation only and never stored.
-      latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
-      latestNativeTitles = latestGroupModel.native.present ? nativeOnlyTitles(latestGroupModel, items) : [];
+      if (knownSignature === null || renderedAccountId !== humbleAccountId) knownSignature = HumbleLibraryBrowser.nativeSignature(libraryEntitlements, humbleAccountId);
+      renderedAccountId = humbleAccountId;
+      if (rebuild) {
+        const modelStarted = clock();
+        latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
+        // Reconciled once per data load; it is presentation only and never stored.
+        latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
+        latestTitleLinks = latestGroupModel.native.present ? HumbleLibraryBrowser.titleLinks(latestGroupModel.groups, latestReconciliation) : null;
+        latestNativeTitles = latestGroupModel.native.present ? nativeOnlyTitles(latestGroupModel, items) : [];
+        refreshStats.modelBuilds++;
+        refreshStats.lastModelMs = clock() - modelStarted;
+        refreshStats.maxModelMs = Math.max(refreshStats.maxModelMs, refreshStats.lastModelMs);
+      }
       if (libraryGroupMode) libraryGroupMode.disabled = !latestReconciliation;
       // Native-only choices stay unavailable until this account has native Library records.
       for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
       for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
     }
+    const context = live ? captureBrowserContext() : null;
     renderLibraryBrowser(items);
+    restoreBrowserContext(context);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
-    showDiagnostics.checked = diagnosticsEnabled;
     humbleExtensionId.textContent = chrome.runtime.id;
-    galacticLibraryExtensionId.value = savedGalacticLibraryExtensionId;
     document.querySelector('#builtin-galactic-id').textContent=HumbleComicLibrary.builtinGalacticId(chrome.runtime);
-    galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
-      ? 'Saved override retained. Connection not yet verified; check the connection.'
-      : 'Automatic Galactic Library pairing ready. Connection not yet verified; check the connection.';
+    if (!live) {
+      showDiagnostics.checked = diagnosticsEnabled;
+      galacticLibraryExtensionId.value = savedGalacticLibraryExtensionId;
+      galacticLibraryLinkStatus.textContent = galacticLibraryExtensionId.value
+        ? 'Saved override retained. Connection not yet verified; check the connection.'
+        : 'Automatic Galactic Library pairing ready. Connection not yet verified; check the connection.';
+    }
     renderLibrarySync(libraryEntitlements, humbleAccountId);
     renderKeyReminders(keyReminders, keyReminderScan);
+    refreshStats.renders++;
+    if (live) refreshStats.liveRenders++;
+    refreshStats.lastRenderMs = clock() - started;
+  }
+
+  // Live refreshes keep expanded rows open and the list where it was, when the same rows remain.
+  const rowKeys = row => String(row?.dataset?.rowKeys ?? '').split('\n').filter(Boolean);
+  const ownDetails = row => [...(row.children ?? [])].find(child => child.tagName === 'DETAILS');
+  function captureBrowserContext() {
+    if (!preview?.getBoundingClientRect) return null;
+    const rows = [...preview.children], top = preview.getBoundingClientRect().top;
+    const anchor = rows.find(row => row.getBoundingClientRect().bottom > top);
+    return { open: new Set(rows.filter(row => ownDetails(row)?.open).flatMap(rowKeys)), scrollTop: preview.scrollTop,
+      anchor: anchor ? { keys: rowKeys(anchor), offset: anchor.getBoundingClientRect().top - top } : null };
+  }
+  function restoreBrowserContext(context) {
+    if (!context) return;
+    const rows = [...preview.children];
+    for (const row of rows) { const details = ownDetails(row); if (details && !details.open && rowKeys(row).some(key => context.open.has(key))) details.open = true; }
+    const align = () => {
+      const anchor = context.anchor && rows.find(row => row.isConnected && rowKeys(row).some(key => context.anchor.keys.includes(key)));
+      if (anchor) preview.scrollTop += anchor.getBoundingClientRect().top - preview.getBoundingClientRect().top - context.anchor.offset;
+      else preview.scrollTop = context.scrollTop;
+    };
+    align();
+    // Reopened purchases render their contents on the toggle event; align again once they have.
+    setTimeout(align, 0);
   }
 
   function renderLibrarySync(libraryEntitlements, humbleAccountId) {
@@ -1567,13 +1670,35 @@
     render: () => renderLibraryBrowser(),
     getGroups: () => latestGroupModel,
     getReconciliation: () => latestReconciliation,
+    getTitleLinks: () => latestTitleLinks,
+    getRefreshStats: () => ({ ...refreshStats, pending: Boolean(liveTimer) || queuedRenders > 0 }),
     renderOptions: () => render()
   };
-  // Keep the sync summary current while a Library tab is syncing. The browser itself is
-  // rebuilt only when this page renders, so batches never trigger reconciliation here.
+  // Live refresh. A syncing Humble tab, the worker or another extension page changes storage;
+  // this page follows without a reload. Sync progress alone (checkpoints) only updates the sync
+  // summary. Changed library data reloads the model from storage once per burst, and while a
+  // sync streams batches, rebuilds are spaced to stay a small share of the time.
+  const MODEL_KEYS = ['libraryItems', 'purchaseSummaries', 'humbleAccountId'];
+  const DATA_KEYS = Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS).filter(key => key !== 'libraryEntitlements');
+  let liveTimer = null, lastLiveAt = 0;
+  function scheduleLiveRefresh() {
+    if (liveTimer) return;
+    const wait = Math.max(250, lastLiveAt + Math.max(1000, refreshStats.lastRenderMs * 4) - Date.now());
+    liveTimer = setTimeout(() => { liveTimer = null; lastLiveAt = Date.now(); render({ live: true }).catch(() => {}); }, wait);
+  }
   chrome.storage.onChanged?.addListener((changes, area) => {
-    if (area !== 'local' || !changes.libraryEntitlements) return;
-    chrome.storage.local.get({ humbleAccountId: null }).then(({ humbleAccountId }) => renderLibrarySync(changes.libraryEntitlements.newValue ?? null, humbleAccountId)).catch(() => {});
+    if (area !== 'local') return;
+    try {
+      if (MODEL_KEYS.some(key => Object.hasOwn(changes, key))) modelDirty = true;
+      let data = DATA_KEYS.some(key => Object.hasOwn(changes, key));
+      if (changes.libraryEntitlements) {
+        const next = changes.libraryEntitlements.newValue ?? null;
+        const signature = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.nativeSignature(next, renderedAccountId) : null;
+        if (signature !== knownSignature) { knownSignature = signature; modelDirty = true; data = true; }
+        else if (!data) { refreshStats.progressOnly++; renderLibrarySync(next, renderedAccountId); }
+      }
+      if (data) scheduleLiveRefresh();
+    } catch {}
   });
   render();
 }());
