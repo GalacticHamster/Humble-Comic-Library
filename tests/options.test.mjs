@@ -101,7 +101,7 @@ test('options library preview is bounded, naturally ordered, and displays bundle
   assert.equal(preview.children.length, 50);
   assert.deepEqual(
     preview.children.slice(0, 2).map((row) => row.textContent),
-    ['Comic #2 — in 1 bundle', 'Comic #10 — in 1 bundle']
+    ['Comic #2 — 1 purchase', 'Comic #10 — 1 purchase']
   );
   assert.match(ui.get('#preview-note').textContent, /50 of 52/);
   assert.match(ui.get('#preview-note').textContent, /alphabetically/);
@@ -119,7 +119,7 @@ test('options library search filters items by title case-insensitively', async (
   assert.equal(ui.get('#library-preview').children.length, 3);
   await ui.input('#library-search', 'beta');
   assert.equal(ui.get('#library-preview').children.length, 1);
-  assert.equal(ui.get('#library-preview').children[0].textContent, 'Beta Guide — in 1 bundle');
+  assert.equal(ui.get('#library-preview').children[0].textContent, 'Beta Guide — 1 purchase');
   assert.match(ui.get('#preview-note').textContent, /Showing 1 of 1 items \(filtered from 3\)/);
 
   await ui.input('#library-search', 'NOMATCH');
@@ -174,7 +174,7 @@ test('options library metadata filter isolates dated, bundle, humble, manual, ke
   });
 
   await ui.change('#library-filter-metadata', 'dated');
-  assert.equal(ui.get('#library-preview').children[0].textContent, 'Dated Item — in 1 bundle');
+  assert.equal(ui.get('#library-preview').children[0].textContent, 'Dated Item — 1 purchase');
   assert.match(ui.get('#library-preview').children[0].children[0].children[1].children[0].textContent, /2026-05-01/);
 
   await ui.change('#library-filter-metadata', 'bundle');
@@ -326,7 +326,7 @@ test('exact duplicate library items consolidate into one row with expandable pro
   // Both purchases consolidate into 1 exact library row
   assert.equal(preview.children.length, 1);
   const row = preview.children[0];
-  assert.equal(row.textContent, 'Exact Game — in 2 bundles');
+  assert.equal(row.textContent, 'Exact Game — 2 purchases');
 
   // Expandable details element
   assert.equal(row.children.length, 1);
@@ -334,7 +334,7 @@ test('exact duplicate library items consolidate into one row with expandable pro
   assert.equal(details.className, 'library-item-details');
   const summary = details.children[0];
   assert.equal(summary.className, 'library-item-summary');
-  assert.equal(summary.textContent, 'Exact Game — in 2 bundles');
+  assert.equal(summary.textContent, 'Exact Game — 2 purchases');
 
   // Provenance list shows both individual purchases ordered newest first
   const list = details.children[1];
@@ -363,8 +363,8 @@ test('distinct bundle counting preserves repeated purchases from the same bundle
   const preview = ui.get('#library-preview');
   assert.equal(preview.children.length, 1);
   const row = preview.children[0];
-  // Since both purchases are from the same bundle, count is 1 bundle
-  assert.equal(row.textContent, 'Saga Vol. 1 — in 1 bundle');
+  // Two orders of the same bundle are two purchases
+  assert.equal(row.textContent, 'Saga Vol. 1 — 2 purchases');
 
   // Both individual purchases remain accessible in expanded details
   const details = row.children[0];
@@ -394,7 +394,7 @@ test('purchase history sorting orders purchases newest first with undated record
   const preview = ui.get('#library-preview');
   assert.equal(preview.children.length, 1);
   const row = preview.children[0];
-  assert.equal(row.textContent, 'Saga Vol. 1 — in 5 bundles');
+  assert.equal(row.textContent, 'Saga Vol. 1 — 5 purchases');
 
   const list = row.children[0].children[1];
   assert.equal(list.children.length, 5);

@@ -47,7 +47,7 @@ test('Titles stays the default view and its search still matches titles only unl
   await ui.input('#library-search', 'marvel');
   assert.equal(ui.rows().length, 0, 'title search does not silently match bundle names');
   await ui.change('#library-search-scope', 'bundle');
-  assert.deepEqual(ui.rows().map((r) => r.textContent), ['Amazing Spider-Man #1 — in 1 bundle']);
+  assert.deepEqual(ui.rows().map((r) => r.textContent), ['Amazing Spider-Man #1 — 1 purchase']);
   await ui.input('#library-search', 'saga');
   assert.equal(ui.rows().length, 0, 'bundle scope matches bundle names, not titles');
   await ui.change('#library-search-scope', 'both');
@@ -196,65 +196,87 @@ test('Titles lists synced Humble Library titles, even with no historical library
     nativeObservation(E, { id: 5, parent: 12, title: 'Gift Copy', parentTitle: 'Indie', gifted: true })];
   const fresh = await harness({ humbleProfileLabel: '', libraryEntitlements: entitlements(obs) });
   const names = ui => ui.rows().map(row => row.children[0].children[0].textContent);
-  assert.deepEqual(names(fresh), ['Celeste — Humble Library', 'Monstress #1 — Humble Library · 2 copies', 'Saga #1 — Humble Library'], 'gifts stay out; copies stay counted');
+  assert.deepEqual(names(fresh), ['Celeste — 1 purchase', 'Monstress #1 — 2 purchases', 'Saga #1 — 1 purchase'], 'gifts stay out; purchases stay counted');
   assert.match(fresh.note(), /Showing 3 of 3 items.* 3 are only in your synced Humble Library\./u);
   const celeste = fresh.rows()[0].children[0].children[1].children[0];
   assert.match(text(celeste), /Purchased on Humble · Media: Game · Steam activation: Unknown/u);
   await celeste.children.find(c => c.type === 'button').listeners.click();
   assert.deepEqual(fresh.opened, ['https://www.humblebundle.com/home/library/content/' + obs[3].nativeId]);
   await fresh.change('#library-search-scope', 'bundle');await fresh.input('#library-search', 'image');
-  assert.deepEqual(names(fresh), ['Monstress #1 — Humble Library · 2 copies', 'Saga #1 — Humble Library'], 'bundle-name search covers Library purchases');
+  assert.deepEqual(names(fresh), ['Monstress #1 — 2 purchases', 'Saga #1 — 1 purchase'], 'bundle-name search covers Library purchases');
   const mixed = await harness({ libraryItems: [historical('Saga #1', 'K1', 'Image Bundle')], libraryEntitlements: entitlements(obs) });
-  assert.deepEqual(names(mixed).filter(n => n.startsWith('Saga')), ['Saga #1 — in 1 bundle'], 'a historical title is not listed again');
+  assert.deepEqual(names(mixed).filter(n => n.startsWith('Saga')), ['Saga #1 — 1 purchase'], 'a historical title is not listed again');
   assert.equal(mixed.writes.length, 0);
 });
 
-test('Titles: collapsed rows stay one line; expanded titles list each purchase once, with verified links only where safe', async () => {
+test('Titles: headings count real purchases, verified copies show Purchased, and each purchase has one row and its own link', async () => {
   const { E } = load();
   const content = id => 'https://www.humblebundle.com/home/library/content/' + id;
-  const obs = [nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 2, parent: 10, title: 'Monstress #1', parentTitle: 'Image Bundle' }),
+  // Saga Vol. 1: four imported orders, five distinct Humble Library entitlements (four in the same purchases, one more).
+  const sagaBundles = ['Comics Alpha', 'Comics Beta', 'Comics Gamma', 'Comics Delta', 'Comics Epsilon'];
+  const obs = [...sagaBundles.map((name, i) => nativeObservation(E, { id: 30 + i, parent: 30 + i, title: 'Saga Vol. 1', parentTitle: name })),
+    nativeObservation(E, { id: 1, parent: 10, title: 'Saga #1', parentTitle: 'Image Bundle' }), nativeObservation(E, { id: 2, parent: 10, title: 'Monstress #1', parentTitle: 'Image Bundle' }),
     nativeObservation(E, { id: 3, parent: 11, title: 'Monstress #1', parentTitle: 'Image Bundle Two' }), nativeObservation(E, { id: 4, parent: 12, title: 'Gift Copy', parentTitle: 'Indie', gifted: true }),
     nativeObservation(E, { id: 5, parent: 12, title: 'Revoked Copy', parentTitle: 'Indie', revoked: true }), nativeObservation(E, { id: 6, parent: 13, title: 'Paper Girls Vol 1', parentTitle: 'Image Collected' }),
     { ...nativeObservation(E, { id: 7, parent: 14, title: 'Broken Id', parentTitle: 'Odd' }), nativeId: 'not-a-uuid' },
     nativeObservation(E, { id: 8, parent: 15, title: 'Twin Comic', parentTitle: 'Twin Bundle' }), nativeObservation(E, { id: 9, parent: 16, title: 'Twin Comic', parentTitle: 'Twin Bundle' }),
-    nativeObservation(E, { id: 10, parent: 17, title: 'Duo', parentTitle: 'Duo Bundle' }), nativeObservation(E, { id: 11, parent: 18, title: 'Duo', parentTitle: 'Duo Bundle' })];
-  const ui = await harness({ libraryEntitlements: entitlements(obs), libraryItems: [
+    nativeObservation(E, { id: 10, parent: 17, title: 'Duo', parentTitle: 'Duo Bundle' }), nativeObservation(E, { id: 11, parent: 18, title: 'Duo', parentTitle: 'Duo Bundle' }),
+    nativeObservation(E, { id: 20, parent: 19, title: 'Bonus', parentTitle: 'Bonus Bundle', namespace: 'steam' }), nativeObservation(E, { id: 21, parent: 19, title: 'Bonus', parentTitle: 'Bonus Bundle' })];
+  const libraryItems = [
+    historical('Saga Vol. 1', 'S1', 'Comics Alpha', { provenance: sagaBundles.slice(0, 4).map((name, i) => ({ purchaseKey: 'S' + (i + 1), sourceBundle: name, purchasedAt: `202${i}-01-01T00:00:00.000Z` })) }),
     historical('Saga #1', 'K1', 'Image Bundle', { provenance: [{ purchaseKey: 'K1', sourceBundle: 'Image Bundle' }, { purchaseKey: 'K9', sourceBundle: 'Other bundle' }] }), historical('Monstress #1', 'K1', 'Image Bundle'),
     historical('Gift Copy', 'K4', 'Indie'), historical('Revoked Copy', 'K4', 'Indie'), historical('Paper Girls, Vol. 1', 'K3', 'Image Collected'), historical('Old Comic', 'K5', 'Old bundle'), historical('Broken Id', 'K6', 'Odd'),
-    historical('Twin Comic', 'K7', 'Twin Bundle', { provenance: [{ purchaseKey: 'K7', sourceBundle: 'Twin Bundle' }, { purchaseKey: 'K8', sourceBundle: 'Twin Bundle' }] }), historical('Duo', 'K10', 'Duo Bundle')] });
+    historical('Twin Comic', 'K7', 'Twin Bundle', { provenance: [{ purchaseKey: 'K7', sourceBundle: 'Twin Bundle' }, { purchaseKey: 'K8', sourceBundle: 'Twin Bundle' }] }), historical('Duo', 'K10', 'Duo Bundle')];
+  const ui = await harness({ libraryEntitlements: entitlements(obs), libraryItems });
   await ui.change('#library-page-size', '100');
   const row = title => ui.rows().find(r => r.children[0].children[0].textContent.startsWith(title + ' —'));
+  const heading = title => row(title).children[0].children[0].textContent;
   const list = r => r.children[0].children.find(c => c.className?.startsWith('library-provenance-list'));
   const purchases = r => list(r).children.map(li => ({ primary: li.children[0].textContent, secondary: li.children[1]?.textContent ?? '', button: li.children.find(c => c.type === 'button') }));
-  // Collapsed rows are one line: nothing beside the title's details, and summaries are unchanged.
+  const note = r => r.children[0].children.find(c => c.className?.includes('library-title-note'));
+  // Compact layout: collapsed rows are one line, with no controls outside the details.
   assert(ui.rows().every(r => r.children.length === 1), 'no Open on Humble controls under collapsed titles');
-  assert.equal(row('Saga #1').children[0].children[0].textContent, 'Saga #1 — in 2 bundles');
-  // A safely associated imported order and Library copy share one row; the other order keeps its own row.
-  const saga = purchases(row('Saga #1'));
-  assert.deepEqual(saga.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Other bundle', false]]);
-  assert.match(saga[0].secondary, / · Likely match in Humble Library$/u);
-  await saga[0].button.listeners.click();assert.deepEqual(ui.opened, [content(obs[0].nativeId)]);
-  assert.equal(row('Saga #1').children[0].children.filter(c => c.className?.startsWith('library-provenance-list')).length, 1, 'one purchase list, no separate link section');
-  // A second genuine copy stays its own row with its own link.
-  const monstress = purchases(row('Monstress #1'));
-  assert.deepEqual(monstress.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Image Bundle Two', true]]);
-  for (const p of monstress) await p.button.listeners.click();
-  assert.deepEqual(ui.opened.slice(1), [content(obs[1].nativeId), content(obs[2].nativeId)]);
-  // Interchangeable repeat purchases are not paired one-to-one: two imported rows, two linked Library rows.
-  const twin = purchases(row('Twin Comic'));
-  assert.deepEqual(twin.map(p => Boolean(p.button)), [false, false, true, true]);
-  assert(twin.slice(2).every(p => / · One of 2 identical purchases$/u.test(p.secondary)));
-  // An ambiguous match is not combined: the imported order and both Library copies stay separate.
-  const duo = purchases(row('Duo'));
-  assert.deepEqual(duo.map(p => [p.primary, Boolean(p.button)]), [['Bundle: Duo Bundle', false], ['Bundle: Duo Bundle', true], ['Bundle: Duo Bundle', true]]);
-  assert(duo.slice(1).every(p => / · Not combined: ambiguous match$/u.test(p.secondary)));
-  // A likely match spelled differently shares the imported row and is not listed again as a Library-only title.
-  const paper = purchases(row('Paper Girls, Vol. 1'));
-  assert.equal(paper.length, 1);await paper[0].button.listeners.click();assert.equal(ui.opened.at(-1), content(obs[5].nativeId));
-  assert(!row('Paper Girls Vol 1'));
-  // No link without a verified, non-excluded entitlement; imported records stay visible.
-  for (const title of ['Gift Copy', 'Revoked Copy', 'Old Comic', 'Broken Id']) { const p = purchases(row(title)); assert.equal(p.length, 1, title); assert.equal(p[0].button, undefined, title); assert.equal(list(row(title)).className, 'library-provenance-list', title); }
-  assert.equal(ui.writes.length, 0, 'links are computed for display and never stored');
+  // Four imported orders and five distinct Library entitlements: five purchases, five rows, five different pages.
+  assert.equal(heading('Saga Vol. 1'), 'Saga Vol. 1 — 5 purchases');
+  const saga = purchases(row('Saga Vol. 1'));
+  assert.equal(saga.length, 5);assert(saga.every(p => p.button));
+  for (const p of saga) await p.button.listeners.click();
+  assert.deepEqual([...ui.opened].sort(), obs.slice(0, 5).map(o => content(o.nativeId)).sort(), 'each purchase opens its own Library item');
+  // Verified copies show Purchased; how an imported order was paired with them is not an ownership qualifier.
+  assert(saga.every(p => /Purchased/u.test(p.secondary) && !/Likely|match/u.test(p.secondary)), 'Purchased, without reconciliation wording');
+  assert.equal(note(row('Saga Vol. 1')), undefined);
+  // An imported order with no Library copy and a combined order: two purchases, not three.
+  assert.equal(heading('Saga #1'), 'Saga #1 — 2 purchases');
+  assert.deepEqual(purchases(row('Saga #1')).map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Other bundle', false]]);
+  // A second genuine copy: two purchases, each with its own link.
+  assert.equal(heading('Monstress #1'), 'Monstress #1 — 2 purchases');
+  assert.deepEqual(purchases(row('Monstress #1')).map(p => [p.primary, Boolean(p.button)]), [['Bundle: Image Bundle', true], ['Bundle: Image Bundle Two', true]]);
+  // Two identical repeat purchases: the count is certain (two), even though which imported order matches which copy is not.
+  assert.equal(heading('Twin Comic'), 'Twin Comic — 2 purchases');
+  assert.deepEqual(purchases(row('Twin Comic')).map(p => Boolean(p.button)), [false, false, true, true]);
+  assert.equal(note(row('Twin Comic')).textContent, 'Some imported orders listed here are the same purchases as Humble Library items.', 'four rows for two purchases are explained');
+  for (const title of ['Saga #1', 'Monstress #1', 'Old Comic']) assert.equal(note(row(title)), undefined, title);
+  // An ambiguous match: no unsupported exact number, and one plain note explains why.
+  assert.equal(heading('Duo'), 'Duo — at least 2 purchases');
+  assert.equal(note(row('Duo')).textContent, 'Some imported orders may be the same purchases as Humble Library items listed here.');
+  // Two entitlements from one Humble purchase: one purchase, two items to open.
+  assert.equal(heading('Bonus'), 'Bonus — 1 purchase');
+  const bonus = purchases(row('Bonus'));assert.equal(bonus.length, 2);assert(bonus.every(p => p.button && /^Purchased on Humble/u.test(p.secondary)));
+  assert.match(bonus.find(p => /Steam/u.test(p.secondary)).secondary, /Steam activation: Unknown/u, 'Purchased never implies Steam activation');
+  // A likely match spelled differently shares the imported row and is not listed again.
+  assert.equal(heading('Paper Girls, Vol. 1'), 'Paper Girls, Vol. 1 — 1 purchase');assert(!row('Paper Girls Vol 1'));
+  // No link without a verified, non-excluded entitlement; imported-only purchases keep their rows and count.
+  for (const title of ['Gift Copy', 'Revoked Copy', 'Old Comic', 'Broken Id']) { assert.equal(heading(title), title + ' — 1 purchase'); const p = purchases(row(title)); assert.equal(p.length, 1, title); assert.equal(p[0].button, undefined, title); assert.equal(list(row(title)).className, 'library-provenance-list', title); }
+  assert.equal(ui.writes.length, 0, 'counts and links are computed for display and never stored');
+  // With diagnostics on, the reconciliation detail is available in the same rows.
+  const diagnostic = await harness({ libraryEntitlements: entitlements(obs), libraryItems, showDiagnostics: true });
+  await diagnostic.change('#library-page-size', '100');
+  const drow = title => diagnostic.rows().find(r => r.children[0].children[0].textContent.startsWith(title + ' —'));
+  const dpurchases = r => r.children[0].children.find(c => c.className?.startsWith('library-provenance-list')).children.map(li => li.children[1]?.textContent ?? '');
+  assert(dpurchases(drow('Saga Vol. 1')).filter(text => /Likely the same purchase as “Comics (Alpha|Beta|Gamma|Delta)” in your Humble Library/u.test(text)).length === 4);
+  assert(dpurchases(drow('Twin Comic')).slice(2).every(text => /One of 2 identical purchases/u.test(text)));
+  assert(dpurchases(drow('Duo')).slice(1).every(text => /Not combined: ambiguous match/u.test(text)));
+  assert.equal(drow('Saga Vol. 1').children[0].children[0].textContent, 'Saga Vol. 1 — 5 purchases', 'diagnostics never change the count');
 });
 
 test('Options follows storage changes made elsewhere: progress updates the summary only, new records rebuild once', async () => {

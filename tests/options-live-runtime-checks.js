@@ -95,7 +95,8 @@ async function installedRuntimeChecks(phase){
   check(rows().every(r=>r.children.length===1&&r.getBoundingClientRect().height<=r.querySelector('summary').getBoundingClientRect().height+2),'collapsed title rows are a single line with no link controls');
   const sagaRow=rowFor('Saga #1');sagaRow.querySelector('details').open=true;await tick(50);
   const sagaItems=[...sagaRow.querySelectorAll('.library-provenance-list > li')],saga=sagaRow.querySelector('.library-title-purchases .library-open-humble');
-  check(sagaRow.querySelectorAll('.library-provenance-list').length===1&&sagaItems.length===1&&/Likely match in Humble Library/.test(sagaItems[0].textContent+sagaItems[0].querySelector('.library-provenance-secondary').textContent),'the expanded title lists its imported order and Library copy as one purchase row');
+  const sagaStatus=sagaItems[0]?.querySelector('.library-provenance-secondary').textContent??'';
+  check(sagaRow.querySelector('summary').textContent==='Saga #1 — 1 purchase'&&sagaRow.querySelectorAll('.library-provenance-list').length===1&&sagaItems.length===1&&/Purchased/.test(sagaStatus)&&!/Likely|match/.test(sagaStatus),'the imported order and its Library copy are one purchase: counted once, one row, shown as Purchased');
   const sagaBox=sagaItems[0].getBoundingClientRect(),buttonBox=saga.getBoundingClientRect();
   check(saga.textContent==='Open on Humble'&&buttonBox.right>sagaBox.right-4&&buttonBox.top<sagaBox.bottom&&buttonBox.bottom>sagaBox.top,'the verified link sits at the right of its purchase row, as in Bundles & Orders');
   saga.click();check(opened.at(-1)===content(1),'Open on Humble opens Saga #1’s own Library item page');
@@ -115,7 +116,7 @@ async function installedRuntimeChecks(phase){
   const still=rows().find(r=>r.dataset.rowKeys.split('\n')[0]===purchaseKey);
   check(still?.querySelector('details').open&&still.querySelector('.library-group-contents .library-open-humble'),'the expanded purchase stays expanded with its item links');
   await view('titles');await search('monstress');
-  const monstress=rowFor('Monstress #1');check(monstress.children.length===1,'a title bought twice still collapses to one line');
+  const monstress=rowFor('Monstress #1');check(monstress.children.length===1&&monstress.querySelector('summary').textContent==='Monstress #1 — 2 purchases','a title bought twice collapses to one line that counts both purchases');
   monstress.querySelector('details').open=true;await tick(50);
   const copyButtons=[...monstress.querySelectorAll('.library-title-purchases .library-open-humble')],purchaseRows=[...monstress.querySelectorAll('.library-provenance-list > li')];
   check(purchaseRows.length===2&&copyButtons.length===2&&/Monstress Deluxe Bundle/.test(purchaseRows[1].textContent),'the two genuine copies are two purchase rows, each with its own link');

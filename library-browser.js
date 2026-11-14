@@ -262,7 +262,7 @@
       const list = links.get(key) ?? [];
       if (list.some(c => c.nativeId === entry.nativeId)) return;
       const u = unified.get(native.key);
-      list.push({ nativeId: entry.nativeId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam',
+      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam',
         historicalKey: u ? u.historical.key : null, interchangeable: u ? u.evidence.interchangeable : 0, matchState: native.matchState ?? 'unmatched' });
       links.set(key, list);
     };
@@ -290,6 +290,20 @@
       return { record, copy: candidates[0] };
     });
     return { rows, rest: (copies ?? []).filter(c => !used.has(c.nativeId)) };
+  }
+
+  // How many times a title was bought, for its Titles heading. Imported orders count once each (by order
+  // key, else bundle name); Humble Library copies count once per purchase, not per entitlement. An
+  // imported order the reconciliation combined with a Library purchase containing this title is that
+  // purchase and counts once. If some imported orders and some Library purchases remain uncombined,
+  // they may be the same purchases, so only the smallest possible total is given (exact: false).
+  function titlePurchaseCount(records, copies) {
+    const orders = new Set((records ?? []).map((r, i) => r?.purchaseKey ? 'h:' + r.purchaseKey : String(r?.sourceBundle ?? '').trim() ? 'hn:' + lower(r.sourceBundle).trim() : 'record:' + i));
+    const purchases = new Set((copies ?? []).map(c => c.parentId)), combinedOrders = new Set(), combinedPurchases = new Set();
+    for (const c of copies ?? []) if (c.historicalKey && orders.has(c.historicalKey)) { combinedOrders.add(c.historicalKey); combinedPurchases.add(c.parentId); }
+    const otherOrders = orders.size - combinedOrders.size, otherPurchases = purchases.size - combinedPurchases.size;
+    const min = purchases.size + Math.max(0, otherOrders - otherPurchases), max = purchases.size + otherOrders;
+    return min === max ? { count: min, exact: true } : { count: min, max, exact: false };
   }
 
   // What the Options browser shows from the active account's native records. Sync progress
@@ -333,5 +347,5 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, nativeSignature, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

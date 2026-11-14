@@ -500,24 +500,14 @@
     row.dataset.rowKeys = titleRowKey(title);
     const records = sortProvenanceRecords(extractItemProvenance(item));
 
-    const distinctBundles = new Set();
-    for (const rec of records) {
-      const bTitle = (rec.sourceBundle || rec.bundle?.title || '').trim();
-      if (bTitle) distinctBundles.add(bTitle);
-    }
-
-    let summarySuffix = '';
-    if (distinctBundles.size === 1) {
-      summarySuffix = ' — in 1 bundle';
-    } else if (distinctBundles.size > 1) {
-      summarySuffix = ` — in ${distinctBundles.size} bundles`;
-    } else if (records.length === 1) {
-      summarySuffix = ' — single purchase';
-    } else if (records.length > 1) {
-      summarySuffix = ` — ${records.length} purchases`;
-    } else {
-      summarySuffix = ' — manual entry';
-    }
+    // The same purchases the expanded list shows: imported orders and this account's Humble Library
+    // copies, counted together without counting a combined order twice (HumbleLibraryBrowser.titlePurchaseCount).
+    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
+    const orders = records.map(rec => ({ ...rec, sourceBundle: rec.sourceBundle || rec.bundle?.title || '' }));
+    // Without the presentation model there are no Library copies: distinct imported orders, by the same rule.
+    const counted = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.titlePurchaseCount(orders, copies)
+      : { count: new Set(orders.map((rec, i) => rec.purchaseKey ? 'h:' + rec.purchaseKey : rec.sourceBundle.trim() ? 'hn:' + rec.sourceBundle.trim().toLowerCase() : 'record:' + i)).size, exact: true };
+    const summarySuffix = counted.count ? ` — ${purchaseCountText(counted)}` : ' — manual entry';
 
     const headerText = `${title}${summarySuffix}`;
 
@@ -531,7 +521,6 @@
 
     // One list of purchases: each imported order, sharing its row with a Humble Library copy only when
     // the two are safely associated (see HumbleLibraryBrowser.titlePurchases), then any other copies.
-    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
     const { rows: purchases, rest } = copies.length ? HumbleLibraryBrowser.titlePurchases(records, copies) : { rows: records.map(record => ({ record, copy: null })), rest: [] };
     if (records.length > 0 || rest.length > 0) {
       const list = document.createElement('ul');
@@ -579,7 +568,9 @@
             secondaryParts.push('Format details require library rescan');
           }
         }
-        if (copy) secondaryParts.push(copy.purchase && copy.purchase !== rec.sourceBundle ? `Likely match: ${copy.purchase} in Humble Library` : 'Likely match in Humble Library');
+        // A combined Library copy is a verified purchase; how it was paired with this order is diagnostic detail.
+        if (copy && !pDate) secondaryParts.unshift('Purchased on Humble');
+        if (copy && showMatchDetails) secondaryParts.push(`Likely the same purchase as “${copy.purchase || 'a Humble Library purchase'}” in your Humble Library`);
 
         if (secondaryParts.length > 0) {
           const secondary = document.createElement('div');
@@ -621,6 +612,14 @@
       }
       list.append(...rest.map(copy => titleCopyRow(copy, title)));
       details.append(list);
+      // When rows outnumber purchases (or the number is uncertain), one plain sentence says why.
+      const shown = purchases.length + rest.length;
+      if (!counted.exact || shown > counted.count) {
+        const note = document.createElement('p');
+        note.className = 'library-provenance-empty library-title-note';
+        note.textContent = counted.exact ? 'Some imported orders listed here are the same purchases as Humble Library items.' : 'Some imported orders may be the same purchases as Humble Library items listed here.';
+        details.append(note);
+      }
     } else {
       const empty = document.createElement('p');
       empty.className = 'library-provenance-empty';
@@ -932,7 +931,7 @@
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
         if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
       }
     }
@@ -943,9 +942,13 @@
   // HumbleLibraryBrowser.titleLinks). Rebuilt with the model; never stored.
   let latestTitleLinks = null;
   const titleRowKey = title => 't:' + String(title ?? '').normalize('NFKC').trim().toLowerCase();
+  const purchaseCountText = ({ count, exact }) => `${exact ? '' : 'at least '}${count} purchase${count === 1 ? '' : 's'}`;
+  // How imported orders and Library copies were paired is diagnostic detail, shown with diagnostics on.
+  // Ownership (Purchased) never depends on it.
+  let showMatchDetails = false;
 
   // A Humble Library copy with its own row in a title's purchases, laid out like Bundles & Orders contents.
-  // Copies not combined with an imported order say why in a few words; nothing is inferred from names.
+  // With diagnostics on, copies not combined with an imported order say why; nothing is inferred from names.
   function titleCopyRow(copy, title) {
     const li = document.createElement('li');
     li.className = 'library-provenance-item library-group-item';
@@ -955,9 +958,9 @@
     const media = copy.media ?? (copy.kind && copy.kind !== 'unknown' ? copy.kind : null);
     const parts = ['Purchased on Humble', `Media: ${media ? mediaTypeLabel(media) : 'Unknown'}`];
     if (copy.steam) parts.push('Steam activation: Unknown');
-    if (copy.interchangeable) parts.push(`One of ${copy.interchangeable} identical purchases`);
-    else if (copy.matchState === 'ambiguous') parts.push('Not combined: ambiguous match');
-    else if (copy.matchState === 'conflicting') parts.push('Not combined: contents differ');
+    if (showMatchDetails && copy.interchangeable) parts.push(`One of ${copy.interchangeable} identical purchases`);
+    else if (showMatchDetails && copy.matchState === 'ambiguous') parts.push('Not combined: ambiguous match');
+    else if (showMatchDetails && copy.matchState === 'conflicting') parts.push('Not combined: contents differ');
     const secondary = document.createElement('div');
     secondary.className = 'library-provenance-secondary';
     secondary.textContent = parts.join(' · ');
@@ -974,8 +977,8 @@
     details.className = 'library-item-details';
     const summary = document.createElement('summary');
     summary.className = 'library-item-summary';
-    const copies = item.nativeCopies.length;
-    summary.textContent = `${item.title} — Humble Library${copies > 1 ? ` · ${copies} copies` : ''}`;
+    // Purchases, not entitlements: two items from one Humble purchase are one purchase.
+    summary.textContent = `${item.title} — ${purchaseCountText({ count: new Set(item.nativeCopies.map(copy => copy.parentId)).size, exact: true })}`;
     const list = document.createElement('ul');
     list.className = 'library-provenance-list library-title-purchases';
     list.append(...item.nativeCopies.map(copy => titleCopyRow(copy, item.title)));
@@ -1317,6 +1320,7 @@
       } catch (_) {}
     }
     const { libraryEntitlements = null, humbleAccountId = null } = state;
+    showMatchDetails = Boolean(diagnosticsEnabled);
     if (globalThis.HumbleLibraryBrowser) {
       if (knownSignature === null || renderedAccountId !== humbleAccountId) knownSignature = HumbleLibraryBrowser.nativeSignature(libraryEntitlements, humbleAccountId);
       renderedAccountId = humbleAccountId;
@@ -1551,6 +1555,8 @@
 
   showDiagnostics.addEventListener('change', async () => {
     await HumbleComicLibrary.storageSet({ showDiagnostics: showDiagnostics.checked });
+    showMatchDetails = showDiagnostics.checked;
+    renderLibraryBrowser();
   });
 
   backupFileInput.addEventListener('change', async () => {

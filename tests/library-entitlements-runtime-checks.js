@@ -269,7 +269,7 @@ async function installedFreshInstallChecks({store,check,row}){
   const rows=()=>[...document.querySelectorAll('#library-preview > li')];
   check(rows().length===20&&/Showing 20 of 30 items.*30 are only in your synced Humble Library/.test(document.getElementById('preview-note').textContent),'installed Titles view lists a native-only library with pagination');
   const search=document.getElementById('library-search');search.value='Synthetic game 17';fire(search,'input');
-  check(rows().length===1&&/^Synthetic game 17 — Humble Library/.test(rows()[0].textContent)&&/Steam activation: Unknown/.test(rows()[0].textContent),'installed Titles search finds a native-only title and keeps activation unknown');
+  check(rows().length===1&&/^Synthetic game 17 — 1 purchase/.test(rows()[0].textContent)&&/Steam activation: Unknown/.test(rows()[0].textContent),'installed Titles search finds a native-only title and keeps activation unknown');
   search.value='';fire(search,'input');size.value='50';fire(size,'change');
   check(/^30 Humble Library items saved for this account\. Last full sync finished /.test(document.getElementById('library-sync-status').textContent),'installed Options summarizes the finished sync');
   const groups=document.getElementById('library-view-groups');groups.checked=true;fire(groups,'change');
