@@ -309,7 +309,8 @@ function initialiseRedesignedHumble() {
   refresh();
 }
 
-const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt], [data-testid="bundle-item-card"] [data-testid="bundle-item-native-image"] img[alt]';
+// Redesigned cards put the cover in bundle-item-native-image (books, software) or product-thumbnail (games).
+const HCL_COVER_SELECTOR = 'img.item-image[alt], img[class~="item-image"][alt], [data-testid="bundle-item-card"] [data-testid="bundle-item-native-image"] img[alt], [data-testid="bundle-item-card"] [data-testid="product-thumbnail"] img[alt]';
 
 function isBundleCover(cover) {
   // This full-width sibling is Humble's expandable details carousel. Its
@@ -1308,12 +1309,16 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
   }
   const media = bundleMediaContext(itemKind);
   const items = collectBundleItems(media);
-  if (!items.length) {
+  const unreadable = isRedesignedHumble() ? unreadableBundleCards() : 0;
+  if (!items.length || unreadable) {
     clearBundleAnnotations();
     document.querySelector('#hcl-summary')?.remove();
     if (comparison) comparison.emptyChecks += 1;
     const waitedLongEnough = comparison && (comparison.emptyChecks >= 3 || performance.now() - comparison.startedAt >= 6000);
-    showComparisonProgress(waitedLongEnough ? 'No active bundle items found. This offer may have ended.' : 'Waiting for Humble’s bundle items…', { spinning: !waitedLongEnough });
+    const failure = unreadable
+      ? `Couldn’t read ${unreadable === 1 ? 'one of this bundle’s items' : `${unreadable} of this bundle’s items`}, so ownership isn’t shown. Humble may have changed this page. Your saved library is unchanged.`
+      : 'No active bundle items found. This offer may have ended.';
+    showComparisonProgress(waitedLongEnough ? failure : 'Waiting for Humble’s bundle items…', { spinning: !waitedLongEnough });
     if (comparison && !waitedLongEnough) {
       setTimeout(() => {
         if (comparison.job === job) renderBundleComparison(libraryMatcher, itemKind, currentBundlePurchases, collectionMappings, comparison, job);
@@ -1593,6 +1598,10 @@ function collectBundleItems(media = bundleMediaContext()) {
   // promotion, or cumulative-tier text. Keep the heading strategy solely as a
   // fallback for older layouts without usable cover alt text.
   if (coverItems.length) return coverItems;
+  // Redesigned pages list products only as bundle cards. Their headings are page
+  // controls ("Select your bundle", "Adjust Donation"), and utility classes such as
+  // lg:items-start defeat the product-like ancestor test below.
+  if (isRedesignedHumble()) return coverItems;
 
   const candidates = new Set();
   const titleSelector = [
@@ -1654,6 +1663,17 @@ function collectCoverImageItems(media = bundleMediaContext()) {
   // must not become a fourth tier or double the bundle total.
   const tieredItems = items.filter((item) => item.tier.price !== null);
   return tieredItems.length ? tieredItems : items;
+}
+
+// Redesigned bundle cards without a readable cover title. Such a page shows no
+// ownership rather than a partial item list.
+function unreadableBundleCards() {
+  let unreadable = 0;
+  for (const card of document.querySelectorAll('[data-testid="bundle-item-card"]')) {
+    const titles = [...card.querySelectorAll(HCL_COVER_SELECTOR)].filter(isBundleCover).map(cover => String(cover.alt ?? '').replace(/\s+/gu, ' ').trim());
+    if (!titles.some(title => likelyItemTitle({ textContent: title }) && HumbleComicLibrary.titleKey(title))) unreadable++;
+  }
+  return unreadable;
 }
 
 function likelyItemTitle(element) {

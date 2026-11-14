@@ -13,6 +13,7 @@ const firefox = process.argv.includes('--firefox');
 const importer = process.argv.includes('--importer');
 const ownershipBorders = process.argv.includes('--ownership-borders');
 const redesign = process.argv.includes('--redesign') || ownershipBorders;
+const redesignGames = process.argv.includes('--redesign-games');
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
@@ -39,7 +40,7 @@ const server = createServer(async (request, response) => {
       response.setHeader('Content-Type','text/html; charset=utf-8');
       response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/purchase-snapshot.js"></script><script src="/purchase-adapters.js"></script><script src="/purchase-sync.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
     }
-    if (pathname === '/books/test' || pathname === '/games/test') pathname = redesign ? '/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
+    if (pathname === '/books/test' || pathname === '/games/test') pathname = redesignGames ? '/tests/redesign-games-fixture.html' : redesign ?'/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
     if (pathname === '/books') pathname = '/tests/catalogue-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
@@ -64,7 +65,7 @@ const server = createServer(async (request, response) => {
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 try {
   let child;
-  const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':catalogue?'/books':lifecycleGame||tierSwitch?'/games/test':'/books/test'}`;
+  const url=`http://127.0.0.1:${server.address().port}${importer?'/home/purchases':catalogue?'/books':lifecycleGame||tierSwitch||redesignGames?'/games/test':'/books/test'}`;
   const args=firefox?['--headless','--no-remote','--profile',profile,url]:['--headless=new',`--window-size=${themeWidth},1000`,'--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${profile}`,url];
   const exited=new Promise(resolve=>{child=execFile(browser,args,{env:{...process.env,...(firefox?{MOZ_HEADLESS_WIDTH:String(themeWidth),MOZ_HEADLESS_HEIGHT:'1000'}:{})},windowsHide:true,timeout:30000,maxBuffer:4*1024*1024},resolve);});
   let timeout;try{await Promise.race([finished,exited,new Promise(resolve=>{timeout=setTimeout(resolve,25000);})]);}finally{clearTimeout(timeout);child.kill();await exited;}
