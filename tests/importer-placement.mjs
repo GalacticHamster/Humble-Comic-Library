@@ -32,26 +32,41 @@ try{
     const body=url.pathname==='/home/library'?page('Library content'):url.pathname==='/home/purchases'?page('Order History content'):'';
     driver.send('Fetch.fulfillRequest',{requestId:event.params.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:url.pathname.endsWith('.js')?'text/javascript':'text/html; charset=utf-8'}],body:Buffer.from(body).toString('base64')},sessionId).catch(()=>{});});
   await driver.send('Fetch.enable',{patterns:[{urlPattern:'https://www.humblebundle.com/*'}]},sessionId);await driver.send('Page.enable',{},sessionId);
+  // Page-world recorder from document start, sampled every rendered frame: catches any interface painted, however
+  // briefly, on the wrong route.
+  await driver.send('Page.addScriptToEvaluateOnNewDocument',{source:`window.__hclSeen={importerOnLibrary:0,syncOnPurchases:0,maxSections:0,frames:0};const tick=()=>{const s=window.__hclSeen,lib=/^\\/home\\/library/.test(location.pathname);s.frames++;if(lib&&document.querySelector('#hcl-importer, [data-import-mode]'))s.importerOnLibrary++;if(!lib&&document.querySelector('#hcl-library-sync'))s.syncOnPurchases++;s.maxSections=Math.max(s.maxSections,document.querySelectorAll('#hcl-importer, #hcl-library-sync').length);requestAnimationFrame(tick);};requestAnimationFrame(tick);`},sessionId);
   const evaluate=async expression=>(await driver.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},sessionId)).result.value;
-  const state=()=>evaluate(`({first:document.body.firstElementChild?.id??null,sync:document.querySelectorAll('#hcl-library-sync').length,importer:document.querySelectorAll('#hcl-importer').length,retired:Boolean(document.querySelector('#hcl-importer.hcl-importer-retired')),importButtons:document.querySelectorAll('#hcl-importer [data-import-mode], #hcl-importer button[data-import-mode]').length,link:document.querySelector('#hcl-importer a.hcl-importer-link')?.getAttribute('href')??null,syncText:document.querySelector('#hcl-library-sync')?.textContent.slice(0,40)??null,promoBelow:(()=>{const s=document.querySelector('#hcl-library-sync, #hcl-importer');return s?document.querySelector('#promo').getBoundingClientRect().top>=s.getBoundingClientRect().bottom-1:null;})(),position:(()=>{const s=document.querySelector('#hcl-library-sync, #hcl-importer');return s?getComputedStyle(s).position:null;})()})`);
+  const state=()=>evaluate(`({first:document.body.firstElementChild?.id??null,sync:document.querySelectorAll('#hcl-library-sync').length,importer:document.querySelectorAll('#hcl-importer').length,retired:Boolean(document.querySelector('#hcl-importer.hcl-importer-retired')),importButtons:document.querySelectorAll('#hcl-importer [data-import-mode], #hcl-importer button[data-import-mode]').length,link:document.querySelector('#hcl-importer a.hcl-importer-link')?.href??null,seen:window.__hclSeen,syncStatus:document.querySelector('#hcl-library-sync [role="status"]')?.textContent??'',syncText:document.querySelector('#hcl-library-sync')?.textContent.slice(0,40)??null,promoBelow:(()=>{const s=document.querySelector('#hcl-library-sync, #hcl-importer');return s?document.querySelector('#promo').getBoundingClientRect().top>=s.getBoundingClientRect().bottom-1:null;})(),position:(()=>{const s=document.querySelector('#hcl-library-sync, #hcl-importer');return s?getComputedStyle(s).position:null;})()})`);
   const until=async test=>{let value;for(let n=0;n<200;n++){value=await state().catch(()=>undefined);if(value&&test(value))return value;await pause(50);}return value??{};};
   const shot=async name=>{for(const width of [1280,600]){await driver.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false},sessionId);await pause(300);const image=await driver.send('Page.captureScreenshot',{format:'png'},sessionId);await writeFile(join(shots,`chrome-${name}-${width}.png`),Buffer.from(image.data,'base64'));}};
   // Direct loads.
   await driver.send('Page.navigate',{url:'https://www.humblebundle.com/home/library'},sessionId);
-  let s=await until(v=>v.sync===1);
+  let s=await until(v=>v.sync===1&&/^Not synced/.test(v.syncStatus));
   assert.deepEqual([s.first,s.sync,s.importer,s.promoBelow,s.position],['hcl-library-sync',1,0,true,'static'],JSON.stringify(s));checks.push('direct /home/library: one Library sync section, first in the document, above the banner and header');
   await shot('library');
+  await driver.send('Page.reload',{},sessionId);await pause(500);s=await until(v=>v.sync===1&&/^Not synced/.test(v.syncStatus));
+  assert.deepEqual([s.first,s.sync,s.importer],['hcl-library-sync',1,0],JSON.stringify(s));checks.push('reload /home/library: one Library sync section');
+  const clean=(v,label)=>assert.deepEqual([v.seen.frames>10,v.seen.importerOnLibrary,v.seen.syncOnPurchases,v.seen.maxSections],[true,0,0,1],label+' '+JSON.stringify(v));
+  clean(s,'library page load');
   await driver.send('Page.navigate',{url:'https://www.humblebundle.com/home/purchases'},sessionId);
   s=await until(v=>v.importer===1);
-  assert.deepEqual([s.first,s.importer,s.sync,s.retired,s.importButtons,s.link,s.promoBelow],['hcl-importer',1,0,true,0,'/home/library',true],JSON.stringify(s));checks.push('direct /home/purchases: one notice, first in the document, no import buttons, links to Humble Library');
+  assert.deepEqual([s.first,s.importer,s.sync,s.retired,s.importButtons,s.link,s.promoBelow],['hcl-importer',1,0,true,0,'https://www.humblebundle.com/home/library',true],JSON.stringify(s));checks.push("direct /home/purchases: one notice, first in the document, no import buttons, links to Humble's Library page");
   await shot('purchases');
   // In-page navigation between the two pages, both ways, twice.
   for(let round=0;round<2;round++){
-    await evaluate(`document.querySelector('#nav-library').click()`);s=await until(v=>v.sync===1&&v.importer===0);
-    assert.deepEqual([s.first,s.sync,s.importer],['hcl-library-sync',1,0],JSON.stringify(s));
+    // The section must also load its account and state, not just appear (the worker scopes by the current route).
+    await evaluate(`document.querySelector('#nav-library').click()`);s=await until(v=>v.sync===1&&v.importer===0&&/^Not synced/.test(v.syncStatus));
+    assert.deepEqual([s.first,s.sync,s.importer,/^Not synced in this browser yet/.test(s.syncStatus)],['hcl-library-sync',1,0,true],JSON.stringify(s));
     await evaluate(`document.querySelector('#nav-orders').click()`);s=await until(v=>v.importer===1&&v.sync===0);
     assert.deepEqual([s.first,s.importer,s.sync,s.importButtons],['hcl-importer',1,0,0],JSON.stringify(s));
   }
-  checks.push('in-page navigation Library <-> Order History swaps the sections; each appears once, first in the document');
+  checks.push('in-page navigation Library <-> Order History swaps the sections; each appears once, first in the document, and the Library sync loads its saved account');
+  // Browser back and forward between the two routes (popstate).
+  await evaluate(`history.back()`);s=await until(v=>v.sync===1&&v.importer===0&&/^Not synced/.test(v.syncStatus));
+  assert.deepEqual([s.first,s.sync,s.importer,/^Not synced in this browser yet/.test(s.syncStatus)],['hcl-library-sync',1,0,true],JSON.stringify(s));
+  await evaluate(`history.forward()`);s=await until(v=>v.importer===1&&v.sync===0);
+  assert.deepEqual([s.first,s.importer,s.sync,s.importButtons],['hcl-importer',1,0,0],JSON.stringify(s));
+  clean(s,'navigation sequence');
+  checks.push('back/forward swap the sections; across every load and navigation the importer never appeared on Library, the sync never on Order History, and never two sections at once');
   for(const check of checks)console.log('PASS installed Chrome: '+check);console.log(`${checks.length} installed placement checks passed. Screenshots: ${shots}`);
 }finally{child?.kill();await pause(300);await rm(temporary,{recursive:true,force:true}).catch(()=>{});}

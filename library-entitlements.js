@@ -811,7 +811,7 @@
     const intro = make('div', { className: 'library-import-description' });
     const help = make('details'), helpText = make('p', { textContent: 'Purchased on Humble means your Humble Library lists the item as bought by this account; it does not mean a Steam or other key was activated. Gifted, revoked and temporary-access items are not counted as purchases. Items Humble shows without enough detail are not saved and can be added by a later full sync. You can pause and continue later, even after closing the browser.' });
     help.append(make('summary', { textContent: 'What the sync saves' }), helpText);
-    intro.append(make('strong', { textContent: 'Humble Library' }), ' ', make('span', { textContent: 'Sync purchases from the Humble account signed in to this browser. Nothing is removed: earlier purchases, corrections and history stay as they are.' }), help);
+    intro.append(make('strong', { textContent: 'Humble Library Extension' }), ' ', make('span', { textContent: 'Sync your purchases from this Library page. Nothing is removed: earlier purchases, corrections and history stay as they are.' }), help);
     // First sync for a saved account binds it to the signed-in Humble account; later syncs are checked against that binding.
     const account = make('p', { className: 'hcl-sync-account' });
     const label = make('label', { className: 'hcl-sync-confirm' }), confirm = make('input', { type: 'checkbox' }), accountName = make('span');
@@ -831,10 +831,17 @@
     details.append(make('summary', { textContent: 'Scan details' }), facts, note);
     const store = (operation, ...args) => global.HumbleComicLibrary.storageRequest(operation, ...args);
     sharedSync ??= createSync({ fetcher, settings, store });
-    let context, stored = { checkpoint: null, saved: 0, found: 0, bound: false }, message = '';
+    // Nothing actionable is shown until the saved account and sync state are read, so a synced account
+    // never briefly appears unsynced (with the first-sync confirmation) while storage loads.
+    let context, stored = { checkpoint: null, saved: 0, found: 0, bound: false }, message = '', loaded = false;
     const number = v => v.toLocaleString(), plural = (n, one, many = one + 's') => `${number(n)} ${n === 1 ? one : many}`;
     const render = () => {
       if (!panel.isConnected && panel.dataset.installed) return;
+      if (!loaded) {
+        for (const node of [account, label, progressRow, details, ...actions.children]) node.hidden = true;
+        status.textContent = 'Loading your saved sync…';
+        return;
+      }
       const v = sharedSync.view, live = sharedSync.active(), cp = stored.checkpoint;
       const unfinished = !live && cp && ['running','paused','stopped'].includes(cp.status);
       startFull.hidden = live || unfinished; refresh.hidden = live || unfinished; resume.hidden = !unfinished;
@@ -873,7 +880,7 @@
         retrying: v.retry ? `Humble did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds. Progress so far is saved.` : 'Trying again…'
       }[v.phase] ?? `${v.mode === 'refresh' ? 'Checking recent purchases' : 'Syncing'}… reading pages ${number(v.pageRange?.[0] ?? 1)}–${number(v.pageRange?.[1] ?? 1)}.`;
       else if (v.phase === 'stopped' && v.error === 'superseded') text = STOP_TEXT.superseded;
-      else if (!cp) text = 'Not synced yet. Start with a full sync; most Libraries take minutes.';
+      else if (!cp) text = 'Not synced in this browser yet. Start with a full sync; most Libraries take minutes.';
       else if (cp.status === 'running') text = 'The sync was interrupted (the page closed or the browser restarted).' + from + ' If it is still running in another Humble tab, resuming here stops it there.';
       else if (cp.status === 'paused') text = (cp.reason === 'session-limit' ? STOP_TEXT['session-limit'] : 'Paused.') + from;
       else if (cp.status === 'stopped') text = (STOP_TEXT[cp.reason] ?? STOP_TEXT.failed) + (v.retryAfter ? ` Humble suggested waiting about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes.` : '');
@@ -896,6 +903,7 @@
       stored.excluded = views.filter(item => item.status !== 'Purchased').length;
       stored.media = {};
       for (const r of scope?.observations ?? []) if (r.purchaseStatus === 'purchased') stored.media[r.mediaType] = (stored.media[r.mediaType] ?? 0) + 1;
+      if (context) loaded = true;
       render();
     };
     const unsubscribe = sharedSync.subscribe(() => { if (!panel.isConnected && panel.dataset.installed) { unsubscribe?.(); return; } message = ''; refreshStored().catch(render); });
@@ -924,8 +932,8 @@
     });
     store('entitlementContext').then(value => {
       context = value; accountName.textContent = value.profileLabel ? `“${value.profileLabel}”` : '(not yet named)';
-      refreshStored().catch(render);
-    }, () => { message = 'The saved account is unavailable. Open Extension options before syncing.'; render(); });
+      refreshStored().catch(() => { loaded = true; render(); });
+    }, () => { loaded = true; message = 'The saved account is unavailable. Open Extension options before syncing.'; render(); });
     panel.append(intro, account, label, progressRow, footer, details);
     // Same placement as the HB and FAN importers: first in the document, above Humble's banner and header.
     document.body.prepend(panel);

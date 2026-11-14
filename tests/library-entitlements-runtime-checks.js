@@ -72,16 +72,29 @@ async function installedEntitlementChecks(disabled=false,phase) {
 
   try{
     // Real panel, worker and storage with short (still floor-respecting) pacing.
-    const transport=syncTransport(Array.from({length:8},(_,n)=>row(n)));await store('replace',state);
-    E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const panel=document.getElementById('hcl-library-sync');
-    check(panel?.querySelector('.library-import-description > strong').textContent==='Humble Library'&&panel.classList.contains('hcl-importer'),'installed release shows the Library sync as the Humble Library importer section');
-    check(/^Not synced yet/.test(panel.querySelector('[role="status"]').textContent)&&!panel.querySelector('.hcl-sync-confirm').hidden&&panel.querySelector('.hcl-sync-progress').hidden,'installed idle state: not synced yet, confirmation asked once, no progress row');
-    const button=action=>panel.querySelector('[data-action="'+action+'"]'),status=panel.querySelector('[role="status"]');
+    const transport=syncTransport(Array.from({length:8},(_,n)=>row(n)));
+    const settings={pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000};
     const until=async(test,label,ms=20000)=>{const deadline=Date.now()+ms;while(!test()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));check(test(),label);};
+    const visibleControls=node=>[...node.querySelectorAll('.hcl-sync-confirm, .hcl-sync-account, .hcl-sync-progress, .hcl-import-actions > button')].filter(el=>!el.hidden).length;
+    // An account not yet bound to a Humble Library: the first sync asks for confirmation once.
+    await store('replace',{...state,libraryEntitlements:{version:1,scopes:[]}});
+    E.installPanel({fetcher:transport.fetch,settings});const first=document.getElementById('hcl-library-sync'),firstStatus=first.querySelector('[role="status"]');
+    check(first?.querySelector('.library-import-description > strong').textContent==='Humble Library Extension'&&first.classList.contains('hcl-importer'),'installed release shows the Library sync as the Humble Library Extension importer section');
+    check(/^Loading your saved sync/.test(firstStatus.textContent)&&visibleControls(first)===0,'installed first paint shows no account confirmation or sync controls before the saved state is read');
+    await until(()=>/^Not synced in this browser yet/.test(firstStatus.textContent),'installed idle state loads');
+    check(!first.querySelector('.hcl-sync-confirm').hidden&&first.querySelector('.hcl-sync-progress').hidden&&!first.querySelector('[data-action="full"]').hidden,'installed unbound idle state: not synced yet, confirmation asked once, no progress row');
+    check(/my saved account “Synthetic A”\./.test(first.querySelector('label').textContent),'installed panel names the saved account before syncing');
+    first.querySelector('[data-action="full"]').click();
+    check(/Confirm/.test(firstStatus.textContent)&&transport.requests()===0,'installed panel refuses an unconfirmed account without reading');
+    first.remove();
+    // The bound account (this fixture's acquisitions): never shows the first-sync confirmation, even while loading.
+    await store('replace',state);
+    E.installPanel({fetcher:transport.fetch,settings});const panel=document.getElementById('hcl-library-sync');
+    const button=action=>panel.querySelector('[data-action="'+action+'"]'),status=panel.querySelector('[role="status"]');
+    let flashed=!panel.querySelector('.hcl-sync-confirm').hidden;const watchFirst=new MutationObserver(()=>{if(!panel.querySelector('.hcl-sync-confirm').hidden)flashed=true;});watchFirst.observe(panel,{subtree:true,attributes:true,childList:true,characterData:true});
+    await until(()=>!panel.querySelector('.hcl-sync-account').hidden&&!button('full').hidden,'installed bound idle state loads');watchFirst.disconnect();
+    check(!flashed&&/^Not synced in this browser yet/.test(status.textContent),'installed bound account loads straight into its own state without the first-sync confirmation');
     button('full').click();
-    check(/Confirm/.test(status.textContent)&&transport.requests()===0,'installed panel refuses an unconfirmed account without reading');
-    await until(()=>/my saved account “Synthetic A”\./.test(panel.querySelector('label').textContent),'installed panel names the saved account before syncing');
-    panel.querySelector('input[type="checkbox"]').checked=true;button('full').click();
     await until(()=>!button('pause').hidden&&/Syncing/.test(status.textContent),'installed panel shows a running sync with Pause available');
     button('pause').click();
     await until(()=>!button('resume').hidden&&/^Paused/.test(status.textContent),'installed Pause stops after the current page and offers Resume');
@@ -100,7 +113,10 @@ async function installedEntitlementChecks(disabled=false,phase) {
     style.remove();
     // An account already bound to its Humble Library syncs without confirming again; the worker still checks it.
     panel.remove();E.installPanel({fetcher:transport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});const bound=document.getElementById('hcl-library-sync'),bstatus=bound.querySelector('[role="status"]');
-    await until(()=>!bound.querySelector('.hcl-sync-account').hidden,'installed bound account shows its saved name');
+    // Record every state the bound section shows while loading: it must never offer the first-sync confirmation.
+    let confirmShown=false;const watch=new MutationObserver(()=>{if(!bound.querySelector('.hcl-sync-confirm').hidden)confirmShown=true;});watch.observe(bound,{subtree:true,attributes:true,childList:true,characterData:true});confirmShown||=!bound.querySelector('.hcl-sync-confirm').hidden;
+    await until(()=>!bound.querySelector('.hcl-sync-account').hidden,'installed bound account shows its saved name');watch.disconnect();
+    check(!confirmShown,'installed bound account never flashes the first-sync confirmation while loading');
     check(bound.querySelector('.hcl-sync-confirm').hidden&&/Saved account: “Synthetic A”/.test(bound.querySelector('.hcl-sync-account').textContent),'installed bound account is not asked to confirm again');
     bound.querySelector('[data-action="refresh"]').click();
     await until(()=>/^Checked your most recent Library/.test(bstatus.textContent),'installed recent-purchase check runs for a bound account without the checkbox');

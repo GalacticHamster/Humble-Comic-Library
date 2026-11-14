@@ -1207,7 +1207,10 @@
     return {execute(operation,args=[]){const copied=JSON.parse(JSON.stringify(args));const task=tail.then(()=>operate(operation,copied));tail=task.catch(()=>{});return task;}};
   }
   async function storageRequest(operation,...args){
-    const response=await chrome.runtime.sendMessage({type:'HCL_STORE',operation,args});
+    // Humble navigates client-side, and browsers report a content script's sender URL as the address the
+    // document was loaded at. The worker scopes page-specific operations by this current route instead.
+    const page=globalThis.location?.origin==='https://www.humblebundle.com'?globalThis.location.pathname:undefined;
+    const response=await chrome.runtime.sendMessage({type:'HCL_STORE',operation,args,...(page===undefined?{}:{page})});
     if(!response?.ok)throw new Error(response?.error??'Library storage is unavailable. Reload the extension and page.');
     return response.result;
   }

@@ -3111,8 +3111,8 @@ function addRetiredImporterNotice() {
   panel.id = 'hcl-importer';
   panel.className = 'hcl-importer hcl-importer-retired';
   panel.innerHTML = `
-    <div class="library-import-description"><strong>Humble Library</strong> <span>Purchases now sync from your Humble Library. Humble changed this page, so imports from it are no longer available. Your saved purchases, history and corrections were kept.</span></div>
-    <div class="hcl-import-actions"><a class="hcl-importer-link" href="/home/library">Open Humble Library</a></div>`;
+    <div class="library-import-description"><strong>Humble Library Extension</strong> <span>Humble has moved purchase information to its new Library page. To update your saved purchases, go to that page and use the extension's sync controls. Your existing purchases and settings are preserved.</span></div>
+    <div class="hcl-import-actions"><a class="hcl-importer-link" href="https://www.humblebundle.com/home/library">Go to Humble's Library page</a></div>`;
   LibraryAccountProfiles.mount(panel.querySelector('.library-import-description'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives']});
   document.body.prepend(panel);
 }

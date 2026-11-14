@@ -15,4 +15,10 @@ test('account selection and rename accept only own settings or Humble purchase p
   assert.equal((await send('selectProfile','https://www.humblebundle.com/home/purchases','foreign')).ok,false);
   assert.equal((await send('selectProfile','chrome-extension://'+id+'/options.html')).ok,true);assert.equal(state.humbleProfileLabel,'work');
   const response=await new Promise(resolve=>listeners[1]({type:'HCL_STORE',operation:'renameProfile',args:[{profileLabel:'work',expectedActiveLabel:'work',newLabel:'business',confirmed:true}]},{id,url:'https://www.humblebundle.com/home/purchases',tab:{id:1}},resolve));assert.equal(response.ok,true);assert.equal(state.humbleProfileLabel,'business');
+  // Client-side routes: the content script's current route decides, not the document's load address.
+  const routed=(operation,url,page)=>new Promise(resolve=>listeners[1]({type:'HCL_STORE',operation,page,args:[{profileLabel:'business',expectedActiveLabel:'business',newLabel:'renamed',confirmed:true}]},{id,url,tab:{id:1}},resolve));
+  const settled=structuredClone(state);
+  assert.equal((await routed('renameProfile','https://www.humblebundle.com/home/purchases','/books/test')).ok,false);assert.deepEqual(state,settled);
+  assert.equal((await routed('renameProfile','https://www.humblebundle.com.evil.test/home/library','/home/purchases')).ok,false);assert.deepEqual(state,settled);
+  assert.equal((await routed('renameProfile','https://www.humblebundle.com/home/library','/home/purchases')).ok,true);assert.equal(state.humbleProfileLabel,'renamed');
 });

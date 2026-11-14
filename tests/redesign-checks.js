@@ -31,9 +31,17 @@
   check(collectBundleItems(bundleMediaContext('game')).every(i=>i.kind==='game'&&i.tier.price===null),'stale book Flight props cannot establish game tiers');
   history.pushState({},'', '/home/purchases');document.querySelector('h1').textContent='Purchases';await wait(()=>document.querySelector('#hcl-importer'));check(true,'SPA purchases navigation mounts one importer');
   const notice=document.querySelector('#hcl-importer');
-  check(/Purchases now sync from your Humble Library/.test(notice.textContent)&&!notice.querySelector('[data-import-mode]')&&notice.querySelector('a.hcl-importer-link').getAttribute('href')==='/home/library','retired purchase importer is a notice pointing to the Library sync, with no import buttons');
+  check(notice.querySelector('strong').textContent==='Humble Library Extension'&&/Humble has moved purchase information to its new Library page/.test(notice.textContent)&&!notice.querySelector('[data-import-mode]')&&notice.querySelector('a.hcl-importer-link').textContent==="Go to Humble's Library page"&&notice.querySelector('a.hcl-importer-link').href==='https://www.humblebundle.com/home/library','retired purchase importer is a notice pointing to the Library page, with no import buttons');
   check(document.body.firstElementChild===notice&&!fixtureStored.lastImport,'notice is first in the document like the importer, and nothing was imported');
   document.querySelector('#hcl-importer').remove();document.querySelector('h1').textContent='Purchases hydrated';await wait(()=>document.querySelectorAll('#hcl-importer').length===1);check(true,'hydration remounts one importer');
+  // Library route and real history traversal (popstate), sampled every frame for the wrong interface.
+  const seen={wrong:0,most:0,frames:0};let sampling=true;const sample=()=>{const lib=location.pathname.startsWith('/home/library');seen.frames++;if(lib?document.querySelector('#hcl-importer, [data-import-mode]'):document.querySelector('#hcl-library-sync'))seen.wrong++;seen.most=Math.max(seen.most,document.querySelectorAll('#hcl-importer, #hcl-library-sync').length);if(sampling)requestAnimationFrame(sample);};requestAnimationFrame(sample);
+  const sections=()=>[document.querySelectorAll('#hcl-library-sync').length,document.querySelectorAll('#hcl-importer').length];
+  history.pushState({},'', '/home/library');document.querySelector('h1').textContent='Library';await wait(()=>sections().join()==='1,0');
+  check(document.body.firstElementChild.id==='hcl-library-sync','SPA Library navigation replaces the notice with one Library sync section, first in the document');
+  history.back();await wait(()=>location.pathname==='/home/purchases'&&sections().join()==='0,1');check(true,'browser Back to Order History restores one notice and removes the sync');
+  history.forward();await wait(()=>location.pathname==='/home/library'&&sections().join()==='1,0');check(true,'browser Forward to Library restores one sync section and removes the notice');
+  sampling=false;check(seen.frames>5&&seen.wrong===0&&seen.most===1,'no frame showed the importer on Library, the sync on Order History, or two sections ('+JSON.stringify(seen)+')');
   history.pushState({},'', '/bundles');
   fixtureStored.purchaseSummaries=[{sourceBundle:'Owned bundle',purchaseKey:'synthetic-order'}];
   document.querySelector('#provider-items').innerHTML='<div id="catalogue-grid" style="display:grid;grid-template-columns:repeat(2,1fr)"><div data-testid="product-card"><a href="/books/owned"><div class="product-title">Owned bundle</div></a></div><div data-testid="product-card"><a href="/games/another"><div class="product-title">Another bundle</div></a></div></div>';

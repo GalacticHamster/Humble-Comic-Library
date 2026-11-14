@@ -25,9 +25,12 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const extensionPage=own&&typeof sender.url==='string'&&sender.url.startsWith(chrome.runtime.getURL(''));
   let humble=false;try{humble=own&&new URL(sender.url).origin==='https://www.humblebundle.com';}catch{}
   if(!extensionPage&&!humble){respond({ok:false,error:'Untrusted library request.'});return false;}
-  if(message.operation?.startsWith('entitlement')&&!extensionPage&&!(humble&&/^\/home\/library(?:\/|$)/u.test(new URL(sender.url).pathname)&&Number.isInteger(sender.tab?.id))){respond({ok:false,error:'Open Humble Library to check entitlements.'});return false;}
+  // Humble routes client-side; sender.url stays at the address the document loaded, so page rules use the
+  // current route our content script reports. Origin, extension and tab checks above still apply.
+  const page=humble?(typeof message.page==='string'&&message.page.startsWith('/')?message.page:new URL(sender.url).pathname):'';
+  if(message.operation?.startsWith('entitlement')&&!extensionPage&&!(humble&&/^\/home\/library(?:\/|$)/u.test(page)&&Number.isInteger(sender.tab?.id))){respond({ok:false,error:'Open Humble Library to check entitlements.'});return false;}
   if(['replace','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
-  if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&new URL(sender.url).pathname.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options or the purchase importer.'});return false;}
+  if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&page.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options or the purchase importer.'});return false;}
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
   if(message.operation==='commit')args[2]=sender.tab?.id??null;

@@ -113,6 +113,11 @@ test('actual worker handler enforces origin, route, sender ID and tab binding',a
   const begin=await send('entitlementBegin',[{scope:{principalId:'principal-A',userId:'hub-A'},confirmed:true,expectedAccountId:context.accountId,expectedProfileLabel:context.profileLabel},999],sender);assert.equal(begin.ok,true);
   assert.equal((await send('entitlementAbort',[begin.result.token,999],{...sender,tab:{id:8}})).ok,false);
   assert.equal((await send('entitlementAbort',[begin.result.token,999],sender)).ok,true);
+  // Humble routes client-side: the content script's current route decides, not the document's load address.
+  const routed=(operation,args,sender,page)=>new Promise(resolve=>listener({type:'HCL_STORE',operation,args,page},sender,resolve));
+  assert.equal((await routed('entitlementContext',[],{id:'own',url:'https://www.humblebundle.com/home/purchases',tab:{id:7}},'/home/library')).ok,true);
+  assert.equal((await routed('entitlementContext',[],{id:'own',url:'https://www.humblebundle.com/home/library',tab:{id:7}},'/home/purchases')).ok,false);
+  for(const sender of [{id:'foreign',url:'https://www.humblebundle.com/home/purchases',tab:{id:7}},{id:'own',url:'https://evil.invalid/home/purchases',tab:{id:7}},{id:'own',url:'https://www.humblebundle.com/home/purchases'}])assert.equal((await routed('entitlementContext',[],sender,'/home/library')).ok,false);
 });
 test('parent request ceiling preserves verified records without excessive retries',async()=>{
   const rows=Array.from({length:25},(_,i)=>({...row('bounded-'+i),productEntitlementId:'parent-'+i}));
