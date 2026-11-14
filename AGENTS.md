@@ -10,6 +10,10 @@ Before committing changed UI text, check first-time comprehension, jargon, misle
 
 Automatic local sharing defaults on under the versioned opt-out model. Legacy disabled/disconnected states are not explicit opt-outs. Preserve any new-model explicit opt-out across startup, reconnect and library restore. Trusted companion discovery never establishes provider-account equivalence: preserve stable account mappings, reverse-verified setup tickets and save-time permission guards. When there is exactly one provider account on each side, pair them automatically even when populated. Reuse verified mappings for multiple accounts; genuinely ambiguous or conflicting relationships require a decision. Single-account assignment is product policy, not proof of a provider login. Sync committed data additively and idempotently, keeping manual offers separate. Shared runtime/UI are authored in GalacticLibrary/shared and mirrored with its sync-companion-purchases script. Validate synthetic data in disposable browser profiles; never use an installed personal library as a test destination.
 
+## Documentation style
+
+Write committed documentation, changelogs and commit messages in neutral engineering language that describes behavior, implementation, decisions, evidence and limitations. Do not narrate interactions with coding assistants or record who prompted, approved or requested a change unless attribution is technically or legally necessary. Keep technical history accurate without turning it into a conversation log. Coding-agent instructions belong only in this file.
+
 ## Git identity hook
 
 Install the version-controlled identity guard with `git config --local core.hooksPath .githooks`.
