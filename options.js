@@ -919,24 +919,6 @@
   // Humble Library titles with no historical record of the same name, shown in Titles for
   // browsing only. They have no media override or order details, and are never stored.
   let latestNativeTitles = [];
-  function nativeOnlyTitles(model, items) {
-    const key = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
-    const historical = new Set(items.map(item => key(typeof item === 'string' ? item : item?.title)));
-    const titles = new Map();
-    for (const group of model.groups) {
-      if (group.source !== 'native') continue;
-      for (const entry of group.items) {
-        // A copy the reconciliation pairs with a differently spelled historical title is listed there.
-        if (entry.excluded || historical.has(key(entry.title)) || latestTitleLinks?.paired.has(entry.nativeId)) continue;
-        const k = key(entry.title);
-        if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
-        const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
-        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
-      }
-    }
-    return [...titles.values()];
-  }
 
   // Titles view links: verified Humble pages from native entitlement IDs only (see
   // HumbleLibraryBrowser.titleLinks). Rebuilt with the model; never stored.
@@ -1141,16 +1123,38 @@
       historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], libraryEntitlements: null, humbleAccountId: null });
     const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = state;
     const items = state.libraryItems;
+    const { libraryEntitlements = null, humbleAccountId = null } = state;
+    showMatchDetails = Boolean(diagnosticsEnabled);
+    if (globalThis.HumbleLibraryBrowser) {
+      if (knownSignature === null || renderedAccountId !== humbleAccountId) knownSignature = HumbleLibraryBrowser.nativeSignature(libraryEntitlements, humbleAccountId);
+      renderedAccountId = humbleAccountId;
+      if (rebuild) {
+        const modelStarted = clock();
+        latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
+        // Reconciled once per data load; it is presentation only and never stored.
+        latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
+        latestTitleLinks = latestGroupModel.native.present ? HumbleLibraryBrowser.titleLinks(latestGroupModel.groups, latestReconciliation) : null;
+        latestNativeTitles = latestGroupModel.native.present ? HumbleLibraryBrowser.nativeOnlyTitles(latestGroupModel, items, latestTitleLinks) : [];
+        refreshStats.modelBuilds++;
+        refreshStats.lastModelMs = clock() - modelStarted;
+        refreshStats.maxModelMs = Math.max(refreshStats.maxModelMs, refreshStats.lastModelMs);
+      }
+      if (libraryGroupMode) libraryGroupMode.disabled = !latestReconciliation;
+      // Native-only choices stay unavailable until this account has native Library records.
+      for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
+      for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
+    }
+    const titles = [...consolidateLibrary(items), ...latestNativeTitles];
     renderWishlist(state.wishlistItems);
     if (!live) { const prefs = HumbleComicLibrary.normalizeSummaryPreferences(state.bundleSummaryPreferences); document.querySelector('#summary-minimized').checked = prefs.minimized; document.querySelector('#summary-position').value = prefs.position; }
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
-    const comics = items.filter((item) => item.kind === 'comic' || HumbleComicLibrary.isComicItem(item)).length;
-    const books = items.filter((item) => (item.kind === 'book' || !item.kind) && !HumbleComicLibrary.isComicItem(item)).length;
-    const games = items.filter((item) => item.kind === 'game').length;
-    const software = items.filter((item) => item.kind === 'software').length;
-    const audiobooks = items.filter((item) => item.kind === 'audiobook').length;
-    const videos = items.filter((item) => item.kind === 'video').length;
-    const unclassified = items.filter((item) => item.kind === 'unclassified').length;
+    const comics = titles.filter((item) => item.kind !== 'unclassified' && (item.kind === 'comic' || HumbleComicLibrary.isComicItem(item))).length;
+    const books = titles.filter((item) => (item.kind === 'book' || !item.kind) && !HumbleComicLibrary.isComicItem(item)).length;
+    const games = titles.filter((item) => item.kind === 'game').length;
+    const software = titles.filter((item) => item.kind === 'software').length;
+    const audiobooks = titles.filter((item) => item.kind === 'audiobook').length;
+    const videos = titles.filter((item) => item.kind === 'video').length;
+    const unclassified = titles.filter((item) => item.kind === 'unclassified').length;
 
     const mediaCounts = [
       comics ? `${comics} comic${comics === 1 ? '' : 's'}` : '',
@@ -1161,7 +1165,8 @@
       videos ? `${videos} video${videos === 1 ? '' : 's'}` : '',
       unclassified ? `${unclassified} unclassified` : ''
     ].filter(Boolean).join(', ');
-    count.textContent = `${items.length} unique item${items.length === 1 ? '' : 's'} stored locally${mediaCounts ? ` (${mediaCounts})` : ''}. ${purchaseSummaries.length} purchase records (${pricedPurchases} with a captured price).`;
+    const nativeGroups = latestGroupModel.groups.filter(group => group.source === 'native').length;
+    count.textContent = `${titles.length} unique item${titles.length === 1 ? '' : 's'} stored locally${mediaCounts ? ` (${mediaCounts})` : ''}. ${purchaseSummaries.length} ${latestGroupModel.native.present ? 'historical purchase records' : 'purchase records'} (${pricedPurchases} with a captured price).${latestGroupModel.native.present ? ` ${nativeGroups} synced Humble Library purchase groups.` : ''}`;
     lastImport.textContent = summary
       ? `Last purchase-page import (before Humble's 2026 redesign): ${summary.addedTitles} item${summary.addedTitles === 1 ? '' : 's'} added${summary.addedGames || summary.addedSoftware || summary.addedAudiobooks ? ` (${[summary.addedGames ? `${summary.addedGames} game${summary.addedGames === 1 ? '' : 's'}` : '', summary.addedSoftware ? `${summary.addedSoftware} software item${summary.addedSoftware === 1 ? '' : 's'}` : '', summary.addedAudiobooks ? `${summary.addedAudiobooks} audiobook${summary.addedAudiobooks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''}${summary.datesBackfilled ? ` and ${summary.datesBackfilled} purchase date${summary.datesBackfilled === 1 ? '' : 's'} backfilled` : ''}; ${summary.scannedPurchases} purchase${summary.scannedPurchases === 1 ? '' : 's'} scanned${summary.skippedKnown ? ` and ${summary.skippedKnown} already-scanned purchase${summary.skippedKnown === 1 ? '' : 's'} skipped` : ''} on ${new Date(summary.importedAt).toLocaleString()}.`
       : '';
@@ -1318,27 +1323,6 @@
           count.textContent += ` Storage usage: ${mb} MB.`;
         }
       } catch (_) {}
-    }
-    const { libraryEntitlements = null, humbleAccountId = null } = state;
-    showMatchDetails = Boolean(diagnosticsEnabled);
-    if (globalThis.HumbleLibraryBrowser) {
-      if (knownSignature === null || renderedAccountId !== humbleAccountId) knownSignature = HumbleLibraryBrowser.nativeSignature(libraryEntitlements, humbleAccountId);
-      renderedAccountId = humbleAccountId;
-      if (rebuild) {
-        const modelStarted = clock();
-        latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
-        // Reconciled once per data load; it is presentation only and never stored.
-        latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
-        latestTitleLinks = latestGroupModel.native.present ? HumbleLibraryBrowser.titleLinks(latestGroupModel.groups, latestReconciliation) : null;
-        latestNativeTitles = latestGroupModel.native.present ? nativeOnlyTitles(latestGroupModel, items) : [];
-        refreshStats.modelBuilds++;
-        refreshStats.lastModelMs = clock() - modelStarted;
-        refreshStats.maxModelMs = Math.max(refreshStats.maxModelMs, refreshStats.lastModelMs);
-      }
-      if (libraryGroupMode) libraryGroupMode.disabled = !latestReconciliation;
-      // Native-only choices stay unavailable until this account has native Library records.
-      for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
-      for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
     }
     const context = live ? captureBrowserContext() : null;
     renderLibraryBrowser(items);
@@ -1636,7 +1620,12 @@
   document.querySelector('#export-catalog').addEventListener('click',async()=>{
     const status=document.querySelector('#local-status');
     try {
-      const catalog=HumbleComicLibrary.createTitleCatalog(await library());
+      const saved=await chrome.storage.local.get({libraryItems:[],purchaseSummaries:[],libraryEntitlements:null,humbleAccountId:null});
+      const model=HumbleLibraryBrowser.buildGroups({items:saved.libraryItems,...saved});
+      const reconciliation=model.native.present?HumbleLibraryBrowser.reconcile(model.groups):null;
+      const links=model.native.present?HumbleLibraryBrowser.titleLinks(model.groups,reconciliation):null;
+      const titles=[...consolidateLibrary(saved.libraryItems),...HumbleLibraryBrowser.nativeOnlyTitles(model,saved.libraryItems,links)];
+      const catalog=HumbleComicLibrary.createTitleCatalog(titles);
       const url=URL.createObjectURL(new Blob([JSON.stringify(catalog,null,2)],{type:'application/json'}));
       Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.json'}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
       status.textContent='Exported catalog titles and identity metadata only; this is not a recoverable ownership backup.';

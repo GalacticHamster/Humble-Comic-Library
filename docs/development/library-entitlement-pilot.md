@@ -202,7 +202,9 @@ Coverage is `bounded`, `incomplete` or `accessible-pages-traversed`. The latter 
 
 ## Options library browser
 
-The Options page browses by **Titles**, the default and unchanged historical title catalog, or by **Bundles & Orders**. `library-browser.js` is a read-only presentation model; it never writes storage or legacy records.
+The Options page browses by **Titles**, the default view of active historical and eligible native-only titles, or by **Bundles & Orders**. `library-browser.js` is a read-only presentation model; it never writes storage or legacy records.
+
+The category summary and title-catalog export use the same title projection as Titles: historical titles consolidated for display plus eligible native-only titles, excluding other accounts and excluded native copies. Missing native media classification is exported as unclassified. The export remains bibliographic data, not purchase authority or a restorable ownership backup. Historical order counts and synced native purchase-group counts are labeled separately; orders with no saved contained titles do not fabricate catalog entries. Archived history and other saved accounts are not added to the active catalog.
 
 Groups:
 

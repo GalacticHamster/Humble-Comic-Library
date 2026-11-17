@@ -66,7 +66,7 @@ async function optionsHarness(initial = {}) {
   wireStore(context);
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ['shared.js', 'collection-mappings.js', 'options.js']) {
+  for (const file of ['shared.js', 'collection-mappings.js', 'library-browser.js', 'options.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), context, { filename: file });
   }
   await new Promise((resolve) => setTimeout(resolve, 20));

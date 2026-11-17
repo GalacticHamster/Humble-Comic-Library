@@ -8,12 +8,12 @@ import { load, nativeObservation, entitlements, ACCOUNT } from './library-browse
 // Options page with the native module enabled and the presentation model loaded.
 async function harness(initial = {}, { enabled = true } = {}) {
   const stored = { humbleProfileLabel: 'Main', humbleAccountId: ACCOUNT, profileArchives: [], ...structuredClone(initial) };
-  const elements = new Map(), writes = [], sessionData = new Map(), opened = [], changeListeners = [];
+  const elements = new Map(), writes = [], sessionData = new Map(), opened = [], exports = [], changeListeners = [];
   const element = () => ({ listeners: {}, files: [], value: '', children: [], dataset: {}, disabled: false,
     addEventListener(type, handler) { this.listeners[type] = handler; }, append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; }, setAttribute(name, value) { this[name] = value; }, click() {} });
   const context = { Blob, console, Date, encodeURIComponent, setTimeout, clearTimeout, Intl, confirm: () => true,
-    URL: { createObjectURL() { return 'blob:test'; }, revokeObjectURL() {} },
+    URL: { createObjectURL(blob) { exports.push(blob); return 'blob:test'; }, revokeObjectURL() {} },
     sessionStorage: { getItem: (k) => sessionData.get(k) ?? null, setItem: (k, v) => sessionData.set(k, String(v)), removeItem: (k) => sessionData.delete(k), clear: () => sessionData.clear() },
     document: { querySelector(selector) { if (!elements.has(selector)) elements.set(selector, element()); return elements.get(selector); }, createElement: element },
     chrome: { runtime: { id: 'abcdefghijklmnopabcdefghijklmnop' }, tabs: { create: async (o) => { opened.push(o.url); } },
@@ -27,6 +27,7 @@ async function harness(initial = {}, { enabled = true } = {}) {
   await new Promise((resolve) => setTimeout(resolve, 30));
   const get = (sel) => context.document.querySelector(sel);
   return { stored, writes, sessionData, opened, context, get, changeListeners,
+    async exportCatalog() { await get("#export-catalog").listeners.click(); return JSON.parse(await exports.at(-1).text()); },
     // Another context writes storage: the stored values change, then local listeners are notified.
     external(values) { const changes = {}; for (const [k, v] of Object.entries(values)) { changes[k] = { oldValue: stored[k], newValue: structuredClone(v) }; stored[k] = structuredClone(v); } for (const fn of changeListeners) fn(changes, 'local'); },
     rows: () => get('#library-preview').children,
@@ -310,4 +311,25 @@ test('Options follows storage changes made elsewhere: progress updates the summa
   assert.equal(stats().modelBuilds, 3);assert.equal(ui.context.LibraryBrowser.getGroups().native.present, false);
   assert.equal(sagaButton(), undefined);
   assert.equal(ui.writes.length, 0);
+});
+
+
+test('native-only 600-title library has matching summary, Titles and catalog counts without storage changes',async()=>{
+  const {E}=load();const observations=Array.from({length:600},(_,i)=>nativeObservation(E,{id:i+10000,parent:9000+Math.floor(i/10),title:'Saved title '+i}));
+  const ui=await harness({libraryItems:[],purchaseSummaries:[],libraryEntitlements:entitlements(observations)});const before=JSON.stringify(ui.stored);
+  assert.match(ui.note(),/of 600 items/);assert.match(ui.get('#library-count').textContent,/600 unique items/);assert.match(ui.get('#library-count').textContent,/600 unclassified/);
+  const catalog=await ui.exportCatalog();assert.equal(catalog.items.length,600);assert(catalog.items.every(i=>i.mediaType==='unclassified'));assert.equal(new Set(catalog.items.map(i=>i.title)).size,600);
+  await ui.view('groups');assert.match(ui.note(),/60 purchase groups/);assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
+});
+
+test('historical upgrade and restored backup retain titles without native observations or derived checkpoints',async()=>{
+  const records=Array.from({length:600},(_,i)=>historical('Historical '+i,'order-'+Math.floor(i/10),'Bundle '+Math.floor(i/10),{kind:i%2?'unclassified':'comic'}));
+  const raw={libraryItems:[...records,{...records[0],purchaseKey:'another-order'}],purchaseSummaries:[{purchaseKey:'order-0',itemCount:10}],mediaImportVersion:1,mediaTypeOverrides:{manual:'book'}};
+  const ui=await harness(raw,{enabled:false});const before=JSON.stringify(ui.stored);assert.match(ui.note(),/of 600 items/);assert.match(ui.get('#library-count').textContent,/600 unique items/);assert.equal((await ui.exportCatalog()).items.length,600);assert.equal(JSON.stringify(ui.stored),before);
+  const restored=ui.context.HumbleComicLibrary.restoreBackupState(ui.context.HumbleComicLibrary.createLibraryBackup(ui.stored));const other=await harness(JSON.parse(JSON.stringify(restored)));assert.equal((await other.exportCatalog()).items.length,600);assert.match(other.get('#library-count').textContent,/600 unique items/);
+});
+
+test('order summaries alone do not fabricate titles and foreign native scopes remain excluded',async()=>{
+  const {E}=load();const native=entitlements([nativeObservation(E,{id:88,parent:99,title:'Foreign title'})]);native.scopes[0].localAccountId='22222222-2222-4222-8222-222222222222';
+  const ui=await harness({libraryItems:[],purchaseSummaries:Array.from({length:600},(_,i)=>({purchaseKey:'old-'+i,sourceBundle:'Order '+i,itemCount:10})),libraryEntitlements:native});assert.equal((await ui.exportCatalog()).items.length,0);assert.match(ui.get('#library-count').textContent,/0 unique items/);await ui.view('groups');assert.match(ui.note(),/600 purchase groups/);
 });

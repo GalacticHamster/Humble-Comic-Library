@@ -347,5 +347,24 @@
     return out;
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
+  function nativeOnlyTitles(model, items, links = null) {
+    const key = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
+    const historical = new Set(items.map(item => key(typeof item === 'string' ? item : item?.title)));
+    const titles = new Map();
+    for (const group of model.groups) {
+      if (group.source !== 'native') continue;
+      for (const entry of group.items) {
+        // A copy the reconciliation pairs with a differently spelled historical title is listed there.
+        if (entry.excluded || historical.has(key(entry.title)) || links?.paired.has(entry.nativeId)) continue;
+        const k = key(entry.title);
+        if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
+        const title = titles.get(k);
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
+        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
+      }
+    }
+    return [...titles.values()];
+  }
+
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);
