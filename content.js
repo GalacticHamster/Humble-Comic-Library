@@ -14,6 +14,8 @@ const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'soft
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 // What the catalogue's purchase markers read: imported orders and the active account's Library purchases.
 const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null };
+// Storage that changes bundle-page ownership results.
+const LIBRARY_REBUILD_KEYS = ['libraryEntitlements', 'humbleAccountId', 'libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'];
 let purchaseFocusTimer;
 let bundleSummaryPreferences = {minimized:false,position:'bottom-left'};
 let galacticDiagnosticSequence=0;
@@ -108,6 +110,7 @@ function finishGalacticRendering(diagnostic){
     return snapshot;
   };
   const storage = await readCurrentStorage();
+  let libraryAccountId = storage.humbleAccountId;
   bundleSummaryPreferences = HumbleComicLibrary.normalizeSummaryPreferences(storage.bundleSummaryPreferences);
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
@@ -149,7 +152,7 @@ function finishGalacticRendering(diagnostic){
     if(area==='local'&&changes.showDiagnostics){comparison.showDiagnostics=Boolean(changes.showDiagnostics.newValue);comparison.renderSummary?.();}
     if (area === 'local' && changes.wishlistItems) { comparison.wishlistItems=HumbleComicLibrary.normalizeWishlist(changes.wishlistItems.newValue||[]); comparison.renderSummary?.(); }
     if(area==='local'&&changes.bundleSummaryPreferences){bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));}
-    if (area !== 'local' || !['libraryEntitlements','humbleAccountId','libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'].some(key => Object.hasOwn(changes, key))) return;
+    if (area !== 'local' || !LIBRARY_REBUILD_KEYS.some(key => Object.hasOwn(changes, key)) || onlySyncProgressChanged(changes, libraryAccountId)) return;
     const revision = ++libraryRevision;
     ++comparison.job; clearTimeout(refreshTimer); // Cancel an in-flight old-profile comparison.
     comparison.summaryView = changes.humbleProfileLabel ? null
@@ -160,6 +163,7 @@ function finishGalacticRendering(diagnostic){
     (async () => {
       const latest = await readCurrentStorage();
       if (revision !== libraryRevision) return;
+      libraryAccountId = latest.humbleAccountId;
       purchaseModel = libraryPurchaseModel(latest);
       libraryItems = entitlementMatchingRecords(latest, purchaseModel).filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
@@ -278,37 +282,45 @@ function sortRedesignedBundleItems(items) {
 
 function initialiseRedesignedHumble() {
   let timer, revision=0, comparison=null, previousRoute='';
-  // The Library purchase model needs the whole library. A page keeps it across refreshes until library
-  // storage changes; a read superseded by a newer refresh returns before it can be kept.
-  let catalogueFilters={}, purchaseModelCache=null;
+  // The Library purchase model and each media kind's matcher need the whole library. A page keeps them
+  // across refreshes (tier changes, remounted cards) until library storage or the route changes; a read
+  // superseded by a newer refresh returns before it can be kept.
+  let catalogueFilters={}, purchaseModelCache=null, libraryAccountId=null;
+  const matcherCache=new Map(), LIBRARY_KEYS={...CATALOGUE_LIBRARY_DEFAULTS,humbleProfileLabel:'',historicalLibraryItems:[]};
   const refresh=()=>{
     clearTimeout(timer);const route=location.pathname, job=++revision;
     if(comparison) comparison.job++;
     // Clear old-route annotations immediately; asynchronous GL results cannot
     // repopulate a new route because their comparison job is invalidated.
-    if(route!==previousRoute){document.querySelector('#hcl-library-sync')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();purchaseModelCache=null;previousRoute=route;}
+    if(route!==previousRoute){document.querySelector('#hcl-library-sync')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();purchaseModelCache=null;matcherCache.clear();previousRoute=route;}
     timer=setTimeout(async()=>{
       if(globalThis.HumbleLibraryEntitlements?.ENABLED&&route.startsWith('/home/library')){HumbleLibraryEntitlements.installPanel();return;}
       if(/^\/home\/(?:purchases|library)(?:\/|$)/u.test(route)){ensurePurchaseImporter();return;}
       if(isBundleCataloguePage()){
         const stored=await chrome.storage.local.get({...(purchaseModelCache?{}:CATALOGUE_LIBRARY_DEFAULTS),showDiagnostics:false,catalogueFilters:{}});
         if(job!==revision||route!==location.pathname)return;
-        purchaseModelCache??=libraryPurchaseModel(stored);
+        if(!purchaseModelCache){libraryAccountId=stored.humbleAccountId;purchaseModelCache=libraryPurchaseModel(stored);}
         catalogueFilters=normaliseCatalogueFilters(stored.catalogueFilters);
         renderCataloguePurchaseMarkers(purchaseModelCache.purchases,stored.showDiagnostics,catalogueFilters,next=>{HumbleComicLibrary.storageSet({catalogueFilters:normaliseCatalogueFilters(next)}).then(refresh).catch(showComparisonFailure);});return;
       }
       const kind=/^\/books\/[^/]+\/?$/u.test(route)?'book':/^\/games\/[^/]+\/?$/u.test(route)?'game':/^\/software\/[^/]+\/?$/u.test(route)?'software':null;
       if(!kind)return;
       try {
-        const stored=await chrome.storage.local.get({libraryEntitlements:{version:1,scopes:[]},humbleAccountId:null,humbleProfileLabel:'',libraryItems:[],historicalLibraryItems:[],purchaseSummaries:[],customCollectionMappings:[],galacticLibraryExtensionId:'',showNewItemsOnly:false,showDiagnostics:false,wishlistItems:[],bundleSummaryPreferences:{}});
+        const cached=Boolean(purchaseModelCache&&matcherCache.has(kind));
+        const stored=await chrome.storage.local.get({...(cached?{}:LIBRARY_KEYS),customCollectionMappings:[],galacticLibraryExtensionId:'',showNewItemsOnly:false,showDiagnostics:false,wishlistItems:[],bundleSummaryPreferences:{}});
         if(job!==revision||route!==location.pathname)return;
+        if(cached&&!(purchaseModelCache&&matcherCache.has(kind))){refresh();return;}
         bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(stored.bundleSummaryPreferences);
         comparison={job:1,startedAt:performance.now(),refreshes:1,emptyChecks:0,showNewItemsOnly:stored.showNewItemsOnly,showDiagnostics:stored.showDiagnostics,wishlistItems:stored.wishlistItems,galactic:createGalacticLookup(stored.galacticLibraryExtensionId)};
         comparison.retryGalactic=refresh;comparison.refreshGalactic=refresh;
         clearBundleAnnotations();
-        const purchaseModel=purchaseModelCache??=libraryPurchaseModel(stored);
-        const records=entitlementMatchingRecords(stored,purchaseModel).filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
-        await renderBundleComparison(createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems),kind,findCurrentBundlePurchases(purchaseModel.purchases),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
+        if(!cached){
+          libraryAccountId=stored.humbleAccountId;
+          const purchaseModel=purchaseModelCache??=libraryPurchaseModel(stored);
+          const records=entitlementMatchingRecords(stored,purchaseModel).filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
+          matcherCache.set(kind,createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems));
+        }
+        await renderBundleComparison(matcherCache.get(kind),kind,findCurrentBundlePurchases(purchaseModelCache.purchases),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
       }catch(error){if(job===revision)showComparisonFailure(error);}
     },120);
   };
@@ -325,8 +337,11 @@ function initialiseRedesignedHumble() {
       bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);
       document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));
     }
-    if(Object.keys(CATALOGUE_LIBRARY_DEFAULTS).some(key=>Object.hasOwn(changes,key)))purchaseModelCache=null;
-    if(['libraryEntitlements','humbleAccountId','libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();
+    // Sync progress alone, and catalogue filters on a bundle page, leave the page's results as they are.
+    const changed=[...LIBRARY_REBUILD_KEYS,'showNewItemsOnly',...(isBundleCataloguePage()?['catalogueFilters']:[])]
+      .filter(key=>Object.hasOwn(changes,key)&&!(key==='libraryEntitlements'&&onlySyncProgressChanged(changes,libraryAccountId)));
+    if(changed.some(key=>Object.hasOwn(LIBRARY_KEYS,key))){purchaseModelCache=null;matcherCache.clear();}
+    if(changed.length)refresh();
   });
   refresh();
 }
@@ -1317,6 +1332,16 @@ function completeBundleMatchContext(rows, media) {
     return new Set(keys).size === keys.length && new Set(actual).size === actual.length
       && actual.length === keys.length && actual.every(key => keys.includes(key));
   } catch { return false; }
+}
+
+// A Library sync rewrites libraryEntitlements with every batch, mostly to refresh observation times and
+// progress. When that is the only library change and what bundle pages read from the active account's
+// records is the same (the Options browser's own signature), pages keep their results instead of
+// rebuilding the library and asking Galactic Library again. Any doubt rebuilds.
+function onlySyncProgressChanged(changes, accountId) {
+  const sign = globalThis.HumbleLibraryBrowser?.nativeSignature, change = changes?.libraryEntitlements;
+  if (!sign || typeof accountId !== 'string' || !change || !Object.hasOwn(change, 'oldValue') || LIBRARY_REBUILD_KEYS.some(key => key !== 'libraryEntitlements' && Object.hasOwn(changes, key))) return false;
+  try { return sign(change.oldValue, accountId) === sign(change.newValue, accountId); } catch { return false; }
 }
 
 // The active account's purchases as the Options library browser presents them: each Humble Library

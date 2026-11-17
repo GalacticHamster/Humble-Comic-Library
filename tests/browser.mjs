@@ -15,6 +15,7 @@ const ownershipBorders = process.argv.includes('--ownership-borders');
 const providerModal = process.argv.includes('--provider-modal');
 const libraryPurchases = process.argv.includes('--library-purchases');
 const purchaseBar = process.argv.includes('--purchase-bar');
+const libraryRefresh = process.argv.includes('--library-refresh');
 const redesign = process.argv.includes('--redesign') || ownershipBorders || providerModal || purchaseBar;
 const redesignGames = process.argv.includes('--redesign-games');
 const catalogue = process.argv.includes('--catalogue');
@@ -45,7 +46,7 @@ const server = createServer(async (request, response) => {
       response.setHeader('Content-Type','text/html; charset=utf-8');
       response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/purchase-snapshot.js"></script><script src="/purchase-adapters.js"></script><script src="/purchase-sync.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
     }
-    if (pathname === '/books/test' || pathname === '/games/test') pathname = libraryPurchases ? '/tests/library-purchases-fixture.html' : redesignGames ? '/tests/redesign-games-fixture.html' : redesign || summaryToggle ?'/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
+    if (pathname === '/books/test' || pathname === '/games/test') pathname = libraryPurchases || libraryRefresh ? '/tests/library-purchases-fixture.html' : redesignGames ? '/tests/redesign-games-fixture.html' : redesign || summaryToggle ?'/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
     if (pathname === '/books') pathname = '/tests/catalogue-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
@@ -66,6 +67,7 @@ const server = createServer(async (request, response) => {
     if(summaryToggle&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('<script src="/content.js">','<script src="/tests/summary-toggle-setup.js"></script><script src="/content.js">').replace('/tests/redesign-checks.js','/tests/summary-toggle-checks.js');
     if(ownershipBorders&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/ownership-border-checks.js');
     if(providerModal&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/provider-modal-checks.js');
+    if(libraryRefresh&&pathname==='/tests/library-purchases-fixture.html')body=body.toString('utf8').replace('/tests/library-purchases-checks.js','/tests/library-refresh-checks.js');
     if(purchaseBar&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/purchase-bar-checks.js');
     if(pathname.endsWith('.html')){body=body.toString('utf8').replace('<link rel="stylesheet" href="/content.css">','<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/content.css"><link rel="stylesheet" href="/theme-overlays.css">').replace('<script src="/shared.js">','<script src="/theme.js"></script><script src="/shared.js">');if(themeMode)body=body.replace(/<script src="\/tests\/(presentation-parity-checks|advanced-parity-checks|browser-checks)\.js"><\/script>/g,'').replace('</body>','<script src="/tests/theme-overlay-checks.js"></script></body>');}
     response.end(body);
