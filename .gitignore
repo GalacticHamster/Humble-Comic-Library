@@ -16,5 +16,8 @@ bak/
 *metadata-report*.txt
 *key-reminder-discovery*.json
 
+/AGENTS.md
+/CLAUDE.md
+
 # Disposable matching UI captures
 audit-artifacts/
