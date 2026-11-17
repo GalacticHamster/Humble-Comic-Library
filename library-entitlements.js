@@ -273,6 +273,86 @@
   function settle(cp, status, reason, at) {
     return checkpoint({ ...cp, status, reason: status === 'cancelled' ? 'user' : reason ?? 'user', coverage: status === 'paused' ? 'in-progress' : 'incomplete', updatedAt: at, revision: cp.revision + 1 });
   }
+  // Order History evidence. The Library has no purchase dates; Humble's Order History lists completed orders
+  // with bundle-line names and transaction times, but no identifier shared with the Library. Each order line
+  // read for an account is kept (by order and line ID) so dates can be matched again as Humble migrates
+  // older orders and as the Library grows. Lines are evidence only, never purchase records; an order missing
+  // from a later read removes nothing.
+  const ORDER_LINES = 20000, ORDER_PAGES_PER_SYNC = 20;
+  const orderTime = v => { try { return date(typeof v === 'string' ? v.replace(/(\.\d{3})\d+/u, '$1') : v).value; } catch { return null; } };
+  function orderHistory(raw) {
+    if (!object(raw)) return null;
+    const lines = {};
+    if (object(raw.lines)) for (const [ref, v] of Object.entries(raw.lines).slice(0, ORDER_LINES)) {
+      try { if (ref.length <= 400 && object(v)) lines[ref] = { name: text(v.name, 400), at: v.at === null ? null : orderTime(v.at) }; } catch {}
+    }
+    const page = raw.resume?.page;
+    return { lines, newest: orderTime(raw.newest ?? null), checkedAt: orderTime(raw.checkedAt ?? null),
+      resume: Number.isSafeInteger(page) && page > 1 && page <= 100000 ? { page, newest: orderTime(raw.resume.newest ?? null) } : null };
+  }
+  // Library and Order History names compared without case, punctuation or "&"/"and" differences.
+  const nameKey = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[‘’“”'"`]/gu, '').replace(/&/gu, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  // Purchase dates for a scope's Library purchases, matched by name. A purchase gets a date when its name is
+  // shared by as many order lines as Library purchases and every one of those lines has the same date: one
+  // purchase and one order in the normal case. Repeat purchases with different dates, or more or fewer lines
+  // than purchases (Order History is still incomplete), stay undated.
+  function orderDates(scope) {
+    const dates = new Map();
+    if (!scope?.orders) return dates;
+    const lines = new Map(), parents = new Map();
+    for (const line of Object.values(scope.orders.lines)) { const k = nameKey(line.name); if (k) { if (!lines.has(k)) lines.set(k, []); lines.get(k).push(line.at); } }
+    for (const r of scope.observations) {
+      const k = nameKey(r.parentTitle);
+      if (!k) continue;
+      if (!parents.has(k)) parents.set(k, new Set());
+      parents.get(k).add(r.parentId);
+    }
+    for (const [k, ids] of parents) {
+      const at = lines.get(k);
+      if (!at || at.length !== ids.size || new Set(at).size !== 1 || !at[0]) continue;
+      for (const parent of ids) dates.set(parent, { purchasedAt: at[0], source: 'order-history' });
+    }
+    return dates;
+  }
+  // Reads Order History pages for a synced account. Pages run newest first by the time an order reached the
+  // new store, so orders placed or migrated since the last read are on the first pages: a recent read stops
+  // at the first order it has seen before; a full read (or an unfinished one) continues to the last page,
+  // at most ORDER_PAGES_PER_SYNC pages per sync, resuming next time. Every order must belong to the signed-in
+  // account the Library sync verified. The transaction time is legacyCreatedAt for migrated orders (their
+  // createdAt is the migration), else completedAt, else createdAt for orders placed on the new store.
+  async function readOrderHistory({ fetcher, scope, state = null, full = false, maxPages = ORDER_PAGES_PER_SYNC }) {
+    const start = state?.resume?.page ?? 1, watermark = full || start > 1 ? null : state?.newest ?? null, lines = [];
+    const pick = v => typeof v === 'string' ? v : object(v) ? v['en-US'] ?? v.en ?? Object.values(v).find(x => typeof x === 'string') ?? null : null;
+    const foreign = () => Object.assign(Error('Order History belongs to a different Humble account.'), { fatalScope: true });
+    let newest = start > 1 ? state.resume.newest : null, total = start, page = start, done = false;
+    for (let pages = 0; page <= total && pages < maxPages && !done; page++, pages++) {
+      const f = await read(fetcher, '/home/purchases?page=' + page, { headers: { RSC: '1', Accept: 'text/x-component' } });
+      if (principal(f) !== scope.principalId) throw foreign();
+      const history = f.components.filter(c => c.name === 'OrderHistory');
+      const data = history.length === 1 ? f.resolve(history[0].props?.data) : null, results = f.resolve(data?.results), totalPages = f.resolve(f.resolve(data?.pagination)?.totalPages);
+      if (!Array.isArray(results)) throw Error('Unreadable Order History.');
+      total = Number.isSafeInteger(totalPages) && totalPages >= 0 ? Math.min(totalPages, 100000) : page;
+      for (const value of results) {
+        const o = f.resolve(value), fields = f.resolve(f.resolve(o?.custom)?.fields) ?? {};
+        if (f.resolve(fields.oryIdentityId) !== scope.principalId || fields.userHubUserId !== undefined && f.resolve(fields.userHubUserId) !== scope.userId) throw foreign();
+        const order = id(f.resolve(o.id)), created = orderTime(f.resolve(o.createdAt));
+        if (start === 1 && page === 1 && created && (!newest || created > newest)) newest = created;
+        if (watermark && created && created <= watermark) done = true;
+        const complete = f.resolve(o.orderState) === 'Complete' && f.resolve(o.paymentState) === 'Paid';
+        const legacy = ['legacyCreatedAt', 'legacyOrderId', 'sourceSystem'].some(k => f.resolve(fields[k]) != null);
+        const at = orderTime(f.resolve(fields.legacyCreatedAt)) ?? orderTime(f.resolve(o.completedAt)) ?? (legacy ? null : created);
+        const items = f.resolve(o.lineItems);
+        for (const line of Array.isArray(items) ? items.map(f.resolve) : []) {
+          const ref = order + ':' + id(f.resolve(line?.id)), name = pick(f.resolve(line?.name));
+          // A cancelled or refunded order is not a purchase; a line seen that way is withdrawn.
+          if (!complete) lines.push({ ref, drop: true });
+          else if (typeof name === 'string' && name.trim()) lines.push({ ref, name: providerTitle(name), at });
+        }
+      }
+    }
+    const finished = done || page > total;
+    return { lines, state: { newest: finished ? [newest, state?.newest].filter(Boolean).sort().at(-1) ?? null : state?.newest ?? null, resume: finished ? null : { page, newest } } };
+  }
   function collection(raw = { version: 1, scopes: [] }) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.scopes) || raw.scopes.length > 100) throw Error('Invalid Library observation collection.');
     let count = 0; const seenScopes = new Set(), bindings = new Set();
@@ -288,7 +368,8 @@
         seen.add(ref); return r;
       });
       if (typeof s.profileLabel !== 'string' || s.profileLabel.length > 100) throw Error('Invalid Library profile label.');
-      return { ...scope, localAccountId: s.localAccountId, profileLabel: s.profileLabel, observations, lastScan: scan(s.lastScan), sync: checkpoint(s.sync) };
+      const orders = orderHistory(s.orders);
+      return { ...scope, localAccountId: s.localAccountId, profileLabel: s.profileLabel, observations, lastScan: scan(s.lastScan), sync: checkpoint(s.sync), ...(orders ? { orders } : {}) };
     }) };
   }
   // Bundle-page matching records for the active account. A title the account's imported
@@ -682,7 +763,7 @@
       const progressData = sync ? { sync: { nextPage: startPage + result.pagesRead, signature: result.pagesRead ? batch.signature : null, orderingChanged: batch.orderingChanged, uncertainty: [],
         status: batch.requested ?? 'running', reason: batch.requested ? 'user' : null } } : {};
       const saved = await store('entitlementCommit', token, { scope: final.scope, observations: [...rows.values()].map(v => v.value), scan: result, ...progressData });
-      finished = true; return { ...saved, batch };
+      finished = true; return { ...saved, batch, scope: final.scope };
     } finally { if (!finished) await store('entitlementAbort', token).catch(() => {}); }
   }
   function syncSettings(raw = {}) {
@@ -715,6 +796,15 @@
       if (!cp) return null;
       try { return await store('entitlementSync', { id: cp.id, revision: cp.revision, status, reason }); } catch { return null; }
     };
+    // After a completed sync, purchase dates from Humble's Order History for the account the sync verified.
+    // A failure here never fails the sync; the next sync looks again.
+    async function datePurchases(result, mode, paced) {
+      emit({ phase: 'dates', pageRange: null });
+      try {
+        const orders = await readOrderHistory({ fetcher: paced, scope: result.scope, state: result.orders ?? null, full: mode === 'full' });
+        emit({ orderDates: await store('entitlementOrders', { scope: result.scope, lines: orders.lines, state: orders.state }) });
+      } catch { emit({ orderDates: { error: true } }); }
+    }
     async function loop({ mode, resume, context, replace }) {
       let cp = resume, id = cp?.id ?? global.crypto.randomUUID(), revision = cp?.revision ?? 0, startPage = cp?.nextPage ?? 1, overlap = cp?.lastSignature ?? null;
       let claim = true, failures = 0, action = null, requests = 0, last = -Infinity;
@@ -751,6 +841,7 @@
         }
         claim = false; replace = false; cp = result.sync; id = cp.id; revision = cp.revision; action = result.batch.action;
         emit({ checkpoint: cp });
+        if (cp.status === 'completed') await datePurchases(result, mode, paced);
         if (cp.status !== 'running') return finish(cp.status, { checkpoint: cp, error: cp.reason === 'user' ? null : cp.reason });
         const progressed = cp.nextPage > startPage;
         startPage = cp.nextPage; overlap = cp.lastSignature;
@@ -777,7 +868,7 @@
         const prior = resume && checkpoint(resume);
         if (!['full','refresh'].includes(mode) || prior && prior.mode !== mode) throw Error('Invalid Library sync request.');
         stop = null;
-        emit({ phase: 'starting', mode, checkpoint: prior, error: null, retry: null, retryAfter: null });
+        emit({ phase: 'starting', mode, checkpoint: prior, error: null, retry: null, retryAfter: null, orderDates: null });
         running = loop({ mode, resume: prior, context, replace })
           .catch(error => { const kind = failureKind(error); emit({ phase: 'stopped', error: kind === 'transient' ? 'failed' : kind }); })
           .finally(() => { running = null; emit({}); });
@@ -792,7 +883,8 @@
     if (!s) return { checkpoint: null, saved: 0, found: 0, undetailed: 0 };
     // DRM-free purchases saved before download details were read; a full sync adds them.
     const undetailed = s.observations.filter(r => r.namespace === 'download_drm_free' && r.purchaseStatus === 'purchased' && !r.delivery).length;
-    return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0, undetailed };
+    return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0, undetailed,
+      orders: s.orders ? { lines: Object.keys(s.orders.lines).length, dated: orderDates(s).size } : null };
   }
   const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
     'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'the observed item count did not reconcile with Humble’s reported Library row count' };
@@ -875,6 +967,8 @@
         ...(stored.undetailed ? [`Media not yet identified: ${number(stored.undetailed)} item${stored.undetailed === 1 ? '' : 's'} saved by an earlier version. Run the full sync again to identify books, comics, games and software.`] : []),
         `Coverage: ${cp.coverage === 'accessible-pages-traversed' ? 'every page Humble currently shows was read' : cp.coverage === 'recent-pages' ? 'recent pages only' : cp.coverage === 'in-progress' ? 'in progress' : 'incomplete'}`,
         ...(cp.lastProgressAt ? [`Last progress: ${new Date(cp.lastProgressAt).toLocaleString()}`] : []),
+        // Purchases dated, not orders found: an order line counts only once matched to one Library purchase.
+        ...(stored.orders ? [`Purchase dates from your Humble order history: ${plural(stored.orders.dated, 'Library purchase')} dated. Humble is still adding older orders there; later syncs add their dates.`] : []),
         ...(v.retry ? [`Retrying after a failed request: attempt ${v.retry.attempt} of ${v.retry.of}`] : []),
         ...(v.retryAfter ? [`Humble asked to wait about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes before more requests`] : [])
       ] : []).map(text => make('li', { textContent: text })));
@@ -884,6 +978,7 @@
       if (message) text = message;
       else if (live) text = { starting: 'Starting…', pausing: 'Pausing after the current page…', cancelling: 'Cancelling after the current page… Purchases already found stay saved.',
         waiting: 'Syncing… pausing briefly between pages to keep requests to Humble modest.',
+        dates: 'Looking up purchase dates in your Humble order history…',
         retrying: v.retry ? `Humble did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds. Progress so far is saved.` : 'Trying again…'
       }[v.phase] ?? `${v.mode === 'refresh' ? 'Checking recent purchases' : 'Syncing'}… reading pages ${number(v.pageRange?.[0] ?? 1)}–${number(v.pageRange?.[1] ?? 1)}.`;
       else if (v.phase === 'stopped' && v.error === 'superseded') text = STOP_TEXT.superseded;
@@ -896,6 +991,7 @@
       else if (cp.mode === 'refresh') text = `Checked your most recent Library ${cp.targetPages === 1 ? 'page' : `${number(cp.targetPages)} pages`} for new purchases. Older pages were not checked again${cp.lastFull ? '' : '; run a full sync to check the available older pages'}.` + (cp.uncertainty.length?' Coverage warnings are listed in Scan details.':'');
       else if (cp.coverage === 'accessible-pages-traversed') text = `Finished: read all ${number(cp.reportedPages)} pages your Humble Library currently shows. This reflects what the Library shows today, not proof of your complete purchase history. Existing purchases were kept.`;
       else text = 'Finished reading the available pages. Coverage could not be confirmed; see Scan details for the observed issues. Existing purchases were kept.';
+      if (!live && !message && showCompleted && cp?.status === 'completed' && v.orderDates?.error) text += ' Purchase dates could not be looked up in your Humble order history this time; the next sync tries again.';
       status.textContent = text;
       const doubts = (cp?.uncertainty ?? []).map(code => UNCERTAINTY_TEXT[code]);
       note.textContent = doubts.length ? `Why this may be incomplete: ${doubts.join('; ')}.` : '';
@@ -955,5 +1051,6 @@
     panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
-    matchingItems, companionRecords, sharedRecord, resolvedMedia, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel });
+    matchingItems, companionRecords, sharedRecord, resolvedMedia, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel,
+    orderHistory, orderDates, readOrderHistory, ORDER_PAGES_PER_SYNC });
 })(globalThis);

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+// Fixture dates are UTC midnights; Options shows dates in the browser's time zone.
+process.env.TZ = 'UTC';
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 

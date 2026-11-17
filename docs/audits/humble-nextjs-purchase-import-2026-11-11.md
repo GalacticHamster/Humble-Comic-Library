@@ -36,6 +36,8 @@ The observed order's `bundleItemKeys` did not equal the individual download enti
 
 Matching counts or readable/similar titles do not establish the missing relationship. Do not join by array position, bundle title, current public offer contents or invented transformations of opaque identifiers. A useful next fact is an explicit order/line-item to Library entitlement mapping, or an authoritative legacy purchase/product alias. The Library may prove an entitlement exists while still lacking the purchase provenance and old identity needed by the current importer.
 
+Later decision (1.1.2), limited to purchase dates: Library purchases now take a date from Order History when a bundle name is shared by as many order lines as Library purchases, all with the same time (see [Purchase dates from Order History](../development/library-entitlement-pilot.md#purchase-dates-from-order-history-112)). The name match only dates a purchase; it creates no purchase record or identity, does not combine purchases and does not change ownership or counts. The identity bridge above remains unresolved.
+
 Shipping a Library-only access collector with unrelated identifiers would be a separate design decision: it cannot silently stand in for preserved purchase history, acquisition dates and manual-correction identity.
 
 ## Existing integration boundaries

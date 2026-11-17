@@ -1347,6 +1347,8 @@ function onlySyncProgressChanged(changes, accountId) {
 // The active account's purchases as the Options library browser presents them: each Humble Library
 // copy of a title, and each purchase for bundle and catalogue markers. The browser's reconciliation
 // pairs imported orders with Library purchases, so one purchase is never counted twice. Read-only.
+// A Library purchase's date, when Humble's Order History supplied one (an ISO time, as imported orders carry).
+function libraryDate(time) { return Number.isFinite(time) ? new Date(time).toISOString() : null; }
 function libraryPurchaseModel(state) {
   const browser = globalThis.HumbleLibraryBrowser, summaries = Array.isArray(state.purchaseSummaries) ? state.purchaseSummaries : [];
   if (!browser || !globalThis.HumbleLibraryEntitlements?.ENABLED) return { copies: null, purchases: summaries };
@@ -1356,7 +1358,7 @@ function libraryPurchaseModel(state) {
   // A Library purchase combined with an imported order is that order. One that might be an imported
   // order (ambiguous, or the same name with other contents) is left out rather than counted twice.
   const library = model.groups.filter(group => group.source === 'native' && group.name && group.matchState === 'unmatched' && group.items.some(entry => !entry.excluded))
-    .map(group => ({ sourceBundle: group.name, purchasedAt: null, libraryPurchase: group.parentId }));
+    .map(group => ({ sourceBundle: group.name, purchasedAt: libraryDate(group.purchasedAt), libraryPurchase: group.parentId }));
   return { copies, purchases: [...summaries, ...library] };
 }
 
@@ -1370,7 +1372,7 @@ function entitlementMatchingRecords(state, model = libraryPurchaseModel(state)) 
   return records.map(item => {
     const copies = (model.copies.links.get(model.copies.key(item.title)) ?? []).filter(copy => family(copy.kind) === family(item.kind));
     if (!copies.length) return item;
-    const own = copies.map(copy => ({ sourceBundle: copy.purchase, purchasedAt: null, libraryPurchase: copy.parentId, libraryCopy: copy.nativeId, historicalKey: copy.historicalKey,
+    const own = copies.map(copy => ({ sourceBundle: copy.purchase, purchasedAt: libraryDate(copy.purchasedAt), libraryPurchase: copy.parentId, libraryCopy: copy.nativeId, historicalKey: copy.historicalKey,
       ...(copy.namespace === 'download_drm_free' ? { entitlement: 'direct-download' } : { entitlement: 'third-party-key', keyStatus: 'unknown' }) }));
     return { ...item, provenance: [...(item.libraryObservation ? [] : itemProvenance(item)), ...own] };
   });

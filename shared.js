@@ -907,7 +907,7 @@
       // Account changes, restore, clear and legacy scans end both the pending batch and the tab's sync lease.
       const pendingEntitlements=await area.get({hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null});
       const invalidateEntitlements=pendingEntitlements.hclLibraryEntitlementControl||pendingEntitlements.hclLibraryEntitlementLease?{hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null}:{};
-      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort','entitlementSync'].includes(operation)){
+      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort','entitlementSync','entitlementOrders'].includes(operation)){
         const E=global.HumbleLibraryEntitlements;
         if(!E?.ENABLED)throw Error('Library entitlement collection is not enabled.');
         const current=await area.get(LIBRARY_STATE_DEFAULTS),key='hclLibraryEntitlementControl',leaseKey='hclLibraryEntitlementLease',lease=pendingEntitlements[leaseKey];
@@ -944,6 +944,21 @@
           const next=E.collection({version:1,scopes:collection.scopes.map(s=>s===scope?{...s,sync}:s)}),pending=(await area.get({[key]:null}))[key];
           await area.set({libraryEntitlements:next,...(lease?.syncId===q.id?{[leaseKey]:null}:{}),...(pending?.sync?.id===q.id?{[key]:null}:{})});return sync;
         }
+        if(operation==='entitlementOrders'){
+          // Order History lines for the active account's own synced Library, merged by order line. A line absent
+          // from a later read is kept; only a line Humble now shows as cancelled or refunded is withdrawn.
+          // Observations, checkpoints, imports and other accounts are untouched.
+          const [q]=args,collection=E.collection(current.libraryEntitlements),scope=collection.scopes.find(s=>s.localAccountId!==null&&s.localAccountId===current.humbleAccountId);
+          if(!scope||!q?.scope||E.scopeKey(scope)!==E.scopeKey(q.scope))throw Error('The saved account changed; Order History dates were not saved.');
+          if(!Array.isArray(q.lines)||q.lines.length>5000)throw Error('Invalid Order History batch.');
+          const lines={...scope.orders?.lines??{}};
+          for(const line of q.lines){if(typeof line?.ref!=='string')continue;if(line.drop===true){delete lines[line.ref];continue;}lines[line.ref]={name:line.name,at:line.at??lines[line.ref]?.at??null};}
+          const newest=[scope.orders?.newest,q.state?.newest].filter(v=>typeof v==='string').sort().at(-1)??null;
+          const orders=E.orderHistory({lines,newest,resume:q.state?.resume??null,checkedAt:new Date().toISOString()});
+          const next=E.collection({version:1,scopes:collection.scopes.map(s=>s===scope?{...s,orders}:s)});
+          await area.set({libraryEntitlements:next});
+          return {lines:Object.keys(orders.lines).length,dated:E.orderDates(next.scopes.find(s=>E.scopeKey(s)===E.scopeKey(scope))).size};
+        }
         const control=(await area.get({[key]:null}))[key];
         const tabId=operation==='entitlementCommit'?args[2]:args[1];
         if(!control||control.token!==args[0]||control.tabId!==tabId||control.localAccountId!==current.humbleAccountId||control.profileLabel!==current.humbleProfileLabel||!Number.isFinite(Date.parse(control.startedAt))||Date.now()-Date.parse(control.startedAt)>15*60*1000)throw Error('Library check superseded by an account change, clear or restore.');
@@ -964,9 +979,9 @@
           if(lease?.id!==control.sync.lease||lease.syncId!==control.sync.id||(control.sync.revision?same?.revision!==control.sync.revision:same))throw Error('Library sync superseded by another tab, account change, clear or restore.');
           sync=E.advance({previous:same,carried:same?null:cp,run:{...control.sync,startedAt:control.startedAt},scan,request:data.sync,added,refreshed:incoming.size-added,observed:[...observations.values()].filter(r=>r.observedAt>=(same?.startedAt??control.startedAt)).length,at:new Date().toISOString()});
         }
-        const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan,sync}]});
+        const next=E.collection({version:1,scopes:[...collection.scopes.filter(s=>E.scopeKey(s)!==E.scopeKey(control)),{principalId:control.principalId,userId:control.userId,localAccountId:control.localAccountId,profileLabel:control.profileLabel,observations:[...observations.values()],lastScan:scan,sync,...(previous?.orders?{orders:previous.orders}:{})}]});
         // One atomic write; no legacy arrays, corrections, scan checkpoints or reminders are touched.
-        await area.set({libraryEntitlements:next,[key]:null,...(control.sync&&sync.status!=='running'?{[leaseKey]:null}:{})});return {saved:incoming.size,scan,...(control.sync?{sync}:{})};
+        await area.set({libraryEntitlements:next,[key]:null,...(control.sync&&sync.status!=='running'?{[leaseKey]:null}:{})});return {saved:incoming.size,scan,...(control.sync?{sync}:{}),orders:previous?.orders?{newest:previous.orders.newest,resume:previous.orders.resume}:null};
       }
       if(['syncAccounts','begin','selectProfile','renameProfile'].includes(operation))await globalThis.GalacticPurchaseSync?.migrateAccounts(area,'hb');
       if(operation==='syncAccounts'){

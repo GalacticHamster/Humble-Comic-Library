@@ -39,6 +39,8 @@ export function fixture(options={}) {
       return response(body);
     }
     if(path.startsWith('/home/library/parent-'))return response(frames([{name:'AuthProvider',props:{user:{id:options.detailForeign?'principal-B':'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:decodeURIComponent(path.split('/').at(-1)),userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{keys:children.filter(c=>c.type!=='download_drm_free'),downloads:children.filter(c=>c.type==='download_drm_free'),redemptionGroups:[],...options.entitlements},...options.parent}}}]));
+    // Synthetic Order History, when a test supplies one: options.orders(page) returns that page's body or a status.
+    if(path.startsWith('/home/purchases?page=')&&options.orders){const page=Number(path.split('=').pop()),body=options.orders(page);return typeof body==='number'?response('unavailable',body):response(body);}
     throw Error('Unexpected synthetic request');
   };
   const store=(op,...args)=>writer.execute(op,op==='entitlementBegin'?[{expectedAccountId:stored.humbleAccountId,expectedProfileLabel:stored.humbleProfileLabel,...args[0]},7]:op==='entitlementCommit'?[...args,7]:op==='entitlementAbort'?[...args,7]:args);

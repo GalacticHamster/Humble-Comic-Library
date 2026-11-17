@@ -41,7 +41,7 @@
   }
 
   function group(key, fields) {
-    return { key, name: null, type: 'unknown', purchasedAt: null, firstSeenAt: null, listedCount: null, orderRecorded: false, parentId: null, route: null, items: [], ...fields };
+    return { key, name: null, type: 'unknown', purchasedAt: null, dateSource: null, firstSeenAt: null, listedCount: null, orderRecorded: false, parentId: null, route: null, items: [], ...fields };
   }
 
   // Native groups need an enabled collector and the active account's own scope.
@@ -81,10 +81,15 @@
     const native = nativeScope({ libraryEntitlements, humbleAccountId, entitlements });
     // The same media resolution the bundle matcher uses: provider evidence, then agreeing imported records.
     const kinds = native.scope && entitlements.historicalKinds ? entitlements.historicalKinds(Array.isArray(items) ? items : []) : null;
+    // Purchase dates matched from Humble's Order History by purchase name (see orderDates).
+    const dated = native.scope && entitlements.orderDates ? entitlements.orderDates(native.scope) : new Map();
     for (const r of native.scope?.observations ?? []) {
       const media = kinds ? entitlements.resolvedMedia(r, kinds) : r.mediaType;
       const key = 'n:' + r.parentId;
-      if (!groups.has(key)) groups.set(key, group(key, { source: 'native', parentId: r.parentId, type: NATIVE_TYPES[r.eligibility?.parentType] ?? 'unknown', route: purchaseRoute(r.parentId) }));
+      if (!groups.has(key)) {
+        const at = time(dated.get(r.parentId)?.purchasedAt);
+        groups.set(key, group(key, { source: 'native', parentId: r.parentId, type: NATIVE_TYPES[r.eligibility?.parentType] ?? 'unknown', route: purchaseRoute(r.parentId), purchasedAt: at, dateSource: at === null ? null : 'order-history' }));
+      }
       const g = groups.get(key);
       if (!g.name && r.parentTitle) g.name = r.parentTitle;
       g.items.push({ title: r.title, kind: media, category: category(media), source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
@@ -167,7 +172,7 @@
   function unify(h, n, evidence) {
     const items = mergeItems(h, n).sort((a, b) => COLLATOR.compare(a.title, b.title));
     const g = { key: 'u:' + h.key + '|' + n.key, source: 'unified', historical: h, native: n, evidence,
-      name: n.name || h.name, historicalName: h.name !== n.name ? h.name : null, type: n.type, purchasedAt: h.purchasedAt, firstSeenAt: n.firstSeenAt, listedCount: h.listedCount, orderRecorded: h.orderRecorded,
+      name: n.name || h.name, historicalName: h.name !== n.name ? h.name : null, type: n.type, purchasedAt: h.purchasedAt ?? n.purchasedAt, dateSource: h.purchasedAt !== null ? null : n.dateSource ?? null, firstSeenAt: n.firstSeenAt, listedCount: h.listedCount, orderRecorded: h.orderRecorded,
       parentId: n.parentId, route: n.route, items, matchState: 'matched', sameNamePurchases: Math.max(h.sameNamePurchases, n.sameNamePurchases), sharedNameUnconfirmed: false,
       onlyNative: items.filter(i => i.source === 'native').length, onlyHistorical: items.filter(i => i.source === 'historical').length };
     finishGroup(g);
@@ -266,7 +271,7 @@
       const list = links.get(key) ?? [];
       if (list.some(c => c.nativeId === entry.nativeId)) return;
       const u = unified.get(native.key);
-      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam', firstSeenAt: native.firstSeenAt,
+      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam', firstSeenAt: native.firstSeenAt, purchasedAt: native.purchasedAt ?? null,
         historicalKey: u ? u.historical.key : null, interchangeable: u ? u.evidence.interchangeable : 0, matchState: native.matchState ?? 'unmatched' });
       links.set(key, list);
     };
@@ -320,8 +325,9 @@
     for (const r of Array.isArray(scope.observations) ? scope.observations : []) {
       parts.push([r?.namespace, r?.nativeId, r?.title, r?.parentId, r?.parentTitle, r?.mediaType, r?.purchaseStatus, r?.eligibility?.giftStatus, r?.eligibility?.parentType, r?.firstObservedAt].join('\u0001'));
     }
-    // Unverified rows are counted in the browser note; other checkpoint fields are sync progress.
-    return scope.localAccountId + '\u0002' + parts.join('\u0002') + '\u0002' + (scope.sync?.unresolved ?? 0);
+    // Order History lines date purchases. Unverified rows are counted in the browser note; other checkpoint fields are sync progress.
+    const orders = scope.orders?.lines && typeof scope.orders.lines === 'object' ? Object.entries(scope.orders.lines).map(([ref, line]) => [ref, line?.name, line?.at].join('\u0001')).join('\u0002') : '';
+    return scope.localAccountId + '\u0002' + parts.join('\u0002') + '\u0002' + (scope.sync?.unresolved ?? 0) + '\u0003' + orders;
   }
 
   // "Recently added" order: when a sync first saw a Humble Library purchase that is not one of the
@@ -379,8 +385,9 @@
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt });
-        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt, purchasedAt: group.purchasedAt ?? null });
+        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name))
+          title.provenance.push({ sourceBundle: group.name, ...(group.purchasedAt !== null ? { purchasedAt: new Date(group.purchasedAt).toISOString() } : {}) });
       }
     }
     return [...titles.values()];

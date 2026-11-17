@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { load, nativeObservation, entitlements, ACCOUNT } from './library-browser-fixture.mjs';
+// Fixture dates are UTC midnights; Options shows dates in the browser's time zone.
+process.env.TZ = 'UTC';
 
 // Options page with the native module enabled and the presentation model loaded.
 async function harness(initial = {}, { enabled = true } = {}) {

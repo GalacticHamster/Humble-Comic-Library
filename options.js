@@ -176,13 +176,13 @@
     return latest;
   }
 
+  // The calendar date in this browser's time zone, as the bundle page shows it: a purchase made late in the
+  // evening is shown on that day, not on the next day in UTC.
   function formatPurchaseDate(timestamp) {
     if (!timestamp) return '';
-    try {
-      return new Date(timestamp).toISOString().slice(0, 10);
-    } catch {
-      return '';
-    }
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.valueOf())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
   function itemsMatchExactly(a, b) {
@@ -823,7 +823,8 @@
       if (split.length) facts.push(split.join('; ') + '.');
       if (group.listedCount !== null && group.listedCount !== group.historical.items.length) facts.push(`Humble listed ${plural(group.listedCount, 'item')} in this order; ${plural(group.historical.items.length, 'media title')} were imported.`);
       facts.push('Humble Library purchase verified against the signed-in account.');
-      if (group.firstSeenAt) facts.push(`First found by Library sync on ${formatPurchaseDate(group.firstSeenAt)}. The purchase date comes from the historical import.`);
+      if (group.dateSource === 'order-history') facts.push('Purchase date from your Humble order history, matched to this purchase by its name.');
+      if (group.firstSeenAt) facts.push(`First found by Library sync on ${formatPurchaseDate(group.firstSeenAt)}.${group.dateSource === 'order-history' ? '' : ' The purchase date comes from the historical import.'}`);
       if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
       if (group.excluded) facts.push(`${plural(group.excluded, 'item')} excluded (gifted, revoked or temporary).`);
       if (group.sameNamePurchases > 1) facts.push(`One of ${group.sameNamePurchases} separate purchases with this name.`);
@@ -832,7 +833,8 @@
     if (group.source === 'native') {
       facts.push('Native Library purchase, verified against the signed-in account.');
       // A first-found date is when the extension first saw the purchase, never when it was bought.
-      facts.push(group.firstSeenAt
+      if (group.dateSource === 'order-history') facts.push('Purchase date from your Humble order history, matched to this purchase by its name.');
+      else facts.push(group.firstSeenAt
         ? `First found by Library sync on ${formatPurchaseDate(group.firstSeenAt)}. Humble's Library lists no purchase date, so this is when the extension first saw it, not when it was bought.`
         : 'Humble\'s Library lists no purchase date. This purchase was saved before first-found dates were recorded.');
       if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
@@ -955,7 +957,7 @@
     primary.className = 'library-provenance-primary';
     primary.textContent = copy.purchase ? `${GROUP_TYPE_LABELS[copy.type] || 'Purchase'}: ${copy.purchase}` : 'Humble Library purchase';
     const media = copy.media ?? (copy.kind && copy.kind !== 'unknown' ? copy.kind : null);
-    const parts = ['Purchased on Humble', `Media: ${media ? mediaTypeLabel(media) : 'Unknown'}`];
+    const parts = [copy.purchasedAt ? `Purchased on Humble ${formatPurchaseDate(copy.purchasedAt)}` : 'Purchased on Humble', `Media: ${media ? mediaTypeLabel(media) : 'Unknown'}`];
     if (copy.steam) parts.push('Steam activation: Unknown');
     if (copy.firstSeenAt) parts.push(`First synced ${formatPurchaseDate(copy.firstSeenAt)}`);
     if (showMatchDetails && copy.interchangeable) parts.push(`One of ${copy.interchangeable} identical purchases`);
