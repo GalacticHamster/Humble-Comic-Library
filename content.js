@@ -42,6 +42,7 @@ function finishGalacticRendering(diagnostic){
 (async function initialiseHumbleComicLibrary() {
   'use strict';
   watchProviderModals();
+  watchPagePurchaseBar();
 
   if (globalThis.HumbleLibraryEntitlements?.ENABLED && location.pathname.startsWith('/home/library')) { if(isRedesignedHumble())initialiseRedesignedHumble();else HumbleLibraryEntitlements.installPanel(); return; }
 
@@ -431,6 +432,28 @@ function watchProviderModals() {
   const schedule = () => { frame ||= requestAnimationFrame(update); };
   new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'data-state'] });
   new MutationObserver(schedule).observe(document.body, { attributes: true, attributeFilter: ['style'] });
+  schedule();
+}
+
+// In narrow windows (and at high zoom) Humble pins its Add to Cart bar to the bottom of the viewport.
+// HB's bottom-docked panel and progress sit above that bar (content.css reads the inset); top positions
+// and wider layouts, where the button scrolls with the page, are unaffected. Measured only when the page
+// changes or the window resizes, never while scrolling, so the panel does not move during browsing.
+function watchPagePurchaseBar() {
+  if (typeof globalThis.MutationObserver !== 'function' || !document.documentElement) return;
+  let frame = 0, inset = -1;
+  const update = () => {
+    frame = 0;
+    const bar = document.querySelector('[data-testid="bundle-mobile-footer"]'), rect = bar?.getBoundingClientRect();
+    const next = rect && rect.height > 0 && rect.top < innerHeight && getComputedStyle(bar).position === 'fixed' ? Math.max(0, Math.ceil(innerHeight - rect.top)) : 0;
+    if (next === inset) return;
+    inset = next;
+    if (next) document.documentElement.style.setProperty('--hcl-page-bottom-inset', next + 'px');
+    else document.documentElement.style.removeProperty('--hcl-page-bottom-inset');
+  };
+  const schedule = () => { frame ||= requestAnimationFrame(update); };
+  new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true });
+  addEventListener('resize', schedule, { passive: true });
   schedule();
 }
 
