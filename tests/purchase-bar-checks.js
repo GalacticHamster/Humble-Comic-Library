@@ -22,7 +22,8 @@
     await pause(300);
     const panel = document.querySelector('#hcl-summary'), nodes = badges(), position = panel.dataset.position;
     const restingBottom = innerHeight - panel.getBoundingClientRect().bottom;
-    check(position.startsWith('bottom') && Math.abs(restingBottom - 16) < 1, 'without a pinned purchase bar the panel keeps its usual bottom margin');
+    check(position === 'bottom-left' && panel.getBoundingClientRect().left < innerWidth / 2, 'with no saved corner the panel starts bottom left, away from Humble\'s right-hand purchase column');
+    check(Math.abs(restingBottom - 16) < 1, 'without a pinned purchase bar the panel keeps its usual bottom margin');
     check(panel.getBoundingClientRect().height <= Math.max(innerHeight / 2, 288) + 1, 'the expanded panel leaves at least half of a short window clear');
     const counts = JSON.stringify(activity);
     const {bar, cart} = addBar();

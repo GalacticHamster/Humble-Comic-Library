@@ -15,7 +15,7 @@ const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 // What the catalogue's purchase markers read: imported orders and the active account's Library purchases.
 const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null };
 let purchaseFocusTimer;
-let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
+let bundleSummaryPreferences = {minimized:false,position:'bottom-left'};
 let galacticDiagnosticSequence=0;
 const galacticDiagnosticPrefix=(globalThis.crypto?.randomUUID?.().replaceAll('-','')??Math.random().toString(16).slice(2).padEnd(12,'0')).slice(0,12);
 const galacticDiagnosticNow=()=>Number.isFinite(globalThis.performance?.timeOrigin)?performance.timeOrigin+performance.now():Date.now();
