@@ -12,6 +12,8 @@ const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 30000;
 // Software requests require an advertised capability; older GL stays local.
 const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'software']);
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
+// What the catalogue's purchase markers read: imported orders and the active account's Library purchases.
+const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null };
 let purchaseFocusTimer;
 let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
 let galacticDiagnosticSequence=0;
@@ -58,8 +60,9 @@ function finishGalacticRendering(diagnostic){
   }
 
   if (isBundleCataloguePage()) {
-    const storage = await chrome.storage.local.get({ purchaseSummaries: [], showDiagnostics: false, catalogueFilters: {} });
-    const { purchaseSummaries = [], showDiagnostics = false } = storage;
+    const storage = await chrome.storage.local.get({ ...CATALOGUE_LIBRARY_DEFAULTS, showDiagnostics: false, catalogueFilters: {} });
+    const { showDiagnostics = false } = storage;
+    const purchaseSummaries = libraryPurchaseModel(storage).purchases;
     let filters = normaliseCatalogueFilters(storage.catalogueFilters);
     let refreshTimer;
     const refresh = () => {
@@ -107,11 +110,12 @@ function finishGalacticRendering(diagnostic){
   comparison.showDiagnostics = storage.showDiagnostics;
   comparison.showNewItemsOnly = storage.showNewItemsOnly;
   comparison.wishlistItems = storage.wishlistItems;
-  let libraryItems = entitlementMatchingRecords(storage).filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic')));
+  let purchaseModel = libraryPurchaseModel(storage);
+  let libraryItems = entitlementMatchingRecords(storage, purchaseModel).filter((item) => item.kind === itemKind || (itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic')));
   comparison.storageMs = Math.round(performance.now() - comparison.startedAt);
   comparison.libraryCount = libraryItems.length;
   comparison.galactic = createGalacticLookup(storage.galacticLibraryExtensionId);
-  let currentBundlePurchases = findCurrentBundlePurchases(storage.purchaseSummaries);
+  let currentBundlePurchases = findCurrentBundlePurchases(purchaseModel.purchases);
   let libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, storage.historicalLibraryItems);
   let collectionMappings = [...HumbleCollectionMappings.builtIn, ...(Array.isArray(storage.customCollectionMappings) ? storage.customCollectionMappings : [])];
   let refreshTimer;
@@ -154,9 +158,10 @@ function finishGalacticRendering(diagnostic){
     (async () => {
       const latest = await readCurrentStorage();
       if (revision !== libraryRevision) return;
-      libraryItems = entitlementMatchingRecords(latest).filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
+      purchaseModel = libraryPurchaseModel(latest);
+      libraryItems = entitlementMatchingRecords(latest, purchaseModel).filter(item => item.kind === itemKind || itemKind === 'book' && (!item.kind || item.kind === 'audiobook' || item.kind === 'comic'));
       libraryMatcher = createBundleLibraryMatcher(libraryItems, itemKind, latest.historicalLibraryItems);
-      currentBundlePurchases = findCurrentBundlePurchases(latest.purchaseSummaries);
+      currentBundlePurchases = findCurrentBundlePurchases(purchaseModel.purchases);
       collectionMappings = [...HumbleCollectionMappings.builtIn, ...latest.customCollectionMappings];
       comparison.wishlistItems = latest.wishlistItems;
       comparison.libraryCount = libraryItems.length;
@@ -271,21 +276,24 @@ function sortRedesignedBundleItems(items) {
 
 function initialiseRedesignedHumble() {
   let timer, revision=0, comparison=null, previousRoute='';
-  let catalogueFilters={};
+  // The Library purchase model needs the whole library. A page keeps it across refreshes until library
+  // storage changes; a read superseded by a newer refresh returns before it can be kept.
+  let catalogueFilters={}, purchaseModelCache=null;
   const refresh=()=>{
     clearTimeout(timer);const route=location.pathname, job=++revision;
     if(comparison) comparison.job++;
     // Clear old-route annotations immediately; asynchronous GL results cannot
     // repopulate a new route because their comparison job is invalidated.
-    if(route!==previousRoute){document.querySelector('#hcl-library-sync')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();previousRoute=route;}
+    if(route!==previousRoute){document.querySelector('#hcl-library-sync')?.remove();clearBundleAnnotations();document.querySelector('#hcl-summary')?.remove();document.querySelector('#hcl-importer')?.remove();document.querySelector('#hcl-catalog-filters')?.remove();document.querySelector('#hcl-catalog-sort-diagnostics')?.remove();removeComparisonProgress();purchaseModelCache=null;previousRoute=route;}
     timer=setTimeout(async()=>{
       if(globalThis.HumbleLibraryEntitlements?.ENABLED&&route.startsWith('/home/library')){HumbleLibraryEntitlements.installPanel();return;}
       if(/^\/home\/(?:purchases|library)(?:\/|$)/u.test(route)){ensurePurchaseImporter();return;}
       if(isBundleCataloguePage()){
-        const stored=await chrome.storage.local.get({purchaseSummaries:[],showDiagnostics:false,catalogueFilters:{}});
+        const stored=await chrome.storage.local.get({...(purchaseModelCache?{}:CATALOGUE_LIBRARY_DEFAULTS),showDiagnostics:false,catalogueFilters:{}});
         if(job!==revision||route!==location.pathname)return;
+        purchaseModelCache??=libraryPurchaseModel(stored);
         catalogueFilters=normaliseCatalogueFilters(stored.catalogueFilters);
-        renderCataloguePurchaseMarkers(stored.purchaseSummaries,stored.showDiagnostics,catalogueFilters,next=>{HumbleComicLibrary.storageSet({catalogueFilters:normaliseCatalogueFilters(next)}).then(refresh).catch(showComparisonFailure);});return;
+        renderCataloguePurchaseMarkers(purchaseModelCache.purchases,stored.showDiagnostics,catalogueFilters,next=>{HumbleComicLibrary.storageSet({catalogueFilters:normaliseCatalogueFilters(next)}).then(refresh).catch(showComparisonFailure);});return;
       }
       const kind=/^\/books\/[^/]+\/?$/u.test(route)?'book':/^\/games\/[^/]+\/?$/u.test(route)?'game':/^\/software\/[^/]+\/?$/u.test(route)?'software':null;
       if(!kind)return;
@@ -296,8 +304,9 @@ function initialiseRedesignedHumble() {
         comparison={job:1,startedAt:performance.now(),refreshes:1,emptyChecks:0,showNewItemsOnly:stored.showNewItemsOnly,showDiagnostics:stored.showDiagnostics,wishlistItems:stored.wishlistItems,galactic:createGalacticLookup(stored.galacticLibraryExtensionId)};
         comparison.retryGalactic=refresh;comparison.refreshGalactic=refresh;
         clearBundleAnnotations();
-        const records=entitlementMatchingRecords(stored).filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
-        await renderBundleComparison(createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems),kind,findCurrentBundlePurchases(stored.purchaseSummaries),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
+        const purchaseModel=purchaseModelCache??=libraryPurchaseModel(stored);
+        const records=entitlementMatchingRecords(stored,purchaseModel).filter(item=>item.kind===kind||kind==='book'&&(!item.kind||['comic','audiobook'].includes(item.kind)));
+        await renderBundleComparison(createBundleLibraryMatcher(records,kind,stored.historicalLibraryItems),kind,findCurrentBundlePurchases(purchaseModel.purchases),[...HumbleCollectionMappings.builtIn,...stored.customCollectionMappings],comparison,1);
       }catch(error){if(job===revision)showComparisonFailure(error);}
     },120);
   };
@@ -314,6 +323,7 @@ function initialiseRedesignedHumble() {
       bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);
       document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));
     }
+    if(Object.keys(CATALOGUE_LIBRARY_DEFAULTS).some(key=>Object.hasOwn(changes,key)))purchaseModelCache=null;
     if(['libraryEntitlements','humbleAccountId','libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();
   });
   refresh();
@@ -1259,7 +1269,37 @@ function completeBundleMatchContext(rows, media) {
   } catch { return false; }
 }
 
-function entitlementMatchingRecords(state) { return [...state.libraryItems, ...(globalThis.HumbleLibraryEntitlements?.matchingItems(state) ?? [])]; }
+// The active account's purchases as the Options library browser presents them: each Humble Library
+// copy of a title, and each purchase for bundle and catalogue markers. The browser's reconciliation
+// pairs imported orders with Library purchases, so one purchase is never counted twice. Read-only.
+function libraryPurchaseModel(state) {
+  const browser = globalThis.HumbleLibraryBrowser, summaries = Array.isArray(state.purchaseSummaries) ? state.purchaseSummaries : [];
+  if (!browser || !globalThis.HumbleLibraryEntitlements?.ENABLED) return { copies: null, purchases: summaries };
+  const model = browser.buildGroups({ items: state.libraryItems, purchaseSummaries: summaries, libraryEntitlements: state.libraryEntitlements, humbleAccountId: state.humbleAccountId });
+  if (!model.native.present) return { copies: null, purchases: summaries };
+  const copies = browser.titleLinks(model.groups, browser.reconcile(model.groups));
+  // A Library purchase combined with an imported order is that order. One that might be an imported
+  // order (ambiguous, or the same name with other contents) is left out rather than counted twice.
+  const library = model.groups.filter(group => group.source === 'native' && group.name && group.matchState === 'unmatched' && group.items.some(entry => !entry.excluded))
+    .map(group => ({ sourceBundle: group.name, purchasedAt: null, libraryPurchase: group.parentId }));
+  return { copies, purchases: [...summaries, ...library] };
+}
+
+// Imported records and Library-only records, each carrying its own Humble Library copies (same title
+// and media) as purchase records: the purchase name, its Library ID and the imported order it was
+// combined with. Bundle-page counts and the same-bundle checks read them; nothing is stored.
+function entitlementMatchingRecords(state, model = libraryPurchaseModel(state)) {
+  const records = [...state.libraryItems, ...(globalThis.HumbleLibraryEntitlements?.matchingItems(state) ?? [])];
+  if (!model.copies) return records;
+  const family = kind => kind === 'comic' ? 'book' : kind || 'book';
+  return records.map(item => {
+    const copies = (model.copies.links.get(model.copies.key(item.title)) ?? []).filter(copy => family(copy.kind) === family(item.kind));
+    if (!copies.length) return item;
+    const own = copies.map(copy => ({ sourceBundle: copy.purchase, purchasedAt: null, libraryPurchase: copy.parentId, libraryCopy: copy.nativeId, historicalKey: copy.historicalKey,
+      ...(copy.namespace === 'download_drm_free' ? { entitlement: 'direct-download' } : { entitlement: 'third-party-key', keyStatus: 'unknown' }) }));
+    return { ...item, provenance: [...(item.libraryObservation ? [] : itemProvenance(item)), ...own] };
+  });
+}
 
 function createBundleLibraryMatcher(items, baseKind, historicalItems = []) {
   // Storage supplies only the active profile's archive. Other profile archives
@@ -1360,6 +1400,7 @@ async function renderBundleComparison(libraryMatcher, itemKind, currentBundlePur
     comparison.sorting = sorting;
   }
   const matchStartedAt = performance.now();
+  bundlePageTitleKeys = new Set(items.map(item => HumbleComicLibrary.titleKey(item.lookupTitle ?? item.title)));
   const records = [...(libraryMatcher.mediaMatchers?.values() ?? [libraryMatcher])].flatMap(matcher => [...matcher.libraryByKey.values()]);
   const localContents = HumbleOwnership.localEvidence(records.filter(record => (record.kind ?? 'book') === 'book' || record.kind === 'comic'), collectionMappings);
   const resolvedItems = [];
@@ -1815,6 +1856,8 @@ function ownershipFallbackCandidates(item, matcher, mappings) {
   const records = new Set(matcher.bookVariantCandidates.get(parts.key) ?? []);
   for (const candidate of matcher.currentBundleBookVariants) if (bookVolumeVariantsAlign(parts, candidate.parts)
     && (parts.base === candidate.parts.base || parts.base.startsWith(`${candidate.parts.base} `) || candidate.parts.base.startsWith(`${parts.base} `))) records.add(candidate.item);
+  const subtitled = currentBundleSubtitleVariant(title, matcher.currentBundleBookVariants);
+  if (subtitled) records.add(subtitled);
   const range = /^(.*?)\s+vol(?:ume)?s?\.?\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$/iu.exec(String(title).replace(/\b(?:preview|sample|read\s+now)\b/giu, '').trim());
   if (range && Number(range[3]) >= Number(range[2]) && Number(range[3]) - Number(range[2]) <= 1999) {
     for (let number = Number(range[2]); number <= Number(range[3]); number++) for (const record of matcher.byIdentityTitle.get(HumbleComicLibrary.titleKey(`${range[1]} Vol. ${number}`)) ?? []) records.add(record);
@@ -1983,7 +2026,25 @@ function findOwnedBookVariant(title, libraryMatcher, offered = { title, kind: 'b
       return { item, reason: 'Matched to this bundle’s title-and-volume variant.' };
     }
   }
+  const subtitled = currentBundleSubtitleVariant(title, libraryMatcher.currentBundleBookVariants);
+  if (subtitled) return { item: subtitled, reason: 'Matched to your purchase of this bundle, whose Humble Library title adds a subtitle.' };
   return null;
+}
+
+// Humble's Library can name an entitlement with a subtitle that its bundle card omits ("Human
+// Remains: The Complete Series" for the card "Human Remains"). Trust that only for an entitlement
+// from a purchase of this exact bundle, when the card has no subtitle, exactly one such entitlement
+// extends the card title, and no other card on this page carries the entitlement's full title.
+let bundlePageTitleKeys = new Set();
+function currentBundleSubtitleVariant(title, variants) {
+  const target = bookTitleParts(title);
+  if (target.hasSubtitle || !target.key) return null;
+  const found = new Map();
+  for (const { item } of variants) {
+    const parts = bookTitleParts(item.title);
+    if (parts.hasSubtitle && parts.primaryKey === target.key && !bundlePageTitleKeys.has(parts.key)) found.set(parts.key, item);
+  }
+  return found.size === 1 ? [...found.values()][0] : null;
 }
 
 function findOwnedCollectionIssue(title, libraryByKey, collectionMappings, offered = {}, confirmedOnly = true) {
@@ -2184,8 +2245,8 @@ function annotateBundleItem(bundleItem, match) {
 
 function matchProvenance(match) {
   const tooltip=HumbleOwnership.presentation.tooltip(match.offered || {},match);
-  const purchases=matchPurchaseCount(match);
-  return tooltip+(purchases>1?`\nRecorded purchases: ${purchases} Humble purchases.`:'');
+  const purchases=matchPurchaseTotal(match);
+  return tooltip+(purchases.count>1?`\nRecorded purchases: ${purchases.exact?'':'at least '}${purchases.count} Humble purchases.`:'');
 }
 
 function matchLibraryItems(match) {
@@ -2239,17 +2300,28 @@ function showMatchInspector(match, trigger = document.activeElement) {
 }
 
 function matchPurchaseCount(match) {
+  return matchPurchaseTotal(match).count;
+}
+
+// Distinct Humble purchases behind an owned match, counted as the Titles view counts them
+// (HumbleLibraryBrowser.titlePurchaseCount): imported orders by order key, else bundle name, and
+// Humble Library copies by purchase, with an order combined with a Library purchase counted once.
+// Other stores (Galactic Library's Steam, Epic and others) are never counted here. When imported
+// orders and Library purchases could not be paired, the total is the smallest possible (exact: false).
+function matchPurchaseTotal(match) {
   // A completed volume range represents several different owned works, rather
   // than duplicate purchases of one work. Only label a direct exact ownership
   // match as a duplicate.
-  if (match.state !== 'owned' || match.range) return 0;
-  const purchaseKeys = new Set();
+  if (match.state !== 'owned' || match.range) return { count: 0, exact: true };
+  const orders = [], copies = new Map();
   for (const item of matchLibraryItems(match)) {
     for (const record of itemProvenance(item)) {
-      if (record.purchaseKey) purchaseKeys.add(record.purchaseKey);
+      if (record.libraryPurchase) copies.set(record.libraryCopy, { nativeId: record.libraryCopy, parentId: record.libraryPurchase, historicalKey: record.historicalKey ?? null });
+      else if (record.purchaseKey || String(record.sourceBundle ?? '').trim()) orders.push(record);
     }
   }
-  return purchaseKeys.size;
+  if (globalThis.HumbleLibraryBrowser) return HumbleLibraryBrowser.titlePurchaseCount(orders, [...copies.values()]);
+  return { count: new Set(orders.map(record => record.purchaseKey).filter(Boolean)).size, exact: true };
 }
 
 function itemProvenance(item) {
@@ -2822,9 +2894,11 @@ function appendPurchasedBundleStatus(summary, purchases, highestTierPrice = null
   if (!purchases.length) return;
   const paidAmounts = purchases.map((purchase) => Number(purchase.pricePaid)).filter(Number.isFinite);
   const hasTopTier = highestTierPrice === null || !paidAmounts.length || paidAmounts.some((amount) => amount >= highestTierPrice);
+  // Humble Library purchases have no recorded price, so their tier is unknown: never call them partial.
+  const tierUnknown = !hasTopTier && purchases.some((purchase) => purchase.libraryPurchase);
   const status = document.createElement('p');
-  status.className = `hcl-purchased-bundle ${hasTopTier ? 'hcl-purchased-full library-ui-status-owned' : 'hcl-purchased-partial library-ui-status-partial'}`;
-  const label = hasTopTier ? 'Already purchased' : 'Partially purchased';
+  status.className = `hcl-purchased-bundle ${hasTopTier || tierUnknown ? 'hcl-purchased-full library-ui-status-owned' : 'hcl-purchased-partial library-ui-status-partial'}`;
+  const label = hasTopTier ? 'Already purchased' : tierUnknown ? 'Purchased' : 'Partially purchased';
   status.textContent = `${label}${purchases.length > 1 ? ` (${purchases.length} times)` : ''}: ${purchases.map(formatBundlePurchase).join(' · ')}`;
   summary.append(status);
 }
@@ -2835,6 +2909,7 @@ function formatBundlePurchase(purchase) {
   const price = Number.isFinite(amount) && purchase.currency
     ? new Intl.NumberFormat(undefined, { style: 'currency', currency: purchase.currency }).format(amount)
     : '';
+  if (purchase.libraryPurchase && !date) return 'in your Humble Library (Humble lists no purchase date)';
   return [date, price].filter(Boolean).join(' · ') || 'purchase recorded';
 }
 

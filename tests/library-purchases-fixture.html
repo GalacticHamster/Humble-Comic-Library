@@ -1,0 +1,29 @@
+<!doctype html><html><head><title>Humble Comic Bundle: The Synthetic Horror Bundle by Synthetic Comics | Humble Bundle</title><link rel="stylesheet" href="/content.css"><script type="application/json" src="/_next/synthetic.js"></script></head><body>
+<main><h1>Humble Comic Bundle: The Synthetic Horror Bundle by Synthetic Comics</h1><div id="provider-items"><section data-bundle-section="books"><ul style="display:grid;grid-template-columns:repeat(2,1fr)">
+<li><button type="button" aria-haspopup="dialog"><div data-testid="bundle-item-card" data-bundle-type="books"><div data-testid="bundle-item-native-image"><img alt="Synthetic Remains"></div><div>Synthetic Remains</div></div></button></li>
+<li><button type="button" aria-haspopup="dialog"><div data-testid="bundle-item-card" data-bundle-type="books"><div data-testid="bundle-item-native-image"><img alt="Synthetic Barbarian Vol. 1"></div><div>Synthetic Barbarian Vol. 1</div></div></button></li>
+<li><button type="button" aria-haspopup="dialog"><div data-testid="bundle-item-card" data-bundle-type="books"><div data-testid="bundle-item-native-image"><img alt="Synthetic Newcomer"></div><div>Synthetic Newcomer</div></div></button></li>
+<li><button type="button" aria-haspopup="dialog"><div data-testid="bundle-item-card" data-bundle-type="books"><div data-testid="bundle-item-native-image"><img alt="Brand new book"></div><div>Brand new book</div></div></button></li>
+</ul></section></div></main>
+<script type="application/json">self.__next_f.push([1,"e:[\"$\",\"Component\",null,{\"bundlePage\":{\"slug\":\"test\",\"tiers\":[{\"price\":{\"amount\":10,\"currencyCode\":\"USD\"},\"bundleItems\":[{\"title\":\"Synthetic Remains\"},{\"title\":\"Synthetic Barbarian Vol. 1\"},{\"title\":\"Synthetic Newcomer\"},{\"title\":\"Brand new book\"}]}]}}]"])</script>
+<script src="/tests/bundle-fixture.js"></script>
+<script>
+// Synthetic saved data: an earlier imported order, that order's own Humble Library record, and a new Library
+// purchase of this bundle whose Library title adds a subtitle to one card.
+(() => {
+  const account = '11111111-1111-4111-8111-111111111111', uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const OLD = 'Escape Ordinary with Synthetic Comics', NEW = 'Humble Comic Bundle: The Synthetic Horror Bundle by Synthetic Comics';
+  const oldTitles = ['Synthetic Remains: The Complete Series', 'Synthetic Barbarian Vol. 1', 'Synthetic Plot Vol. 1'];
+  let id = 1;
+  const observation = (parent, parentTitle, title) => ({scope: {principalId: 'principal-synthetic', userId: 'hub-synthetic'}, namespace: 'download_drm_free', nativeId: uuid(id++), title, parentId: uuid(parent), parentTitle,
+    source: 'authenticated-humble-library', observedAt: '2026-11-16T12:00:00.000Z', delivery: {platforms: ['ebook'], formats: ['pdf']},
+    eligibility: {expired: false, preOrdered: false, outOfStock: false, redeemable: true, directRedeem: null, parentPreOrder: null, revoked: null, temporaryAccess: null, giftStatus: 'unassigned', parentType: 'bundle',
+      integration: 'unknown', redemptionGroups: 'none', unavailableBefore: {state: 'none', value: null}, unavailableAfter: {state: 'none', value: null}, redeemedAt: {state: 'unknown', value: null}}});
+  Object.assign(fixtureStored, {humbleAccountId: account, humbleProfileLabel: 'Synthetic', customCollectionMappings: [], wishlistItems: [],
+    libraryItems: oldTitles.map(title => ({title, kind: 'comic', source: 'humble', purchaseKey: 'synthetic-old', sourceBundle: OLD, purchasedAt: '2024-10-01T00:00:00.000Z'})),
+    purchaseSummaries: [{purchaseKey: 'synthetic-old', sourceBundle: OLD, purchasedAt: '2024-10-01T00:00:00.000Z', itemCount: oldTitles.length, pricePaid: 10, currency: 'USD', pricePerItem: 10 / 3}],
+    libraryEntitlements: {version: 1, scopes: [{principalId: 'principal-synthetic', userId: 'hub-synthetic', localAccountId: account, profileLabel: 'Synthetic', lastScan: null, sync: null,
+      observations: [...oldTitles.map(title => observation(1, OLD, title)), ...['Synthetic Remains: The Complete Series', 'Synthetic Barbarian Vol. 1', 'Synthetic Newcomer'].map(title => observation(2, NEW, title))]}]}});
+})();
+</script>
+<script src="/library-entitlements.js"></script><script src="/library-browser.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/library-purchases-checks.js"></script></body></html>

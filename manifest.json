@@ -34,6 +34,7 @@
       "js": [
         "theme.js",
         "library-entitlements.js",
+        "library-browser.js",
         "shared.js",
         "collection-mappings.js",
         "ownership.js",
