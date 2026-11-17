@@ -63,4 +63,3 @@ async function installedRuntimeChecks(phase) {
     page.URL.createObjectURL=originalURL;page.HTMLAnchorElement.prototype.click=originalClick;
   }
 }
-
