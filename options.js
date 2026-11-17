@@ -395,8 +395,10 @@
     let metadata = '';
     let sort = 'title-asc';
     let scope = 'title';
+    let addedAt = () => null;
 
     if (optionsOrSearch && typeof optionsOrSearch === 'object') {
+      if (typeof optionsOrSearch.addedAt === 'function') addedAt = optionsOrSearch.addedAt;
       search = typeof optionsOrSearch.search === 'string' ? optionsOrSearch.search : '';
       media = typeof optionsOrSearch.media === 'string' ? optionsOrSearch.media : '';
       metadata = typeof optionsOrSearch.metadata === 'string' ? optionsOrSearch.metadata : '';
@@ -444,14 +446,24 @@
       });
     }
 
+    // Recently added: titles with a recently added Humble Library purchase first, then newest purchase date.
+    const added = sort === 'added-desc' ? new Map(result.map((item) => [item, typeof item === 'object' ? addedAt(item) : null])) : null;
     result.sort((a, b) => {
       const titleA = typeof a === 'string' ? a : (a.title || '');
       const titleB = typeof b === 'string' ? b : (b.title || '');
 
+      if (added) {
+        const addedA = added.get(a), addedB = added.get(b);
+        if (addedA !== null || addedB !== null) {
+          if (addedA === null) return 1;
+          if (addedB === null) return -1;
+          return addedB - addedA || collator.compare(titleA, titleB);
+        }
+      }
       if (sort === 'title-desc') {
         return collator.compare(titleB, titleA);
       }
-      if (sort === 'date-desc') {
+      if (sort === 'date-desc' || added) {
         const dateA = getItemPurchaseDate(a);
         const dateB = getItemPurchaseDate(b);
         if (dateA !== null && dateB !== null) {
@@ -811,6 +823,7 @@
       if (split.length) facts.push(split.join('; ') + '.');
       if (group.listedCount !== null && group.listedCount !== group.historical.items.length) facts.push(`Humble listed ${plural(group.listedCount, 'item')} in this order; ${plural(group.historical.items.length, 'media title')} were imported.`);
       facts.push('Humble Library purchase verified against the signed-in account.');
+      if (group.firstSeenAt) facts.push(`First found by Library sync on ${formatPurchaseDate(group.firstSeenAt)}. The purchase date comes from the historical import.`);
       if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
       if (group.excluded) facts.push(`${plural(group.excluded, 'item')} excluded (gifted, revoked or temporary).`);
       if (group.sameNamePurchases > 1) facts.push(`One of ${group.sameNamePurchases} separate purchases with this name.`);
@@ -818,6 +831,10 @@
     }
     if (group.source === 'native') {
       facts.push('Native Library purchase, verified against the signed-in account.');
+      // A first-found date is when the extension first saw the purchase, never when it was bought.
+      facts.push(group.firstSeenAt
+        ? `First found by Library sync on ${formatPurchaseDate(group.firstSeenAt)}. Humble's Library lists no purchase date, so this is when the extension first saw it, not when it was bought.`
+        : 'Humble\'s Library lists no purchase date. This purchase was saved before first-found dates were recorded.');
       if (group.items.some((entry) => entry.namespace === 'steam')) facts.push('Steam activation is unknown for every key.');
     } else {
       facts.push(group.orderRecorded ? 'Historical import from the original purchase importer.' : 'Historical import without an order key: purchases with this bundle name are grouped together.');
@@ -845,7 +862,7 @@
     const parts = [
       GROUP_TYPE_LABELS[group.type] || (group.source === 'historical' ? 'Order' : 'Purchase'),
       plural(group.items.length, 'title'),
-      date ? `Purchased ${date}` : 'Date not recorded',
+      date ? `Purchased ${date}` : group.firstSeenAt ? `Purchase date not recorded · First synced ${formatPurchaseDate(group.firstSeenAt)}` : 'Purchase date not recorded',
       group.source === 'unified' ? 'Historical + Native · Likely match' : group.source === 'native' ? 'Native Library' : 'Historical import'
     ];
     if (matches.length && !nameMatch) parts.push(`${plural(matches.length, 'matching title')}`);
@@ -940,6 +957,7 @@
     const media = copy.media ?? (copy.kind && copy.kind !== 'unknown' ? copy.kind : null);
     const parts = ['Purchased on Humble', `Media: ${media ? mediaTypeLabel(media) : 'Unknown'}`];
     if (copy.steam) parts.push('Steam activation: Unknown');
+    if (copy.firstSeenAt) parts.push(`First synced ${formatPurchaseDate(copy.firstSeenAt)}`);
     if (showMatchDetails && copy.interchangeable) parts.push(`One of ${copy.interchangeable} identical purchases`);
     else if (showMatchDetails && copy.matchState === 'ambiguous') parts.push('Not combined: ambiguous match');
     else if (showMatchDetails && copy.matchState === 'conflicting') parts.push('Not combined: contents differ');
@@ -987,7 +1005,8 @@
       scope: libraryBrowserState.scope,
       media: libraryBrowserState.media,
       metadata: libraryBrowserState.metadata,
-      sort: libraryBrowserState.sort
+      sort: libraryBrowserState.sort,
+      addedAt: (item) => latestTitleLinks && globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.titleAddedAt(latestTitleLinks.links.get(latestTitleLinks.key(item.title))) : null
     });
 
     const pageSize = libraryBrowserState.pageSize || 50;
@@ -1013,7 +1032,8 @@
       } else {
         const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.page + 1} of ${totalPages})` : '';
         const filterInfo = processed.length !== uniqueItems.length ? ` (filtered from ${uniqueItems.length})` : '';
-        const sortLabel = libraryBrowserState.sort === 'date-desc' ? 'by purchase date (newest)'
+        const sortLabel = libraryBrowserState.sort === 'added-desc' ? 'recently added first'
+          : libraryBrowserState.sort === 'date-desc' ? 'by purchase date (newest)'
           : libraryBrowserState.sort === 'date-asc' ? 'by purchase date (oldest)'
           : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'
           : 'alphabetically';

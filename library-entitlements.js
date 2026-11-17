@@ -144,6 +144,11 @@
     if (raw.parentTitle !== undefined && raw.parentTitle !== null) r.parentTitle = text(raw.parentTitle);
     const evidence = delivery(raw.delivery); if (evidence) r.delivery = evidence;
     if (r.namespace === 'unknown' || !r.observedAt) throw Error('Library identity or timestamp is missing.');
+    // When a sync first saw this entitlement, set once by the storage worker. It is not a purchase
+    // date. Records saved before it was recorded have none; an unusable value is left out rather
+    // than rejecting the record.
+    let first = null; try { first = date(raw.firstObservedAt).value; } catch {}
+    if (first && first <= r.observedAt) r.firstObservedAt = first;
     // Media comes from provider evidence only: the key store, or the DRM-free download's platform
     // and file formats. No title-based inference; without evidence it stays unknown.
     r.mediaType = providerMedia(r.namespace, evidence, r.parentTitle);
@@ -167,7 +172,8 @@
     const evidence = {...next.eligibility};
     for (const field of ['revoked','temporaryAccess']) if (evidence[field] === null && old.eligibility[field] === true) evidence[field] = true;
     if (evidence.giftStatus === 'unknown' && old.eligibility.giftStatus === 'gifted') evidence.giftStatus = 'gifted';
-    return observation({...next,eligibility:evidence,parentTitle:next.parentTitle ?? old.parentTitle,delivery:next.delivery ?? old.delivery});
+    // A refresh never sets or moves the first-seen time.
+    return observation({...next,eligibility:evidence,parentTitle:next.parentTitle ?? old.parentTitle,delivery:next.delivery ?? old.delivery,firstObservedAt:old.firstObservedAt});
   }
   function scan(raw) {
     if (raw == null) return null;

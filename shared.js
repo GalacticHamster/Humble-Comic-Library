@@ -954,8 +954,9 @@
         if(!scan||scan.verifiedItems!==data.observations.length||scan.checkedAt<control.startedAt||Date.parse(scan.checkedAt)>Date.now()+60000)throw Error('Invalid Library scan admission.');
         for(const raw of data.observations){const row=E.observation(raw),id=E.identity(row);if(E.scopeKey(row.scope)!==E.scopeKey(control)||incoming.has(id)||row.observedAt!==scan.checkedAt)throw Error('Duplicate, stale or foreign Library observation.');incoming.set(id,row);}
         const collection=E.collection(current.libraryEntitlements),previous=collection.scopes.find(s=>E.scopeKey(s)===E.scopeKey(control));
+        // A new entitlement records when this sync first saw it; refreshing a saved one keeps its time (or its lack of one).
         const observations=new Map((previous?.observations??[]).map(r=>[E.identity(r),r]));let added=0;
-        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');if(!old)added++;observations.set(id,E.refreshObservation(old,row));}
+        for(const [id,row]of incoming){const old=observations.get(id);if(old&&Date.parse(old.observedAt)>Date.parse(row.observedAt))throw Error('Stale Library observation.');if(!old)added++;observations.set(id,old?E.refreshObservation(old,row):E.observation({...row,firstObservedAt:row.observedAt}));}
         let sync=previous?.sync??null;
         if(control.sync){
           // The checkpoint advances only in this write, after this tab's lease and the expected revision are re-checked.

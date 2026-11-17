@@ -310,5 +310,7 @@ async function installedSyncResume({store,check,checks}){
   check(done.checkpoint.status==='completed'&&done.checkpoint.coverage==='accessible-pages-traversed'&&done.saved===8&&done.checkpoint.added===0&&done.checkpoint.refreshed===8,'installed sync resumes after restart from the checkpoint without duplicates');
   check(['libraryItems','purchaseSummaries','mediaTypeOverrides','historicalLibraryItems','historicalPurchaseSummaries','profileArchives'].every(k=>JSON.stringify(after[k])===JSON.stringify(before[k])),'installed resumed sync leaves legacy purchases, history and corrections unchanged');
   check(!after.hclLibraryEntitlementLease,'installed completed sync releases its lease');
+  const firsts=s=>JSON.stringify(s.libraryEntitlements.scopes.flatMap(x=>x.observations.map(o=>[o.nativeId,o.firstObservedAt])).sort());
+  check(before.libraryEntitlements.scopes.every(s=>s.observations.length&&s.observations.every(o=>typeof o.firstObservedAt==='string'))&&firsts(after)===firsts(before),'installed first-seen times survive extension restart and are kept by the resumed sync');
   return {checks};
 }

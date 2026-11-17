@@ -308,7 +308,20 @@ Bundle pages and catalogues now load `library-browser.js` and use the Options pr
 
 Humble's authenticated Library supplies no purchase date. Library rows carry `id`, `title`, `subTitle`, `itemType`, `type`, `userId`, `contentId`, `productEntitlementId`, `collection`, `entitlements`, `deliveryMethods`, `preOrder`, `releaseDate` and `choiceDate`; parent details carry the same kind of fields; the only `createdAt` is the signed-in user's. `unavailableAfter` is a download or key availability boundary, not an acquisition date: one parent can carry up to four different values. Order History (`/home/purchases`) has `createdAt`, `completedAt` and `legacyCreatedAt` per order, but no verified link from an order to a Library parent (see the [purchase-import evidence](../audits/humble-nextjs-purchase-import-2026-11-11.md)), and reading it would add a request type to the sync.
 
-Library-only purchases therefore show no date ("Date not recorded" in Bundles & Orders, "Humble lists no purchase date" on bundle pages) and sort after dated purchases. Observations keep only their latest observation time, so a first-observed time cannot be recovered for records already saved.
+No other source establishes a date. Historical imports already date the Library purchases the reconciliation combines with them; unified groups show that order's date. Observations keep only their latest `observedAt`, and sync checkpoints keep only the current run and the last full sync, so neither dates an individual purchase. The Library's `mostRecent` request order is a position, not a date, and is not stored. The sampled Order History identifiers (order IDs and numbers, legacy order IDs, line-item IDs, product IDs and keys, SKUs, `bundleItemKeys`) did not equal any Library parent, row or entitlement ID. An order date could therefore attach to a Library purchase only by name, and names repeat across repeat purchases and similar bundles; name-only reconciliation is not used.
+
+Library-only purchases therefore show "Purchase date not recorded" in Bundles & Orders and "Humble lists no purchase date" on bundle pages, and sort after dated purchases under Purchase date.
+
+### First-seen times and Recently added (1.1.2)
+
+Each observation may carry an optional `firstObservedAt`: when a sync first saved that entitlement. The storage worker (`entitlementCommit` in `shared.js`) sets it to the batch's observation time when it adds an entitlement and ignores any value supplied with the batch. `refreshObservation` carries the saved value forward unchanged, so repeat syncs never move it, and never adds one to a record saved without it. `observation()` drops an unusable value or one later than `observedAt` rather than rejecting the record. Records saved before 1.1.2 keep no value: their first observation time was not stored and cannot be recovered. Backups and restores carry the field through `collection()`. It is not part of Galactic Library records, matching records, purchase counts or the sync protocol. A downgraded extension ignores the field and drops it on its next write to that record.
+
+Presentation (`library-browser.js`):
+
+- A native purchase's `firstSeenAt` is the earliest `firstObservedAt` of its entitlements, and unknown when any of its entitlements has none, since that purchase was seen before times were recorded.
+- `recentlyAdded(group)` gives a time only for native purchases the reconciliation left unmatched. A purchase combined with an imported order is not new to the library, and an ambiguous or conflicting one might be an imported order, so neither is recently added.
+- **Recently added** (`added-desc`) in Bundles & Orders lists those purchases newest first, then everything else by purchase date. In Titles, a title's time is its most recently added unmatched Library copy (`titleAddedAt`).
+- Bundles & Orders labels the time "First synced" beside "Purchase date not recorded", and the purchase details say it is when the extension first saw the purchase, not when it was bought. Titles copies show "First synced" too. A first-seen time is not evidence of a new purchase or of a change in ownership.
 
 ### Evidence
 

@@ -41,7 +41,7 @@
   }
 
   function group(key, fields) {
-    return { key, name: null, type: 'unknown', purchasedAt: null, listedCount: null, orderRecorded: false, parentId: null, route: null, items: [], ...fields };
+    return { key, name: null, type: 'unknown', purchasedAt: null, firstSeenAt: null, listedCount: null, orderRecorded: false, parentId: null, route: null, items: [], ...fields };
   }
 
   // Native groups need an enabled collector and the active account's own scope.
@@ -89,6 +89,10 @@
       if (!g.name && r.parentTitle) g.name = r.parentTitle;
       g.items.push({ title: r.title, kind: media, category: category(media), source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
         gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId) });
+      // When a sync first saw the purchase: its earliest entitlement. Unknown if any entitlement was
+      // saved before first-seen times were recorded. Never a purchase date.
+      const seen = time(r.firstObservedAt);
+      g.firstSeenAt = g.items.length === 1 ? seen : g.firstSeenAt === null || seen === null ? null : Math.min(g.firstSeenAt, seen);
     }
     const list = [...groups.values()];
     const names = new Map();
@@ -163,7 +167,7 @@
   function unify(h, n, evidence) {
     const items = mergeItems(h, n).sort((a, b) => COLLATOR.compare(a.title, b.title));
     const g = { key: 'u:' + h.key + '|' + n.key, source: 'unified', historical: h, native: n, evidence,
-      name: n.name || h.name, historicalName: h.name !== n.name ? h.name : null, type: n.type, purchasedAt: h.purchasedAt, listedCount: h.listedCount, orderRecorded: h.orderRecorded,
+      name: n.name || h.name, historicalName: h.name !== n.name ? h.name : null, type: n.type, purchasedAt: h.purchasedAt, firstSeenAt: n.firstSeenAt, listedCount: h.listedCount, orderRecorded: h.orderRecorded,
       parentId: n.parentId, route: n.route, items, matchState: 'matched', sameNamePurchases: Math.max(h.sameNamePurchases, n.sameNamePurchases), sharedNameUnconfirmed: false,
       onlyNative: items.filter(i => i.source === 'native').length, onlyHistorical: items.filter(i => i.source === 'historical').length };
     finishGroup(g);
@@ -262,7 +266,7 @@
       const list = links.get(key) ?? [];
       if (list.some(c => c.nativeId === entry.nativeId)) return;
       const u = unified.get(native.key);
-      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam',
+      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam', firstSeenAt: native.firstSeenAt,
         historicalKey: u ? u.historical.key : null, interchangeable: u ? u.evidence.interchangeable : 0, matchState: native.matchState ?? 'unmatched' });
       links.set(key, list);
     };
@@ -314,10 +318,24 @@
     if (!scope) return 'none';
     const parts = [];
     for (const r of Array.isArray(scope.observations) ? scope.observations : []) {
-      parts.push([r?.namespace, r?.nativeId, r?.title, r?.parentId, r?.parentTitle, r?.mediaType, r?.purchaseStatus, r?.eligibility?.giftStatus, r?.eligibility?.parentType].join('\u0001'));
+      parts.push([r?.namespace, r?.nativeId, r?.title, r?.parentId, r?.parentTitle, r?.mediaType, r?.purchaseStatus, r?.eligibility?.giftStatus, r?.eligibility?.parentType, r?.firstObservedAt].join('\u0001'));
     }
     // Unverified rows are counted in the browser note; other checkpoint fields are sync progress.
     return scope.localAccountId + '\u0002' + parts.join('\u0002') + '\u0002' + (scope.sync?.unresolved ?? 0);
+  }
+
+  // "Recently added" order: when a sync first saw a Humble Library purchase that is not one of the
+  // imported orders. A purchase combined with an imported order, or one that might be (ambiguous or
+  // conflicting), is not new to the library, so it has no added time; neither do purchases saved
+  // before first-seen times were recorded. An added time is never a purchase date or ownership evidence.
+  function recentlyAdded(g) {
+    return g?.source === 'native' && g.matchState === 'unmatched' ? g.firstSeenAt ?? null : null;
+  }
+  // A title's added time: its most recently added purchase among its Humble Library copies.
+  function titleAddedAt(copies) {
+    let latest = null;
+    for (const c of copies ?? []) if (c.matchState === 'unmatched' && c.firstSeenAt != null && (latest === null || c.firstSeenAt > latest)) latest = c.firstSeenAt;
+    return latest;
   }
 
   function filterGroups(groups, { search = '', scope = 'both', media = '', filter = '', type = '', sort = 'name-asc' } = {}) {
@@ -338,11 +356,13 @@
       }
       out.push({ group: g, nameMatch, matches });
     }
-    const name = r => r.group.name ?? '', date = r => r.group.purchasedAt, size = r => r.group.items.length;
+    const name = r => r.group.name ?? '', date = r => r.group.purchasedAt, size = r => r.group.items.length, added = r => recentlyAdded(r.group);
     // Unnamed groups sort after named ones in either direction.
     const byName = (a, b, dir = 1) => (a.group.name ? 0 : 1) - (b.group.name ? 0 : 1) || dir * collator.compare(name(a), name(b)) || collator.compare(a.group.key, b.group.key);
     const byDate = dir => (a, b) => date(a) === null ? (date(b) === null ? byName(a, b) : 1) : date(b) === null ? -1 : dir * (date(a) - date(b)) || byName(a, b);
-    out.sort(sort === 'name-desc' ? (a, b) => byName(a, b, -1) : sort === 'date-desc' ? byDate(-1) : sort === 'date-asc' ? byDate(1)
+    // Recently added first; everything else follows newest purchase first.
+    const byAdded = (a, b) => added(a) === null ? (added(b) === null ? byDate(-1)(a, b) : 1) : added(b) === null ? -1 : added(b) - added(a) || byName(a, b);
+    out.sort(sort === 'name-desc' ? (a, b) => byName(a, b, -1) : sort === 'date-desc' ? byDate(-1) : sort === 'date-asc' ? byDate(1) : sort === 'added-desc' ? byAdded
       : sort === 'count-desc' ? (a, b) => size(b) - size(a) || byName(a, b) : sort === 'count-asc' ? (a, b) => size(a) - size(b) || byName(a, b) : byName);
     return out;
   }
@@ -359,12 +379,12 @@
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null });
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt });
         if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name)) title.provenance.push({ sourceBundle: group.name });
       }
     }
     return [...titles.values()];
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, reconcile, filterGroups, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

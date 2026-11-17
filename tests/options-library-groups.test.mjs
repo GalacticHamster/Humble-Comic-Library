@@ -123,14 +123,14 @@ test('grouped by default: a likely historical/native match is one purchase; Sepa
   await ui.change('#library-group-filter', '');
   await ui.input('#library-search', 'celeste');
   await ui.change('#library-group-mode', 'separate');
-  assert.deepEqual(summaries(ui).sort(), ['Indie Bundle — Bundle · 2 titles · Date not recorded · Native Library · 1 matching title', 'Indie Bundle — Order · 1 title · Purchased 2024-03-01 · Historical import · 1 matching title']);
+  assert.deepEqual(summaries(ui).sort(), ['Indie Bundle — Bundle · 2 titles · Purchase date not recorded · Native Library · 1 matching title', 'Indie Bundle — Order · 1 title · Purchased 2024-03-01 · Historical import · 1 matching title']);
   assert.match(text(ui.expand(ui.rows()[0])), /Shown combined with its likely match in the Grouped view/);
   assert.equal(ui.get('#library-search').value, 'celeste', 'switching modes keeps the search');
   await ui.change('#library-group-mode', 'grouped');
   assert.equal(ui.rows().length, 1);
   await ui.input('#library-search', '');
   await ui.change('#library-group-type', 'store');
-  assert.deepEqual(summaries(ui), ['Humble purchase (name appears after the next full sync) — Store purchase · 250 titles · Date not recorded · Native Library']);
+  assert.deepEqual(summaries(ui), ['Humble purchase (name appears after the next full sync) — Store purchase · 250 titles · Purchase date not recorded · Native Library']);
   const store = ui.expand(ui.rows()[0]);
   const list = store.children.find((c) => c.className?.includes('library-group-contents')), more = store.children.find((c) => c.className?.includes('library-group-more'));
   assert.equal(list.children.length, 100, 'contents render in batches');
@@ -343,4 +343,23 @@ test('historical upgrade and restored backup retain titles without native observ
 test('order summaries alone do not fabricate titles and foreign native scopes remain excluded',async()=>{
   const {E}=load();const native=entitlements([nativeObservation(E,{id:88,parent:99,title:'Foreign title'})]);native.scopes[0].localAccountId='22222222-2222-4222-8222-222222222222';
   const ui=await harness({libraryItems:[],purchaseSummaries:Array.from({length:600},(_,i)=>({purchaseKey:'old-'+i,sourceBundle:'Order '+i,itemCount:10})),libraryEntitlements:native});assert.equal((await ui.exportCatalog()).items.length,0);assert.match(ui.get('#library-count').textContent,/0 unique items/);await ui.view('groups');assert.match(ui.note(),/600 purchase groups/);
+});
+
+test('Recently added sorts Library purchases first seen by sync, labelled apart from purchase dates', async () => {
+  const { E } = load(), at = (spec, firstObservedAt) => E.observation({ ...nativeObservation(E, spec), ...(firstObservedAt ? { firstObservedAt } : {}) });
+  const ui = await harness({ libraryItems: [historical('Repeat Comic', 'K1', 'Old Order'), historical('Dated Comic', 'K2', 'Newer Order', { purchasedAt: '2025-05-01T00:00:00.000Z' })],
+    libraryEntitlements: entitlements([at({ id: 1, parent: 10, title: 'Repeat Comic', parentTitle: 'Fresh Bundle' }, '2026-11-10T00:00:00.000Z'), at({ id: 2, parent: 10, title: 'Fresh Comic', parentTitle: 'Fresh Bundle' }, '2026-11-10T00:00:00.000Z'),
+      at({ id: 3, parent: 20, title: 'Untracked Comic', parentTitle: 'Untracked Bundle' })]) });
+  const titleText = (r) => r.textContent || r.children[0].children[0].textContent;
+  await ui.change('#library-sort', 'added-desc');
+  assert.deepEqual(ui.rows().map(titleText), ['Fresh Comic — 1 purchase', 'Repeat Comic — at least 1 purchase', 'Dated Comic — 1 purchase', 'Untracked Comic — 1 purchase']);
+  assert.match(ui.note(), /recently added first/);
+  assert.match(text(ui.expand(ui.rows()[0])), /Purchased on Humble · Media: .* · First synced 2026-11-10/);
+  await ui.view('groups');
+  await ui.change('#library-group-sort', 'added-desc');
+  assert.deepEqual(summaries(ui), ['Fresh Bundle — Bundle · 2 titles · Purchase date not recorded · First synced 2026-11-10 · Native Library',
+    'Newer Order — Order · 1 title · Purchased 2025-05-01 · Historical import', 'Old Order — Order · 1 title · Purchased 2024-03-01 · Historical import', 'Untracked Bundle — Bundle · 1 title · Purchase date not recorded · Native Library']);
+  assert.match(text(ui.expand(ui.rows()[0])), /First found by Library sync on 2026-11-10\. Humble's Library lists no purchase date, so this is when the extension first saw it, not when it was bought\./);
+  assert.match(text(ui.expand(ui.rows()[3])), /saved before first-found dates were recorded/);
+  assert.equal(ui.writes.length, 0, 'sorting never writes storage');
 });
