@@ -176,6 +176,31 @@ test('software render stays local when the companion does not advertise support'
   assert.equal(result.counts.new, 1);
 });
 
+for (const absent of [true, false]) test(`software checks availability before capabilities: ${absent ? 'absent' : 'unlinked'}`, async () => {
+  const context = load({ pathname: '/software/tools', cards: [{ title: 'Tool' }] });
+  run(context, 'createGalacticLookup=originalGalacticLookup');
+  const calls=[];
+  context.chrome.runtime.sendMessage=async(_id,request)=>{
+    calls.push(request.type);
+    if(absent)throw Error('Could not establish connection. Receiving end does not exist.');
+    return {ok:false,error:'This extension is not allowed to use the Galactic Library API.'};
+  };
+  const result=await render(context,[],'software');
+  assert.deepEqual(calls,['PING']);
+  assert.equal(result.counts.new,1);
+  assert.equal(result.counts.unchecked,0);
+});
+
+test('software pending availability settles as incomplete on timeout, never as absent',async()=>{
+  const context=load({pathname:'/software/tools',cards:[{title:'Tool'}]});
+  run(context,'createGalacticLookup=originalGalacticLookup');
+  context.setTimeout=(callback,delay)=>setTimeout(callback,delay===30000?0:delay);
+  context.chrome.runtime.sendMessage=()=>new Promise(()=>{});
+  const result=await render(context,[],'software');
+  assert.equal(result.counts.unchecked,1);assert.equal(result.counts.new,0);
+  assert.equal(context.comparison.galactic.connectionState,'failed');
+});
+
 test('media-separated library indexes preserve existing exact games and partial book ranges', async () => {
   const game = load({ pathname: '/games/example-games', cards: [{ title: 'Known Game' }] });
   const gameResult = await render(game, [{ title: 'Known Game', kind: 'game' }], 'game');
@@ -295,6 +320,6 @@ test('advertised software support enables central comparison, preserves media is
 
 test('a failed or incompatible software capability check never invents central ownership or sends an unsupported match',async()=>{
   for(const response of [null,{ok:false},{ok:true,apiVersion:2,capabilities:{mediaTypes:['software']}}]){
-    const context=load({pathname:'/software/tools',cards:[{title:'Tool'}]});context.chrome.runtime.sendMessage=async(id,request)=>{assert.equal(request.type,'GET_STATUS');return response;};const result=await render(context,[],'software');assert.equal(result.counts.elsewhere,0);assert.equal(result.counts.new,1);
+    const context=load({pathname:'/software/tools',cards:[{title:'Tool'}]});context.chrome.runtime.sendMessage=async(id,request)=>{assert.equal(request.type,'GET_STATUS');return response;};const result=await render(context,[],'software');assert.equal(result.counts.elsewhere,0);assert.equal(result.counts.new,0);assert.equal(result.counts.unchecked,1);
   }
 });

@@ -674,11 +674,28 @@ async function queryGalacticLibrary(items, itemKind, comparison, job, diagnostic
   const lookup = comparison?.galactic;
   if (!lookup?.enabled) return;
   if(items.some(({item,match})=>(item.kind??itemKind)==='software'&&match.state!=='owned')){
-    lookup.softwareCapability??=waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId,{type:'GET_STATUS'})).then(response=>{
+    lookup.softwareCapability??=(async()=>{
+      // Software support is optional, but only an available companion can
+      // advertise it. An absent/unlinked companion leaves local results final.
+      const availability=lookup.connectionState==='participating'?{state:'participating'}
+        :await HumbleComicLibrary.galacticAvailability(message=>chrome.runtime.sendMessage(lookup.extensionId,message));
+      lookup.connectionState=availability.state;
+      if(['unavailable','unlinked'].includes(availability.state)){
+        lookup.enabled=false;lookup.error=null;lookup.status='Not linked; local library only.';
+        return;
+      }
+      if(availability.state==='failed')throw Error(availability.error);
+      const response=await waitForGalacticResponse(chrome.runtime.sendMessage(lookup.extensionId,{type:'GET_STATUS'}));
+      if(HumbleComicLibrary.galacticPermissionDenied(response)){
+        lookup.enabled=false;lookup.connectionState='unlinked';lookup.status='Not linked; local library only.';
+        return;
+      }
+      if(response?.ok!==true||response.apiVersion!==GALACTIC_LIBRARY_API_VERSION)throw Error('Galactic Library returned an incompatible capability response.');
       lookup.softwareSupported=response?.ok===true&&response.apiVersion===GALACTIC_LIBRARY_API_VERSION&&Array.isArray(response.capabilities?.mediaTypes)&&response.capabilities.mediaTypes.includes('software');
       if(!lookup.softwareSupported)lookup.status='Software is not advertised by Galactic Library; using local software evidence.';
-    }).catch(()=>{lookup.softwareCapabilityFailed=true;lookup.status='Software capability check unavailable; using local software evidence.';});
+    })().catch(()=>{lookup.softwareCapabilityFailed=true;lookup.status='Software capability check unavailable; using local software evidence.';});
     await lookup.softwareCapability;
+    if(!lookup.enabled)return;
   }
   const requested = new Map();
   for (const { item, match, target, contextOnly } of items) {
@@ -1740,6 +1757,7 @@ function createLibraryMatcher(libraryByKey, itemKind) {
   for (const [, item] of libraryByKey) {
     add(byIdentityTitle, HumbleComicLibrary.titleKey(item.title), item);
     for (const key of globalThis.LibraryMatchingPolicy.ownershipTitleKeys(item.title,itemKind)) add(byPresentationTitle, key, item);
+    if(itemKind==='game')add(byPresentationTitle,'acronym:'+HumbleOwnership.gameAcronymKey(item.title),item);
     for (const key of HumbleComicLibrary.candidateTitleKeys(item.title, itemKind)) add(byPossibleTitle, key, item);
     add(byCandidateBase, HumbleOwnership.editionParts(item.title, itemKind).base, item);
     const fields = HumbleComicLibrary.bibliographicFields(item);
@@ -1772,6 +1790,7 @@ function candidateLibrary(records) {
 
 function identityCandidates(item, matcher) {
   const candidates = new Set(matcher.byIdentityTitle.get(HumbleComicLibrary.titleKey(item.lookupTitle ?? item.title)) ?? []);
+  if(item.kind==='game')for(const record of matcher.byPresentationTitle.get('acronym:'+HumbleOwnership.gameAcronymKey(item.lookupTitle??item.title))??[])candidates.add(record);
   for (const record of matcher.byPresentationTitle.get(HumbleComicLibrary.presentationTitle(item.lookupTitle ?? item.title, item.kind)) ?? []) candidates.add(record);
   const fields = HumbleComicLibrary.bibliographicFields(item);
   for (const isbn of fields.isbn ?? []) for (const record of matcher.byEditionIdentifier.get(`isbn:${isbn}`) ?? []) candidates.add(record);

@@ -23,6 +23,15 @@ test('stale routes, unresolved props, malformed tiers and foreign currencies can
  }
  const f=metadata();f.context.document.querySelectorAll=()=>[{textContent:'self.__next_f.push([1,(()=>{throw Error("execute")})()])'}];assert.equal(f.run('readRedesignedBundle()'),null);
 });
+
+test('SPA pages without new inline props cannot reuse the prior bundle tiers in any media',()=>{
+ for(const media of ['books','games','software']){
+  const f=metadata();assert.equal(f.run('redesignedItemTier("Other book").price'),15);
+  f.context.location.pathname='/'+media+'/next-bundle';
+  assert.equal(f.run('readRedesignedBundle()'),null);
+  assert.equal(f.run('redesignedItemTier("Other book").price'),null);
+ }
+});
 for(const full of [true,false])test(`redesigned ${full?'Full':'Quick'} stops before scan admission and preserves purchases/corrections/history/accounts/checkpoints`,async()=>{
  const f=importer({...initialState(),historicalLibraryItems:[{...initialState().libraryItems[0],title:'Earlier book'}],historicalPurchaseSummaries:[{purchaseKey:'earlier',sourceBundle:'Earlier bundle'}],mediaTypeOverrides:{old:'comic'},lastImport:{completedAt:'2026-11-01'},profileArchives:[{label:'Other'}]},[order('new')],{new:bookDetail('New')});
  const before=JSON.stringify(f.stored);f.context.document.querySelector=()=>({});

@@ -10,6 +10,13 @@
     return records.some(record => record.entitlement !== 'third-party-key' || !['expired', 'unavailable'].includes(record.keyStatus));
   }
   const key = C.scopeKey;
+  // Store punctuation in a dotted initialism is presentation only. Keep this
+  // game-only and compare the complete title, retaining numbers and editions.
+  function gameAcronymKey(title){
+    return policy.presentationTitle(String(title??'').replace(/\b(?:[A-Za-z]\.){2,}[A-Za-z]\.?(?=\s|$)/gu,value=>value.replace(/\./gu,'')),'game');
+  }
+  const fullTitleMatches=(offered,stored,kind)=>policy.fullTitleMatches(offered,stored,kind)
+    ||kind==='game'&&Boolean(gameAcronymKey(offered))&&gameAcronymKey(offered)===gameAcronymKey(stored);
   const intersect = (left, right) => left.some(value => right.includes(value));
   const localContentsIndexes = new WeakMap();
   const mappingIndexes = new WeakMap();
@@ -85,12 +92,12 @@
     };
     const related = records.filter(record => !conflicts(offered, record).length
       && (H.titleKey(record.title) === H.titleKey(offered.lookupTitle ?? offered.title)
-        || policy.fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind) || editionIdentifier(record)));
+        || fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind) || editionIdentifier(record)));
     const compatible = related.filter(record => !conflicts(offered, record, true).length);
     // Repeated observations do not create ambiguity. Known different works
     // still require enough evidence to select the offered identity.
     const identified = compatible.filter(editionIdentifier);
-    const full = compatible.filter(record => policy.fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind));
+    const full = compatible.filter(record => fullTitleMatches(offered.lookupTitle ?? offered.title, record.title, offered.kind));
     const pool = identified.length ? identified : full;
     const ambiguous = policy.ambiguousWorks(pool, H.bibliographicFields);
     // Identity is independent of whether a recorded key is still available.
@@ -434,7 +441,7 @@
     }).sort((a, b) => a.series.localeCompare(b.series, undefined, { numeric: true }) || String(a.run||'').localeCompare(String(b.run||'')));
   }
 
-  global.HumbleOwnership = { permanent, purchased, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, bundleContents, centralReminders, seriesKey, readingTargets, seriesCoverage };
+  global.HumbleOwnership = { permanent, purchased, gameAcronymKey, editionParts, conflicts, sharedIdentity, exactCandidate, offerContents, localEvidence, coverageFor, request, unitLabel, explanationLines, wishlistMatches, wishlistRelation, wishlistIntentKey, planningWishes, newUnits, planBundle, bundleContents, centralReminders, seriesKey, readingTargets, seriesCoverage };
 }(globalThis));
 
 // BEGIN SHARED BUNDLE MATCH CONTEXT

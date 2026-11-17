@@ -18,6 +18,7 @@ const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
 const lifecycle = process.argv.includes('--lifecycle');
+const maintenance = process.argv.includes('--maintenance');
 const lifecycleGame = process.argv.includes('--game');
 const themeMode=process.argv.includes('--theme'),themeWidth=process.argv.includes('--tiny')?420:process.argv.includes('--narrow')?560:1200;
 const tierSwitch = process.argv.includes('--tier-switch');
@@ -51,6 +52,7 @@ const server = createServer(async (request, response) => {
     if(lifecycle&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">',`<script>window.lifecycleWarm=${process.argv.includes('--warm')};</script><script src="/tests/lifecycle-fixture.js"></script><script src="/shared.js">`)
       .replace('/tests/browser-checks.js','/tests/lifecycle-checks.js');
+    if(maintenance&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8').replace('/tests/browser-checks.js','/tests/maintenance-checks.js');
     if(refreshLoop&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=250;window.fixtureCentralFailure=true;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};fixtureStored.showDiagnostics=true;</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/summary-refresh-checks.js');
