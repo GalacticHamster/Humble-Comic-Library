@@ -907,7 +907,7 @@
       // Account changes, restore, clear and legacy scans end both the pending batch and the tab's sync lease.
       const pendingEntitlements=await area.get({hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null});
       const invalidateEntitlements=pendingEntitlements.hclLibraryEntitlementControl||pendingEntitlements.hclLibraryEntitlementLease?{hclLibraryEntitlementControl:null,hclLibraryEntitlementLease:null}:{};
-      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort','entitlementSync','entitlementOrders'].includes(operation)){
+      if(['entitlementContext','entitlementBegin','entitlementCommit','entitlementAbort','entitlementSync','entitlementOrders','entitlementOrderState'].includes(operation)){
         const E=global.HumbleLibraryEntitlements;
         if(!E?.ENABLED)throw Error('Library entitlement collection is not enabled.');
         const current=await area.get(LIBRARY_STATE_DEFAULTS),key='hclLibraryEntitlementControl',leaseKey='hclLibraryEntitlementLease',lease=pendingEntitlements[leaseKey];
@@ -951,13 +951,27 @@
           const [q]=args,collection=E.collection(current.libraryEntitlements),scope=collection.scopes.find(s=>s.localAccountId!==null&&s.localAccountId===current.humbleAccountId);
           if(!scope||!q?.scope||E.scopeKey(scope)!==E.scopeKey(q.scope))throw Error('The saved account changed; Order History dates were not saved.');
           if(!Array.isArray(q.lines)||q.lines.length>5000)throw Error('Invalid Order History batch.');
-          const lines={...scope.orders?.lines??{}};
-          for(const line of q.lines){if(typeof line?.ref!=='string')continue;if(line.drop===true){delete lines[line.ref];continue;}lines[line.ref]={name:line.name,at:line.at??lines[line.ref]?.at??null};}
+          const lines={...scope.orders?.lines??{}},known=new Set(Object.keys(lines).map(ref=>ref.slice(0,ref.indexOf(':')))),newOrders=new Set();
+          for(const line of q.lines){
+            if(typeof line?.ref!=='string')continue;
+            if(line.drop===true){delete lines[line.ref];continue;}
+            if(typeof line.order==='string'&&!known.has(line.order))newOrders.add(line.order);
+            lines[line.ref]={name:line.name,at:line.at??lines[line.ref]?.at??null};
+          }
           const newest=[scope.orders?.newest,q.state?.newest].filter(v=>typeof v==='string').sort().at(-1)??null;
           const orders=E.orderHistory({lines,newest,resume:q.state?.resume??null,checkedAt:new Date().toISOString()});
+          // Nothing new (same lines, newest order and resume position): no write.
+          const same=scope.orders&&JSON.stringify([scope.orders.lines,scope.orders.newest,scope.orders.resume])===JSON.stringify([orders.lines,orders.newest,orders.resume]);
+          if(same)return {lines:Object.keys(orders.lines).length,newOrders:0,dated:E.orderDates(scope).size,changed:false};
           const next=E.collection({version:1,scopes:collection.scopes.map(s=>s===scope?{...s,orders}:s)});
           await area.set({libraryEntitlements:next});
-          return {lines:Object.keys(orders.lines).length,dated:E.orderDates(next.scopes.find(s=>E.scopeKey(s)===E.scopeKey(scope))).size};
+          return {lines:Object.keys(orders.lines).length,newOrders:newOrders.size,dated:E.orderDates(next.scopes.find(s=>E.scopeKey(s)===E.scopeKey(scope))).size,changed:true};
+        }
+        if(operation==='entitlementOrderState'){
+          // Read-only: what a purchase-date refresh needs for the active account's synced Library.
+          const scope=E.collection(current.libraryEntitlements).scopes.find(s=>s.localAccountId!==null&&s.localAccountId===current.humbleAccountId);
+          if(!scope)return null;
+          return {scope:{principalId:scope.principalId,userId:scope.userId},state:{newest:scope.orders?.newest??null,resume:scope.orders?.resume??null},dated:E.orderDates(scope).size,lines:Object.keys(scope.orders?.lines??{}).length};
         }
         const control=(await area.get({[key]:null}))[key];
         const tabId=operation==='entitlementCommit'?args[2]:args[1];

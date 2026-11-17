@@ -140,24 +140,24 @@ async function installedEntitlementChecks(disabled=false,phase) {
 
 // Synthetic Library transport shared by both phases (the resume phase runs after reload/restart).
 function syncTransport(rows,{title=null,orders=null}={}){
-  let requests=0,failNext=null,hang=null;
+  let requests=0,failNext=null,hang=null;const paths=[];
   const frames=components=>components.map((c,i)=>`${(i+1).toString(16)}:I${JSON.stringify([i+1,c.name==='UserLibrary'?['static/chunks/synthetic-library.js']:[],c.name])}`).join('\n')+'\n0:'+JSON.stringify(components.map((c,i)=>['$','$L'+(i+1).toString(16),null,c.props]))+'\n';
   const response=(body,status=200,type='text/x-component')=>({ok:status===200,status,type:'basic',headers:{get:name=>name==='content-type'?type:null},text:async()=>body});
   const html=components=>response('<!doctype html><script>self.__next_f.push('+JSON.stringify([1,frames(components)])+')</script>',200,'text/html');
   const auth={name:'AuthProvider',props:{user:{id:'principal-A'}}};
   const child=r=>({...r,giftStatus:'unassigned',expired:false,preOrdered:false,outOfStock:false,redeemable:true,directRedeem:false,keyIntegrationId:null,unavailableBefore:null,unavailableAfter:null,redeemedAt:null,redemptionData:{keyFormatted:'SYNTHETIC_SECRET_NEVER_PERSIST'}});
   const fetch=async(path,init={})=>{
-    requests++;
+    requests++;paths.push(path);
     if(hang&&hang(path,init))return new Promise(()=>{});
     if(failNext&&failNext(path,init)){const r=failNext.response;failNext=null;if(r==='network')throw TypeError('Synthetic network failure');return r;}
     if(path==='/_next/static/chunks/synthetic-library.js')return response(`(0,r.createServerReference)("${'a'.repeat(40)}",r.callServer,void 0,r.findSourceMapURL,"filterUserLibrary")`,200,'text/javascript');
     if(path==='/home/library'&&init.method!=='POST')return html([auth,{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]);
     if(path==='/home/library'&&init.method==='POST'){const page=Number(init.body.get('_1_page'));return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*Number(init.body.get('_1_limit')),page*Number(init.body.get('_1_limit'))),pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/Number(init.body.get('_1_limit')))),totalDocs:rows.length}})+'\n');}
     if(path==='/home/library/parent-A')return html([auth,{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,...(title?{title}:{}),entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(child)}}}}]);
-    if(orders&&path==='/home/purchases?page=1')return response(frames([auth,{name:'OrderHistory',props:{data:{results:orders,pagination:{page:1,totalPages:1,totalDocs:orders.length}}}}]));
+    if(orders&&path.startsWith('/home/purchases?page=')){const page=Number(path.split('=').pop());return response(frames([auth,{name:'OrderHistory',props:{data:{results:page===1?orders:[],pagination:{page,totalPages:2,totalDocs:orders.length}}}}]));}
     throw Error('Unexpected fixture request');
   };
-  return {fetch,requests:()=>requests,fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
+  return {fetch,requests:()=>requests,paths:()=>[...paths],fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
 }
 // Drives the real Options page: 2,345 synthetic native entitlements under one parent whose IDs are not UUIDs.
 async function installedBrowserChecks({check,store}){
@@ -261,7 +261,7 @@ async function installedSyncChecks({store,state,baseline,row,check}){
   view=await current();check(view.checkpoint?.status==='running'&&view.checkpoint.nextPage===2&&view.saved===8,'installed sync is interrupted mid-run with a persisted checkpoint');
   // An Order History line saved before the restart; the resumed sync must keep it and date the purchase.
   const orderLine={ref:'runtime-order:line-1',name:'Synthetic Runtime Bundle',at:'2026-11-17T03:45:00.000Z'};
-  const savedOrders=await store('entitlementOrders',{scope:{principalId:'principal-A',userId:'hub-A'},lines:[orderLine],state:{newest:'2026-11-17T03:45:00.000Z',resume:null}});
+  const savedOrders=await store('entitlementOrders',{scope:{principalId:'principal-A',userId:'hub-A'},lines:[orderLine],state:{newest:'2026-11-17T03:45:00.000Z',resume:{page:2,newest:'2026-11-17T03:45:00.000Z'}}});
   check(savedOrders.lines===1&&savedOrders.dated===0,'installed Order History lines are saved for the synced account; none date a purchase without a matching name');
 }
 // A first install: no saved account, no earlier import. Then key-reminder navigation on the same data.
@@ -312,14 +312,25 @@ async function installedSyncResume({store,check,checks}){
   check(before.libraryEntitlements.scopes[0].orders?.lines?.['runtime-order:line-1']?.at==='2026-11-17T03:45:00.000Z','installed Order History lines survive reload and extension restart');
   // The resumed sync reads Order History: the saved line again and a new order on the new store.
   const newOrder={id:'runtime-order-2',createdAt:'2026-11-18T01:00:00.000Z',completedAt:null,orderState:'Complete',paymentState:'Paid',custom:{fields:{oryIdentityId:'principal-A',userHubUserId:'hub-A'}},lineItems:[{id:'line-1',name:{'en-US':'Another Synthetic Bundle'}}]};
-  const runner=E.createSync({fetcher:syncTransport(Array.from({length:8},(_,n)=>row(n)),{title:'Synthetic Runtime Bundle',orders:[newOrder]}).fetch,store,settings:{pageSize:5,batchPages:1},sleep:async()=>{}});
+  const orderTransport=syncTransport(Array.from({length:8},(_,n)=>row(n)),{title:'Synthetic Runtime Bundle',orders:[newOrder]});
+  // After the reload the panel is idle: it offers to continue the unfinished purchase-date refresh and does not show one running.
+  E.installPanel({fetcher:orderTransport.fetch,settings:{pageSize:5,batchPages:1,requestSpacingMs:500,batchDelayMs:2000}});
+  const panel=document.getElementById('hcl-library-sync'),pstatus=panel.querySelector('[role="status"]'),datesButton=panel.querySelector('[data-action="dates"]');
+  for(let n=0;n<200&&datesButton.hidden;n++)await new Promise(r=>setTimeout(r,25));
+  check(!datesButton.hidden&&datesButton.textContent==='Continue refreshing purchase dates'&&!/Checking Humble Order History/.test(pstatus.textContent),'installed reloaded panel is idle and offers to continue an unfinished purchase-date refresh');
+  const runner=E.createSync({fetcher:orderTransport.fetch,store,settings:{pageSize:5,batchPages:1},sleep:async()=>{}});
   await runner.start({mode:'full',resume:view.checkpoint,context:await store('entitlementContext'),confirmed:true});
   const after=await chrome.storage.local.get(null),done=E.syncView(after);
   check(done.checkpoint.status==='completed'&&done.checkpoint.coverage==='accessible-pages-traversed'&&done.saved===8&&done.checkpoint.added===0&&done.checkpoint.refreshed===8,'installed sync resumes after restart from the checkpoint without duplicates');
   check(['libraryItems','purchaseSummaries','mediaTypeOverrides','historicalLibraryItems','historicalPurchaseSummaries','profileArchives'].every(k=>JSON.stringify(after[k])===JSON.stringify(before[k])),'installed resumed sync leaves legacy purchases, history and corrections unchanged');
   check(!after.hclLibraryEntitlementLease,'installed completed sync releases its lease');
-  const dated=E.syncView(after).orders;
-  check(dated?.lines===2&&dated.dated===1&&E.orderDates(E.collection(after.libraryEntitlements).scopes[0]).get('parent-A')?.purchasedAt==='2026-11-17T03:45:00.000Z','installed resumed sync adds new Order History lines and dates the purchase whose name matches');
+  // The resumed full sync finished the saved refresh position (page 2). Refresh purchase dates then reads the whole Order History again, without Library pages.
+  const sent=orderTransport.paths().length;datesButton.click();
+  for(let n=0;n<400&&!/^Checked/.test(pstatus.textContent);n++)await new Promise(r=>setTimeout(r,25));
+  const refreshed=await chrome.storage.local.get(null),dated=E.syncView(refreshed).orders,paths=orderTransport.paths().slice(sent);
+  check(/^Checked 1 order \(1 new\)\. No additional purchase dates found\./.test(pstatus.textContent)&&paths.length===2&&paths.every(p=>p.startsWith('/home/purchases?page='))&&dated?.lines===2&&dated.dated===1&&E.orderDates(E.collection(refreshed.libraryEntitlements).scopes[0]).get('parent-A')?.purchasedAt==='2026-11-17T03:45:00.000Z','installed Refresh purchase dates reads only Order History, reports orders checked and new, and keeps the purchase dated');
+  check(JSON.stringify(refreshed.libraryEntitlements.scopes[0].observations)===JSON.stringify(after.libraryEntitlements.scopes[0].observations)&&['libraryItems','purchaseSummaries'].every(k=>JSON.stringify(refreshed[k])===JSON.stringify(after[k])),'installed purchase-date refresh leaves purchases, first-synced times and imports unchanged');
+  panel.remove();
   const firsts=s=>JSON.stringify(s.libraryEntitlements.scopes.flatMap(x=>x.observations.map(o=>[o.nativeId,o.firstObservedAt])).sort());
   check(before.libraryEntitlements.scopes.every(s=>s.observations.length&&s.observations.every(o=>typeof o.firstObservedAt==='string'))&&firsts(after)===firsts(before),'installed first-seen times survive extension restart and are kept by the resumed sync');
   return {checks};

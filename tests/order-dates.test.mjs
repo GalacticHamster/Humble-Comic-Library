@@ -21,7 +21,7 @@ const history = (...pages) => n => page(pages[n - 1] ?? [], n, pages.length);
 test('reads dated bundle lines: a two-bundle order dates both lines; a migrated order uses legacyCreatedAt, not its migration time', async () => {
   const f = fixture({orders: history([NEW, MIGRATED])}), E = f.E;
   const read = await E.readOrderHistory({fetcher: f.fetcher, scope: SCOPE});
-  assert.deepEqual(JSON.parse(JSON.stringify(read.lines)), [
+  assert.deepEqual(JSON.parse(JSON.stringify(read.lines)).map(({order, ...line}) => line), [
     {ref: 'o-new:o-new-line-0', name: 'Synthetic Comic Bundle: The Archive Collection by Example & Co', at: '2026-11-17T03:45:00.000Z'},
     {ref: 'o-new:o-new-line-1', name: 'Synthetic Comic Bundle: The Horror Bundle by Example', at: '2026-11-17T03:45:00.000Z'},
     {ref: 'o-old:o-old-line-0', name: 'Synthetic Book Bundle: Earlier Favourites', at: '2025-09-03T11:00:00.123Z'}]);
@@ -35,7 +35,7 @@ test('a migrated order without its original time stays undated; cancelled or ref
   const completedOnly = order('o-comp', ['Completed Bundle'], {created: '2026-11-01T00:00:00.000Z', completed: '2026-05-05T05:05:05.000Z', source: 'hb-refundable-original'});
   const refunded = order('o-ref', ['Refunded Bundle'], {payment: 'Refunded'});
   const read = await E.readOrderHistory({fetcher: fixture({orders: history([undated, completedOnly, refunded])}).fetcher, scope: SCOPE});
-  assert.deepEqual(JSON.parse(JSON.stringify(read.lines)), [{ref: 'o-mig:o-mig-line-0', name: 'Undated Bundle', at: null}, {ref: 'o-comp:o-comp-line-0', name: 'Completed Bundle', at: '2026-05-05T05:05:05.000Z'}, {ref: 'o-ref:o-ref-line-0', drop: true}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(read.lines)).map(({order, ...line}) => line), [{ref: 'o-mig:o-mig-line-0', name: 'Undated Bundle', at: null}, {ref: 'o-comp:o-comp-line-0', name: 'Completed Bundle', at: '2026-05-05T05:05:05.000Z'}, {ref: 'o-ref:o-ref-line-0', drop: true}]);
 });
 
 test('Order History of another Humble account is rejected', async () => {
@@ -48,10 +48,13 @@ test('reads grow incrementally: a recent read stops at orders seen before, a ful
   const E = fixture().E;
   const many = Array.from({length: 7}, (_, p) => Array.from({length: 6}, (_, i) => order(`o${p}-${i}`, [`Bundle ${p}-${i}`], {created: new Date(Date.UTC(2026, 10, 10) - (p * 6 + i) * 3600000).toISOString(), legacy: '2026-01-01T00:00:00.000Z', source: 'hb'})));
   let f = fixture({orders: history(...many)});
-  const first = await E.readOrderHistory({fetcher: f.fetcher, scope: SCOPE, maxPages: 3});
-  assert.equal(first.lines.length, 18);assert.deepEqual(JSON.parse(JSON.stringify(first.state)), {newest: null, resume: {page: 4, newest: '2026-11-10T00:00:00.000Z'}}, 'a long history resumes on the next sync');
-  const second = await E.readOrderHistory({fetcher: f.fetcher, scope: SCOPE, state: first.state, maxPages: 10});
+  const first = await E.readOrderHistory({fetcher: f.fetcher, scope: SCOPE, full: true, maxPages: 3});
+  assert.equal(first.lines.length, 18);assert.deepEqual(JSON.parse(JSON.stringify(first.state)), {newest: null, resume: {page: 4, newest: '2026-11-10T00:00:00.000Z'}}, 'a long history resumes on the next full read');
+  const second = await E.readOrderHistory({fetcher: f.fetcher, scope: SCOPE, state: first.state, full: true, maxPages: 10});
   assert.equal(second.lines.length, 24);assert.deepEqual(JSON.parse(JSON.stringify(second.state)), {newest: '2026-11-10T00:00:00.000Z', resume: null});
+  // A recent read never starts or moves a resume position, and does not record a newest order it did not finish behind.
+  const partial = await E.readOrderHistory({fetcher: fixture({orders: history(...many)}).fetcher, scope: SCOPE, state: first.state, maxPages: 2});
+  assert.deepEqual(JSON.parse(JSON.stringify(partial.state)), JSON.parse(JSON.stringify(first.state)));
   // Humble adds two newly migrated orders at the top; a recent read takes the first page only.
   const added = [order('fresh-1', ['Fresh 1'], {created: '2026-11-18T00:00:00.000Z', legacy: '2025-01-01T00:00:00.000Z', source: 'hb'}), order('fresh-2', ['Fresh 2'], {created: '2026-11-17T00:00:00.000Z', legacy: '2025-02-01T00:00:00.000Z', source: 'hb'})];
   const grown = [[...added, ...many[0].slice(0, 4)], ...many];
@@ -135,7 +138,7 @@ test('a completed sync looks up purchase dates; an unavailable Order History doe
   };
   const ok = await run(history([NEW]));
   assert.equal(ok.f.stored.libraryEntitlements.scopes[0].sync.status, 'completed');
-  assert.deepEqual(JSON.parse(JSON.stringify(ok.s.view.orderDates)), {lines: 2, dated: 1});
+  assert.deepEqual(JSON.parse(JSON.stringify(ok.s.view.orderDates)), {lines: 2, newOrders: 1, dated: 1, changed: true});
   assert.equal(ok.f.E.syncView(ok.f.stored).orders.dated, 1);
   // A second sync reads the first Order History page only and changes nothing.
   const lines = copy(ok.f.stored.libraryEntitlements.scopes[0].orders.lines), n = ok.f.requests.filter(r => r.path.startsWith('/home/purchases')).length;

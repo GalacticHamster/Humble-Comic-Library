@@ -6,7 +6,7 @@ Humble Library is an unofficial browser extension for comparing a person's Humbl
 
 ## Data the extension handles
 
-When the user starts a Library sync, the extension reads the user's signed-in Humble Library page (humblebundle.com/home/library) in that tab, page by page, together with the detail pages of the purchases it lists. When a sync finishes, it also reads the signed-in Humble order history (humblebundle.com/home/purchases) to find purchase dates. Before 1.1.0, imports read the Humble Purchases page instead; data saved by those imports is kept. The extension stores the following data locally in the browser:
+When the user starts a Library sync, the extension reads the user's signed-in Humble Library page (humblebundle.com/home/library) in that tab, page by page, together with the detail pages of the purchases it lists. When a sync finishes, or when the user chooses Refresh purchase dates, it also reads the signed-in Humble order history (humblebundle.com/home/purchases) to find purchase dates. Before 1.1.0, imports read the Humble Purchases page instead; data saved by those imports is kept. The extension stores the following data locally in the browser:
 
 - item titles and whether an item is a book, audiobook, game, or software;
 - Humble bundle names, purchase dates, and purchase identifiers;
