@@ -12,8 +12,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const firefox = process.argv.includes('--firefox');
 const importer = process.argv.includes('--importer');
 const ownershipBorders = process.argv.includes('--ownership-borders');
+const providerModal = process.argv.includes('--provider-modal');
 const libraryPurchases = process.argv.includes('--library-purchases');
-const redesign = process.argv.includes('--redesign') || ownershipBorders;
+const redesign = process.argv.includes('--redesign') || ownershipBorders || providerModal;
 const redesignGames = process.argv.includes('--redesign-games');
 const catalogue = process.argv.includes('--catalogue');
 const refreshLoop = process.argv.includes('--refresh-loop');
@@ -63,6 +64,7 @@ const server = createServer(async (request, response) => {
       .replace('/tests/browser-checks.js','/tests/slow-central-checks.js');
     if(summaryToggle&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('<script src="/content.js">','<script src="/tests/summary-toggle-setup.js"></script><script src="/content.js">').replace('/tests/redesign-checks.js','/tests/summary-toggle-checks.js');
     if(ownershipBorders&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/ownership-border-checks.js');
+    if(providerModal&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/provider-modal-checks.js');
     if(pathname.endsWith('.html')){body=body.toString('utf8').replace('<link rel="stylesheet" href="/content.css">','<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/content.css"><link rel="stylesheet" href="/theme-overlays.css">').replace('<script src="/shared.js">','<script src="/theme.js"></script><script src="/shared.js">');if(themeMode)body=body.replace(/<script src="\/tests\/(presentation-parity-checks|advanced-parity-checks|browser-checks)\.js"><\/script>/g,'').replace('</body>','<script src="/tests/theme-overlay-checks.js"></script></body>');}
     response.end(body);
   } catch (error) { response.writeHead(404); response.end(error.message); }

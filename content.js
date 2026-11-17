@@ -41,6 +41,7 @@ function finishGalacticRendering(diagnostic){
 
 (async function initialiseHumbleComicLibrary() {
   'use strict';
+  watchProviderModals();
 
   if (globalThis.HumbleLibraryEntitlements?.ENABLED && location.pathname.startsWith('/home/library')) { if(isRedesignedHumble())initialiseRedesignedHumble();else HumbleLibraryEntitlements.installPanel(); return; }
 
@@ -405,6 +406,32 @@ function recordHasUnannotatedCover(record, mountedCovers = null) {
     return covers.some((cover) => isBundleCover(cover) && likelyItemTitle({ textContent: cover.alt }) && (mountedCovers && !mountedCovers.has(cover)
       || !cover.classList.contains('hcl-cover-owned') && !cover.classList.contains('hcl-cover-elsewhere') && !cover.classList.contains('hcl-cover-new') && !cover.classList.contains('hcl-cover-possible') && !cover.classList.contains('hcl-cover-partial') && !cover.classList.contains('hcl-cover-unchecked')));
   });
+}
+
+// Humble's own modals (its cart drawer, sign-in) block the rest of the page. While one is open, HB's
+// floating panels and badges step back (content.css hides them) and return unchanged when it closes.
+// No HB content is removed or re-rendered, so nothing is rechecked and panel preferences are untouched.
+// A modal is a modal <dialog>, an aria-modal element, or an open dialog while the page blocks pointer
+// input outside it (Radix modals do this rather than set aria-modal).
+function watchProviderModals() {
+  if (typeof globalThis.MutationObserver !== 'function' || !document.documentElement || !document.body) return;
+  const ours = element => element.closest('[id^="hcl-"], .hcl-summary, .hcl-progress');
+  const modalOpen = () => {
+    if ([...document.querySelectorAll('dialog[open]')].some(dialog => !ours(dialog) && dialog.matches(':modal'))) return true;
+    const blocked = getComputedStyle(document.body).pointerEvents === 'none';
+    return [...document.querySelectorAll('[aria-modal="true"], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')]
+      .some(element => !ours(element) && (element.getAttribute('aria-modal') === 'true' || blocked));
+  };
+  let frame = 0;
+  const update = () => {
+    frame = 0;
+    const open = modalOpen();
+    if (document.documentElement.hasAttribute('data-hcl-provider-modal') !== open) document.documentElement.toggleAttribute('data-hcl-provider-modal', open);
+  };
+  const schedule = () => { frame ||= requestAnimationFrame(update); };
+  new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'data-state'] });
+  new MutationObserver(schedule).observe(document.body, { attributes: true, attributeFilter: ['style'] });
+  schedule();
 }
 
 function showComparisonProgress(message, { spinning = true } = {}) {

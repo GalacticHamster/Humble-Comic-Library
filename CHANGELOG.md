@@ -3,6 +3,7 @@
 ## 1.1.2 — Unreleased
 
 - Minimizing, expanding or repositioning the bundle ownership panel keeps existing badges and results visible without repeating ownership checks or Galactic Library requests. Preference changes also leave in-progress checks running normally.
+- Humble's cart drawer and other Humble pop-ups now appear above the ownership panel and badges. They step aside while it is open and return unchanged, minimized or expanded, when it closes, without checking ownership again.
 - Purchases synced from your Humble Library now count on bundle pages and in the catalogue. Buying a title again shows Owned ×2, counted as Titles counts it: a Library purchase that is one of your earlier imported orders counts once, and copies in other stores found through Galactic Library never add to the count. Newly bought bundles are marked Purchased in the catalogue and on their own page. When Humble's Library names an item with a subtitle its bundle card leaves out (such as "Human Remains: The Complete Series" for "Human Remains"), buying that exact bundle shows the card as Owned; other similar titles still show Possible. Humble's Library lists no purchase dates, so these purchases are shown without one rather than with an invented date.
 
 ## 1.1.1 — Sync from your Humble Library

@@ -408,3 +408,6 @@
 /* Restore native disclosure arrows when Humble's page styles reset summaries. */
 #hcl-library-sync details > summary { display:list-item !important; list-style:disclosure-closed inside !important; }
 #hcl-library-sync details[open] > summary { list-style-type:disclosure-open !important; }
+/* A Humble modal (cart drawer, sign-in) takes precedence. Hidden, not removed: state, position and results return when it closes. */
+:root[data-hcl-provider-modal] :is(#hcl-summary, #hcl-progress, .hcl-catalog-filters, .hcl-catalog-sort-diagnostics, .hcl-purchase-focus-notice, .hcl-status-button, .hcl-wish-marker),
+:root[data-hcl-provider-modal] .hcl-catalog-purchased::after { visibility: hidden !important; }
