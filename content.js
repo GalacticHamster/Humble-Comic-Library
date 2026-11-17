@@ -17,7 +17,7 @@ const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], li
 // Storage that changes bundle-page ownership results.
 const LIBRARY_REBUILD_KEYS = ['libraryEntitlements', 'humbleAccountId', 'libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'];
 let purchaseFocusTimer;
-let bundleSummaryPreferences = {minimized:false,position:'bottom-left'};
+let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
 let galacticDiagnosticSequence=0;
 const galacticDiagnosticPrefix=(globalThis.crypto?.randomUUID?.().replaceAll('-','')??Math.random().toString(16).slice(2).padEnd(12,'0')).slice(0,12);
 const galacticDiagnosticNow=()=>Number.isFinite(globalThis.performance?.timeOrigin)?performance.timeOrigin+performance.now():Date.now();

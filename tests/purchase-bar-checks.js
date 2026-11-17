@@ -22,7 +22,7 @@
     await pause(300);
     const panel = document.querySelector('#hcl-summary'), nodes = badges(), position = panel.dataset.position;
     const restingBottom = innerHeight - panel.getBoundingClientRect().bottom;
-    check(position === 'bottom-left' && panel.getBoundingClientRect().left < innerWidth / 2, 'with no saved corner the panel starts bottom left, away from Humble\'s right-hand purchase column');
+    check(position === 'bottom-right' && panel.getBoundingClientRect().right > innerWidth / 2, 'with no saved corner the panel starts bottom right');
     check(Math.abs(restingBottom - 16) < 1, 'without a pinned purchase bar the panel keeps its usual bottom margin');
     check(panel.getBoundingClientRect().height <= Math.max(innerHeight / 2, 288) + 1, 'the expanded panel leaves at least half of a short window clear');
     const counts = JSON.stringify(activity);
@@ -43,6 +43,13 @@
     const hidden = addBar(); hidden.bar.style.display = 'none'; await pause(200);
     check(Math.abs(innerHeight - panel.getBoundingClientRect().bottom - 16) < 1, 'a purchase bar that is not displayed does not move the panel');
     hidden.bar.remove();
+    // A chosen bottom-left corner is kept and also sits above the bar.
+    panel.querySelector('select').value = 'bottom-left'; panel.querySelector('select').dispatchEvent(new Event('change', {bubbles: true}));
+    await wait(() => panel.dataset.position === 'bottom-left', 'Moving the panel to the bottom left');
+    const left = addBar();
+    await wait(() => overlap(panel.getBoundingClientRect(), left.bar.getBoundingClientRect()) === 0, 'Lifting a bottom-left panel');
+    check(panel.dataset.position === 'bottom-left' && panel.getBoundingClientRect().left < innerWidth / 2, 'a chosen bottom-left corner is kept and sits above the purchase bar');
+    left.bar.remove();
     // A top position is never moved.
     panel.querySelector('select').value = 'top-left'; panel.querySelector('select').dispatchEvent(new Event('change', {bubbles: true}));
     await wait(() => panel.dataset.position === 'top-left', 'Moving the panel to the top');

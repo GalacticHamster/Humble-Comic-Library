@@ -845,8 +845,7 @@
   function normalizeSummaryPreferences(value={},strict=false) {
     const positions=['bottom-right','bottom-left','top-right','top-left'];
     if(strict&&(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['minimized','position'].includes(key))||Object.hasOwn(value,'minimized')&&typeof value.minimized!=='boolean'||Object.hasOwn(value,'position')&&!positions.includes(value.position)))throw new Error('Invalid bundle summary preferences.');
-    // Bottom left by default: on wide layouts Humble's tier choices and Add to Cart are in the right-hand column.
-    return {minimized:value?.minimized===true,position:positions.includes(value?.position)?value.position:'bottom-left'};
+    return {minimized:value?.minimized===true,position:positions.includes(value?.position)?value.position:'bottom-right'};
   }
 
   // Product tokens are not purchase IDs, key-delivery IDs or positional fallbacks.
