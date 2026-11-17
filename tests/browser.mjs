@@ -19,6 +19,7 @@ const refreshLoop = process.argv.includes('--refresh-loop');
 const slowCentral = process.argv.includes('--slow-central');
 const lifecycle = process.argv.includes('--lifecycle');
 const maintenance = process.argv.includes('--maintenance');
+const summaryToggle = process.argv.includes('--summary-toggle');
 const lifecycleGame = process.argv.includes('--game');
 const themeMode=process.argv.includes('--theme'),themeWidth=process.argv.includes('--tiny')?420:process.argv.includes('--narrow')?560:1200;
 const tierSwitch = process.argv.includes('--tier-switch');
@@ -41,7 +42,7 @@ const server = createServer(async (request, response) => {
       response.setHeader('Content-Type','text/html; charset=utf-8');
       response.end('<!doctype html><html><head><link rel="stylesheet" href="/content.css"></head><body><main>Purchases fixture</main><script src="/tests/bundle-fixture.js"></script><script src="/purchase-snapshot.js"></script><script src="/purchase-adapters.js"></script><script src="/purchase-sync.js"></script><script src="/shared.js"></script><script src="/collection-mappings.js"></script><script src="/ownership.js"></script><script src="/content.js"></script><script src="/tests/importer-checks.js"></script></body></html>');return;
     }
-    if (pathname === '/books/test' || pathname === '/games/test') pathname = redesignGames ? '/tests/redesign-games-fixture.html' : redesign ?'/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
+    if (pathname === '/books/test' || pathname === '/games/test') pathname = redesignGames ? '/tests/redesign-games-fixture.html' : redesign || summaryToggle ?'/tests/redesign-fixture.html' : tierSwitch ? '/tests/tier-switch-fixture.html' : '/tests/bundle-fixture.html';
     if (pathname === '/books') pathname = '/tests/catalogue-fixture.html';
     const target = resolve(root, `.${decodeURIComponent(pathname)}`);
     if (!target.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
@@ -59,6 +60,7 @@ const server = createServer(async (request, response) => {
     if(slowCentral&&pathname==='/tests/bundle-fixture.html')body=body.toString('utf8')
       .replace('<script src="/shared.js">','<script>window.fixtureCentralDelayMs=4500;fixtureStored.bundleSummaryPreferences={minimized:true,position:"top-left"};</script><script src="/shared.js">')
       .replace('/tests/browser-checks.js','/tests/slow-central-checks.js');
+    if(summaryToggle&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('<script src="/content.js">','<script src="/tests/summary-toggle-setup.js"></script><script src="/content.js">').replace('/tests/redesign-checks.js','/tests/summary-toggle-checks.js');
     if(ownershipBorders&&pathname==='/tests/redesign-fixture.html')body=body.toString('utf8').replace('/tests/redesign-checks.js','/tests/ownership-border-checks.js');
     if(pathname.endsWith('.html')){body=body.toString('utf8').replace('<link rel="stylesheet" href="/content.css">','<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/content.css"><link rel="stylesheet" href="/theme-overlays.css">').replace('<script src="/shared.js">','<script src="/theme.js"></script><script src="/shared.js">');if(themeMode)body=body.replace(/<script src="\/tests\/(presentation-parity-checks|advanced-parity-checks|browser-checks)\.js"><\/script>/g,'').replace('</body>','<script src="/tests/theme-overlay-checks.js"></script></body>');}
     response.end(body);

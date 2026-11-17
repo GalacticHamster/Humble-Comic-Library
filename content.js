@@ -305,7 +305,17 @@ function initialiseRedesignedHumble() {
     .observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['alt','aria-checked','aria-label','data-countdown']});
   window.addEventListener('popstate',refresh);
   window.addEventListener('hcl-refresh-central',refresh);
-  chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&['libraryEntitlements','humbleAccountId','libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','bundleSummaryPreferences','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();});
+  chrome.storage.onChanged?.addListener((changes,area)=>{
+    if(area!=='local')return;
+    // Panel presentation is not ownership evidence. Updating it must also be
+    // safe while Phase 2 is awaiting GL, including preferences saved in a
+    // different tab. Keep genuine data changes on the normal refresh path.
+    if(changes.bundleSummaryPreferences){
+      bundleSummaryPreferences=HumbleComicLibrary.normalizeSummaryPreferences(changes.bundleSummaryPreferences.newValue);
+      document.querySelector('#hcl-summary')?.dispatchEvent(new Event('hcl-summary-preferences'));
+    }
+    if(['libraryEntitlements','humbleAccountId','libraryItems','historicalLibraryItems','humbleProfileLabel','purchaseSummaries','customCollectionMappings','galacticLibraryExtensionId','showNewItemsOnly','catalogueFilters'].some(key=>Object.hasOwn(changes,key)))refresh();
+  });
   refresh();
 }
 

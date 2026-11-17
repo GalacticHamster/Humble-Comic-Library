@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — Unreleased
+
+- Minimizing, expanding or repositioning the bundle ownership panel keeps existing badges and results visible without repeating ownership checks or Galactic Library requests. Preference changes also leave in-progress checks running normally.
+
 ## 1.1.1 — Sync from your Humble Library
 
 Replaces the unpublished 1.1.0 candidate.
