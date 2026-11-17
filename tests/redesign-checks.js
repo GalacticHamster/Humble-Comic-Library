@@ -31,6 +31,7 @@
   check(collectBundleItems(bundleMediaContext('game')).every(i=>i.kind==='game'&&i.tier.price===null),'stale book Flight props cannot establish game tiers');
   history.pushState({},'', '/home/purchases');document.querySelector('h1').textContent='Purchases';await wait(()=>document.querySelector('#hcl-importer'));check(true,'SPA purchases navigation mounts one importer');
   const notice=document.querySelector('#hcl-importer');
+  check(!notice.querySelector('details')&&!notice.textContent.includes('Saved accounts')&&!notice.textContent.includes('Active account'),'retired notice contains no account controls or expandable account list');
   check(notice.querySelector('strong').textContent==='Humble Library Extension'&&/Humble has moved purchase information to its new Library page/.test(notice.textContent)&&!notice.querySelector('[data-import-mode]')&&notice.querySelector('a.hcl-importer-link').textContent==="Go to Humble's Library page"&&notice.querySelector('a.hcl-importer-link').href==='https://www.humblebundle.com/home/library','retired purchase importer is a notice pointing to the Library page, with no import buttons');
   check(document.body.firstElementChild===notice&&!fixtureStored.lastImport,'notice is first in the document like the importer, and nothing was imported');
   document.querySelector('#hcl-importer').remove();document.querySelector('h1').textContent='Purchases hydrated';await wait(()=>document.querySelectorAll('#hcl-importer').length===1);check(true,'hydration remounts one importer');

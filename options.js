@@ -1617,7 +1617,7 @@
     URL.revokeObjectURL(url);
   });
 
-  document.querySelector('#export-catalog').addEventListener('click',async()=>{
+  for(const format of ['json','csv'])document.querySelector(format==='csv'?'#export-catalog-csv':'#export-catalog').addEventListener('click',async()=>{
     const status=document.querySelector('#local-status');
     try {
       const saved=await chrome.storage.local.get({libraryItems:[],purchaseSummaries:[],libraryEntitlements:null,humbleAccountId:null});
@@ -1626,8 +1626,8 @@
       const links=model.native.present?HumbleLibraryBrowser.titleLinks(model.groups,reconciliation):null;
       const titles=[...consolidateLibrary(saved.libraryItems),...HumbleLibraryBrowser.nativeOnlyTitles(model,saved.libraryItems,links)];
       const catalog=HumbleComicLibrary.createTitleCatalog(titles);
-      const url=URL.createObjectURL(new Blob([JSON.stringify(catalog,null,2)],{type:'application/json'}));
-      Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.json'}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
+      const url=URL.createObjectURL(new Blob([format==='csv'?HumbleComicLibrary.createTitleCatalogCsv(titles):JSON.stringify(catalog,null,2)],{type:format==='csv'?'text/csv;charset=utf-8':'application/json'}));
+      Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.'+format}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
       status.textContent='Exported catalog titles and identity metadata only; this is not a recoverable ownership backup.';
     }catch(error){status.textContent='Could not export the title catalog: '+error.message;}
   });

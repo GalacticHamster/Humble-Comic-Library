@@ -4,7 +4,7 @@ Humble Library 1.1.0 is an unofficial Chrome and Firefox extension that helps yo
 
 Your library and purchase history stay in browser-local extension storage. The Library sync reads your signed-in Humble account; optional Galactic Library integration checks other libraries and shares supported saved purchases locally by default when both extensions are installed; you can turn sharing off in Extension options. Humble Library is not affiliated with or endorsed by Humble Bundle.
 
-[Privacy policy](PRIVACY.md) | [Sync guide](#sync-your-humble-library) | [Galactic Library setup](docs/companion-pairing.md) | [Report an issue](https://github.com/GalacticHamster/Humble-Comic-Library/issues)
+[Privacy policy](PRIVACY.md) | [Sync guide](#sync-your-humble-library) | [Library sync and exports](docs/library-sync-and-exports.md) | [Galactic Library setup](docs/companion-pairing.md) | [Report an issue](https://github.com/GalacticHamster/Humble-Comic-Library/issues)
 
 ## November 2026 website compatibility
 

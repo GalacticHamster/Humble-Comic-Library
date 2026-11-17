@@ -3144,7 +3144,7 @@ function showPurchaseFocusNotice(message) {
 }
 
 // Humble's redesigned purchase pages cannot be imported from. Instead of retired import buttons,
-// point to the Library sync and keep saved-account management in the importer's place.
+// point to the Library sync without mounting obsolete importer/account controls.
 function addRetiredImporterNotice() {
   const panel = document.createElement('section');
   panel.id = 'hcl-importer';
@@ -3152,7 +3152,6 @@ function addRetiredImporterNotice() {
   panel.innerHTML = `
     <div class="library-import-description"><strong>Humble Library Extension</strong> <span>Humble has moved purchase information to its new Library page. To update your saved purchases, go to that page and use the extension's sync controls. Your existing purchases and settings are preserved.</span></div>
     <div class="hcl-import-actions"><a class="hcl-importer-link" href="https://www.humblebundle.com/home/library">Go to Humble's Library page</a></div>`;
-  LibraryAccountProfiles.mount(panel.querySelector('.library-import-description'),{request:HumbleComicLibrary.storageRequest,keys:['humbleProfileLabel','profileArchives']});
   document.body.prepend(panel);
 }
 

@@ -28,6 +28,7 @@ async function harness(initial = {}, { enabled = true } = {}) {
   const get = (sel) => context.document.querySelector(sel);
   return { stored, writes, sessionData, opened, context, get, changeListeners,
     async exportCatalog() { await get("#export-catalog").listeners.click(); return JSON.parse(await exports.at(-1).text()); },
+    async exportCsv() { await get('#export-catalog-csv').listeners.click(); return exports.at(-1).text(); },
     // Another context writes storage: the stored values change, then local listeners are notified.
     external(values) { const changes = {}; for (const [k, v] of Object.entries(values)) { changes[k] = { oldValue: stored[k], newValue: structuredClone(v) }; stored[k] = structuredClone(v); } for (const fn of changeListeners) fn(changes, 'local'); },
     rows: () => get('#library-preview').children,
@@ -319,7 +320,17 @@ test('native-only 600-title library has matching summary, Titles and catalog cou
   const ui=await harness({libraryItems:[],purchaseSummaries:[],libraryEntitlements:entitlements(observations)});const before=JSON.stringify(ui.stored);
   assert.match(ui.note(),/of 600 items/);assert.match(ui.get('#library-count').textContent,/600 unique items/);assert.match(ui.get('#library-count').textContent,/600 unclassified/);
   const catalog=await ui.exportCatalog();assert.equal(catalog.items.length,600);assert(catalog.items.every(i=>i.mediaType==='unclassified'));assert.equal(new Set(catalog.items.map(i=>i.title)).size,600);
+  const csv=await ui.exportCsv();assert.equal(csv.split('\r\n').length,602);assert.match(csv,/Verified native Library purchase/);assert.match(csv,/Saved title 599/);
   await ui.view('groups');assert.match(ui.note(),/60 purchase groups/);assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
+});
+
+test('CSV retains source distinctions and escapes quotes, commas, newlines, Unicode and spreadsheet formulas',async()=>{
+  const ui=await harness({libraryItems:[historical('Title, "雪"\nSecond line','order-1','Bundle, one',{kind:'book'}),historical('=formula','order-2','Other bundle',{kind:'game'}),{title:'Manual title',kind:'book',source:'manual'}]});
+  const before=JSON.stringify(ui.stored),csv=await ui.exportCsv();
+  assert.match(csv,/"Title, ""雪""\nSecond line"/);assert.match(csv,/"'=formula"/);assert.match(csv,/Historical purchase record/);
+  assert.match(csv,/"Manual title","book","Ownership recorded locally","Manual\/local title record"/);
+  assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
+  const empty=await harness();assert.equal((await empty.exportCsv()).split('\r\n').length,2);
 });
 
 test('historical upgrade and restored backup retain titles without native observations or derived checkpoints',async()=>{

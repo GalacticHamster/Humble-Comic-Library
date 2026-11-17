@@ -527,6 +527,26 @@
     })};
   }
 
+  function createTitleCatalogCsv(items) {
+    const catalog=createTitleCatalog(items);
+    const cell=value=>{
+      let text=String(value??'');
+      // Quoting alone does not prevent spreadsheet formula evaluation.
+      if(/^[=+@\-\t\r]/u.test(text))text="'"+text;
+      return '"'+text.replace(/"/gu,'""')+'"';
+    };
+    const rows=[['Title','Media type','Purchase status','Evidence source','Purchase sources','Acquisition dates']];
+    catalog.items.forEach((item,index)=>{
+      const original=items[index],sources=original.provenance?.length?original.provenance:[original];
+      const unique=values=>[...new Set(values.filter(value=>typeof value==='string'&&value.trim()))].join('\n');
+      const purchased=original.nativeOnly||sources.some(p=>typeof p.purchaseKey==='string'&&p.purchaseKey);
+      rows.push([item.title,item.mediaType,purchased?'Purchased on Humble; destination activation not established':'Ownership recorded locally',
+        original.nativeOnly?'Verified native Library purchase':purchased?'Historical purchase record':'Manual/local title record',
+        unique(sources.map(p=>p.sourceBundle)),unique(sources.map(p=>p.purchasedAt))]);
+    });
+    return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
+  }
+
   function catalogItemKey(item) {
     const fields = bibliographicFields(item);
     const identity = Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))
@@ -1221,7 +1241,7 @@
     CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
-    createTitleCatalog, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
+    createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
   };
 }(globalThis));

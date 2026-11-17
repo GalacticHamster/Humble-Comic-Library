@@ -8,13 +8,13 @@ async function installedRuntimeChecks(phase) {
   const originalURL=page.URL.createObjectURL,originalClick=page.HTMLAnchorElement.prototype.click;
   let exported;
   const expose=fn=>typeof exportFunction==='function'?exportFunction(fn,page):fn;
-  page.URL.createObjectURL=expose(blob=>{exported=blob.text().then(JSON.parse);return originalURL.call(page.URL,blob);});
+  page.URL.createObjectURL=expose(blob=>{exported=blob.text();return originalURL.call(page.URL,blob);});
   page.HTMLAnchorElement.prototype.click=expose(()=>{});
-  const catalog=async()=>{
-    exported=null;document.getElementById('export-catalog').click();
+  const catalog=async(csv=false)=>{
+    exported=null;document.getElementById(csv?'export-catalog-csv':'export-catalog').click();
     const end=Date.now()+10000;while(!exported&&Date.now()<end)await new Promise(r=>setTimeout(r,20));
     if(!exported)throw Error('Title catalog export did not produce a Blob.');
-    return exported;
+    return csv?exported:JSON.parse(await exported);
   };
   const render=async()=>{await LibraryBrowser.renderOptions();LibraryBrowser.setState({view:'titles',search:'',scope:'title',media:'',metadata:'',sort:'title-asc',page:0,pageSize:50});};
   const counts=()=>document.getElementById('library-count').textContent;
@@ -38,6 +38,7 @@ async function installedRuntimeChecks(phase) {
     check(/of 600 items/.test(document.getElementById('preview-note').textContent),'Titles displays 600 unique native titles with no legacy title collection');
     const nativeCatalog=await catalog();
     check(nativeCatalog.items.length===600,'catalog includes the 600 visible native titles instead of an empty legacy-only export');
+    const csv=await catalog(true);check(csv.split('\r\n').length===602&&csv.includes('Verified native Library purchase'),'installed CSV contains the same 600 native titles and their purchase evidence source');
     check(/600 unique items/.test(counts())&&/300 games/.test(counts())&&/300 unclassified/.test(counts()),'summary counts the same known and unclassified native titles');
     check(/0 historical purchase records/.test(counts())&&/61 synced Humble Library purchase groups/.test(counts()),'summary distinguishes historical orders from synced native purchase groups');
     check(nativeCatalog.items.filter(i=>i.mediaType==='unclassified').length===300&&new Set(nativeCatalog.items.map(i=>i.title)).size===600,'unclassified titles survive export and separate purchase copies do not duplicate catalog titles');
@@ -57,6 +58,7 @@ async function installedRuntimeChecks(phase) {
     check(await snapshot()===oldBefore,'old-format upgrade and catalog projection preserve historical records and their duplicate purchase evidence');
     await store('replace',{...H.LIBRARY_STATE_DEFAULTS,purchaseSummaries:Array.from({length:600},(_,i)=>({purchaseKey:'summary-'+i,sourceBundle:'Order '+i,itemCount:10}))});await render();
     check((await catalog()).items.length===0&&/0 unique items/.test(counts()),'600 order summaries without contained title records correctly export an empty catalog');
+    check((await catalog(true)).split('\r\n').length===2,'installed empty CSV retains a header row');
     await store('replace',baseline);await render();
     return {checks};
   } finally {

@@ -105,6 +105,10 @@ async function installedEntitlementChecks(disabled=false,phase) {
     check([...panel.querySelectorAll('.hcl-sync-facts li')].some(li=>/0 new, 8 already saved/.test(li.textContent)),'installed panel separates new and refreshed observations');
     const scan=panel.querySelector('details.hcl-sync-details');
     check(!scan.open&&[...scan.querySelectorAll('li')].some(li=>/Coverage: every page Humble currently shows was read/.test(li.textContent))&&/Pages 2 of 2/.test(panel.querySelector('.hcl-sync-progress').textContent),'installed details stay in a collapsed Scan details section; the progress row summarizes');
+    const beforeRevisit=JSON.stringify(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS));
+    const target=window.wrappedJSObject??window;target.dispatchEvent(new target.PageTransitionEvent('pageshow',{persisted:true}));
+    await until(()=>/^Ready to check for new purchases/.test(status.textContent),'back/forward cache restoration resets completed presentation');
+    check(panel.querySelector('.hcl-sync-progress').hidden&&JSON.stringify(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS))===beforeRevisit,'back/forward restoration clears completed progress without changing any library, checkpoint or diagnostic data');
     // Layout: an in-flow section before the page's main content, never a fixed overlay.
     const style=document.createElement('style');style.textContent=await (await fetch(chrome.runtime.getURL('content.css'))).text();document.head.append(style);
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -117,6 +121,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     let confirmShown=false;const watch=new MutationObserver(()=>{if(!bound.querySelector('.hcl-sync-confirm').hidden)confirmShown=true;});watch.observe(bound,{subtree:true,attributes:true,childList:true,characterData:true});confirmShown||=!bound.querySelector('.hcl-sync-confirm').hidden;
     await until(()=>!bound.querySelector('.hcl-sync-account').hidden,'installed bound account shows its saved name');watch.disconnect();
     check(!confirmShown,'installed bound account never flashes the first-sync confirmation while loading');
+    check(/^Ready to check for new purchases/.test(bstatus.textContent)&&bound.querySelector('.hcl-sync-progress').hidden,'revisiting a completed sync returns to idle without clearing its checkpoint');
     check(bound.querySelector('.hcl-sync-confirm').hidden&&/Saved account: “Synthetic A”/.test(bound.querySelector('.hcl-sync-account').textContent),'installed bound account is not asked to confirm again');
     bound.querySelector('[data-action="refresh"]').click();
     await until(()=>/^Checked your most recent Library/.test(bstatus.textContent),'installed recent-purchase check runs for a bound account without the checkbox');
@@ -125,7 +130,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     const stateOf=async patch=>{const now=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS),e=structuredClone(now.libraryEntitlements);Object.assign(e.scopes[0].sync,patch);await store('replace',{...now,libraryEntitlements:e});E.installPanel({fetcher:transport.fetch});const node=document.getElementById('hcl-library-sync');await new Promise(r=>setTimeout(r,300));const out={status:node.querySelector('[role="status"]').textContent,note:node.querySelector('.hcl-sync-note').textContent,buttons:[...node.querySelectorAll('.hcl-import-actions button')].filter(b=>!b.hidden).map(b=>b.dataset.action)};node.remove();return out;};
     const done=(await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS)).libraryEntitlements.scopes[0].sync;
     const incomplete=await stateOf({mode:'full',status:'completed',reason:null,coverage:'incomplete',uncertainty:['items-missed'],targetPages:done.reportedPages,nextPage:done.reportedPages+1});
-    check(/^Finished, but some purchases may have been missed/.test(incomplete.status)&&/did not show every listed item/.test(incomplete.note)&&incomplete.buttons.includes('full'),'installed incomplete state explains itself in Scan details and offers a new full sync');
+    check(/^Ready to check for new purchases/.test(incomplete.status)&&/coverage warnings/.test(incomplete.status)&&/observed item count did not reconcile/.test(incomplete.note)&&incomplete.buttons.includes('full'),'revisited completed state is idle, with specific count discrepancies retained in Scan details rather than claiming missing purchases');
     const failed=await stateOf({mode:'full',status:'stopped',reason:'signed-out',coverage:'incomplete',uncertainty:[],targetPages:2,nextPage:2});
     check(/signed out/.test(failed.status)&&failed.buttons.includes('resume')&&failed.buttons.includes('cancel'),'installed stopped (signed-out) state explains recovery and offers Resume or Cancel');
   }finally{document.getElementById('hcl-library-sync')?.remove();await store('replace',state);}

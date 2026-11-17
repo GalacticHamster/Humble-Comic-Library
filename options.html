@@ -70,10 +70,10 @@
         <p>Leave this off for a cleaner page. Turn it on when troubleshooting loading, matching, or sorting.</p>
       </section>
       <section>
-        <h2>Library</h2><p><strong>Export backup</strong> saves your library, including purchase and ownership details, so you can restore it later. <strong>Export title catalog</strong> saves a list of titles and identifying details only; it cannot restore purchases or ownership. Your wishlist has its own export and restore above. Clear library removes all saved accounts, ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
+        <h2>Library</h2><p><strong>Export backup</strong> saves your library, including purchase and ownership details, so you can restore it later. <strong>Export title catalog</strong> lists titles and identifying details in JSON, or adds local purchase status and available source information in CSV. Neither catalog can restore purchases or ownership. Your wishlist has its own export and restore above. Clear library removes all saved accounts, ownership, purchase history, reminders and mappings; it preserves your wishlist, display preferences and Galactic Library link.</p>
         <p id="library-count">Loading…</p>
         <div id="library-classification-diagnostics" class="library-classification-diagnostics" aria-live="polite"></div>
-        <div class="actions"><button id="export-library">Export backup</button><button id="export-catalog" type="button">Export title catalog</button><button id="clear-library" class="danger">Clear library</button></div>
+        <div class="actions"><button id="export-library">Export backup</button><button id="export-catalog" type="button">Export title catalog (JSON)</button><button id="export-catalog-csv" type="button">Export title catalog (CSV)</button><button id="clear-library" class="danger">Clear library</button></div>
         <p id="local-status" role="status"></p>
                 <details id="library-rejected-section" class="library-rejected-section">
           <summary>Unimported / rejected purchase items (<span id="library-rejected-count">0</span>)</summary>

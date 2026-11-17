@@ -789,7 +789,7 @@
     return { checkpoint: s.sync, saved: s.observations.length, found: s.sync ? s.observations.filter(r => r.observedAt >= s.sync.startedAt).length : 0, undetailed };
   }
   const UNCERTAINTY_TEXT = { 'totals-changed': 'the number of Library items changed during the sync', 'ordering-changed': 'the Library order shifted between pages',
-    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'Humble’s pages did not show every listed item' };
+    'items-unresolved': 'some items could not be verified', 'duplicate-conflict': 'Humble showed conflicting details for the same item', 'pagination-loop': 'Humble repeated a page', 'items-missed': 'the observed item count did not reconcile with Humble’s reported Library row count' };
   const STOP_TEXT = {
     'rate-limited': 'Humble asked for fewer requests, so the sync stopped. Progress is saved; resume later.',
     'signed-out': 'You appear to be signed out of Humble. Sign in, reload this page, then resume. Progress is saved.',
@@ -833,7 +833,7 @@
     sharedSync ??= createSync({ fetcher, settings, store });
     // Nothing actionable is shown until the saved account and sync state are read, so a synced account
     // never briefly appears unsynced (with the first-sync confirmation) while storage loads.
-    let context, stored = { checkpoint: null, saved: 0, found: 0, bound: false }, message = '', loaded = false;
+    let context, stored = { checkpoint: null, saved: 0, found: 0, bound: false }, message = '', loaded = false, showCompleted = false;
     const number = v => v.toLocaleString(), plural = (n, one, many = one + 's') => `${number(n)} ${n === 1 ? one : many}`;
     const render = () => {
       if (!panel.isConnected && panel.dataset.installed) return;
@@ -843,6 +843,7 @@
         return;
       }
       const v = sharedSync.view, live = sharedSync.active(), cp = stored.checkpoint;
+      if(live)showCompleted=true;
       const unfinished = !live && cp && ['running','paused','stopped'].includes(cp.status);
       startFull.hidden = live || unfinished; refresh.hidden = live || unfinished; resume.hidden = !unfinished;
       pause.hidden = !live || ['pausing','cancelling'].includes(v.phase); cancel.hidden = !(live || unfinished) || v.phase === 'cancelling';
@@ -850,17 +851,17 @@
       browse.hidden = !stored.saved || live;
       label.hidden = stored.bound; account.hidden = !stored.bound || !context;
       if (context) account.textContent = `Saved account: ${context.profileLabel ? `“${context.profileLabel}”` : 'not yet named'}. Each sync checks that the Humble account signed in here is the same one.`;
-      progressRow.hidden = !cp;
+      progressRow.hidden = !cp || cp.status==='completed'&&!showCompleted;
       if (cp) {
         const read = Math.min(cp.nextPage - 1, cp.targetPages);
         bar.max = Math.max(1, cp.targetPages); bar.value = read;
-        summary.textContent = `${cp.mode === 'refresh' ? 'Recent pages' : 'Pages'} ${number(read)} of ${number(cp.targetPages)} · ${plural(stored.found, 'purchase')} found in this sync · ${plural(stored.saved, 'item')} saved`;
+        summary.textContent = `${cp.mode === 'refresh' ? 'Recent pages' : 'Pages'} ${number(read)} of ${number(cp.targetPages)} · ${plural(stored.found, 'item')} observed in this sync · ${plural(stored.saved, 'item')} saved`;
       }
       const media = Object.entries(stored.media ?? {}).filter(([, n]) => n).map(([k, n]) => `${k === 'unknown' ? 'unknown' : k} ${number(n)}`).join(', ');
       facts.replaceChildren(...(cp ? [
         `Pages read: ${number(Math.min(cp.nextPage - 1, cp.targetPages))} of ${number(cp.targetPages)}${cp.mode === 'refresh' ? ' recent pages' : ' that Humble reports'} (${number(cp.reportedTotal)} Library rows reported)`,
         ...(v.requests ? [`Requests to Humble in this session: ${number(v.requests)}`] : []),
-        `Purchases found in this sync: ${number(stored.found)} (${number(cp.added)} new, ${number(cp.refreshed)} already saved)`,
+        `Saved observations from this sync: ${number(stored.found)} (${number(cp.added)} new, ${number(cp.refreshed)} already saved)`,
         `Saved Library items for this account: ${number(stored.saved)}`,
         ...(stored.excluded ? [`Not counted as purchases: ${number(stored.excluded)} gifted, revoked or temporary-access item${stored.excluded === 1 ? '' : 's'}`] : []),
         ...(cp.unresolved ? [`Could not be verified: ${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} (not saved; a later full sync may verify ${cp.unresolved === 1 ? 'it' : 'them'})`] : []),
@@ -885,9 +886,10 @@
       else if (cp.status === 'paused') text = (cp.reason === 'session-limit' ? STOP_TEXT['session-limit'] : 'Paused.') + from;
       else if (cp.status === 'stopped') text = (STOP_TEXT[cp.reason] ?? STOP_TEXT.failed) + (v.retryAfter ? ` Humble suggested waiting about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes.` : '');
       else if (cp.status === 'cancelled') text = 'Sync cancelled. Purchases already found stay saved.';
-      else if (cp.mode === 'refresh') text = `Checked your most recent Library ${cp.targetPages === 1 ? 'page' : `${number(cp.targetPages)} pages`} for new purchases. Older pages were not checked again${cp.lastFull ? '' : '; run a full sync to check everything'}.`;
+      else if (!showCompleted) text = 'Ready to check for new purchases. Last sync details are available below.' + (cp.coverage==='incomplete'?' The last sync had coverage warnings; see Scan details.':'');
+      else if (cp.mode === 'refresh') text = `Checked your most recent Library ${cp.targetPages === 1 ? 'page' : `${number(cp.targetPages)} pages`} for new purchases. Older pages were not checked again${cp.lastFull ? '' : '; run a full sync to check the available older pages'}.` + (cp.uncertainty.length?' Coverage warnings are listed in Scan details.':'');
       else if (cp.coverage === 'accessible-pages-traversed') text = `Finished: read all ${number(cp.reportedPages)} pages your Humble Library currently shows. This reflects what the Library shows today, not proof of your complete purchase history. Existing purchases were kept.`;
-      else text = 'Finished, but some purchases may have been missed. Existing purchases were kept. Run the full sync again later; Scan details explains why.';
+      else text = 'Finished reading the available pages. Coverage could not be confirmed; see Scan details for the observed issues. Existing purchases were kept.';
       status.textContent = text;
       const doubts = (cp?.uncertainty ?? []).map(code => UNCERTAINTY_TEXT[code]);
       note.textContent = doubts.length ? `Why this may be incomplete: ${doubts.join('; ')}.` : '';
@@ -906,9 +908,16 @@
       if (context) loaded = true;
       render();
     };
-    const unsubscribe = sharedSync.subscribe(() => { if (!panel.isConnected && panel.dataset.installed) { unsubscribe?.(); return; } message = ''; refreshStored().catch(render); });
+    const revisit=event=>{
+      if(!panel.isConnected){global.removeEventListener?.('pageshow',revisit);return;}
+      if(!event.persisted)return;
+      if(!sharedSync.active()&&stored.checkpoint?.status==='completed'){showCompleted=false;message='';render();}
+      refreshStored().catch(render);
+    };
+    global.addEventListener?.('pageshow',revisit);
+    const unsubscribe = sharedSync.subscribe(() => { if (!panel.isConnected && panel.dataset.installed) { unsubscribe?.();global.removeEventListener?.('pageshow',revisit);return; } message = ''; refreshStored().catch(render); });
     const changed = (changes, area) => {
-      if (!panel.isConnected) { global.chrome.storage.onChanged?.removeListener(changed); return; }
+      if (!panel.isConnected) { global.chrome.storage.onChanged?.removeListener(changed);global.removeEventListener?.('pageshow',revisit);return; }
       if (area === 'local' && (changes.libraryEntitlements || changes.humbleAccountId)) refreshStored().catch(() => {});
     };
     global.chrome.storage.onChanged?.addListener(changed);
@@ -916,7 +925,7 @@
       // An account already bound to a Humble Library is verified by the worker on every batch.
       if (!stored.bound && !confirm.checked) { message = 'Confirm the signed-in account first. Nothing was read or changed.'; render(); return; }
       if (!context) { message = 'Wait for the saved account to load, then try again.'; render(); return; }
-      try { message = ''; sharedSync.start({ mode, resume: prior, context, confirmed: true }); }
+      try { message = ''; showCompleted=true; sharedSync.start({ mode, resume: prior, context, confirmed: true }); }
       catch { message = 'The sync could not start. Your records are unchanged. Reload this page and try again.'; render(); }
     };
     startFull.addEventListener('click', () => begin('full', null));
