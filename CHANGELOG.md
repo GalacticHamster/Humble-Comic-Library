@@ -2,6 +2,8 @@
 
 ## 1.1.2 — Unreleased
 
+- Empty Humble “No Content” slots are no longer shared as purchases with Galactic Library. The original Humble records and real products with that name remain available.
+
 - Minimizing, expanding or repositioning the bundle ownership panel keeps existing badges and results visible without repeating ownership checks or Galactic Library requests. Preference changes also leave in-progress checks running normally.
 - Humble's cart drawer and other Humble pop-ups now appear above the ownership panel and badges. They step aside while it is open and return unchanged, minimized or expanded, when it closes, without checking ownership again.
 - The ownership panel no longer covers Add to Cart. In narrow windows and at high zoom, where Humble pins its tier choice and Add to Cart to the bottom of the window, a panel docked at the bottom sits above that bar. On short screens the expanded panel takes at most half the window height and scrolls inside. Your chosen position and minimized state are kept, the panel does not move while you scroll, and nothing is checked again.

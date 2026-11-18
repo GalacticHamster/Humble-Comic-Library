@@ -897,19 +897,63 @@
     });}
     return {libraryItems:enrich(state.libraryItems,false),historicalLibraryItems:enrich(state.historicalLibraryItems??[],true),stats,details};
   }
+  function placeholderOrigin(item, origin) {
+    return String(origin.title || item.title || '').normalize('NFKC').trim().toLowerCase() === 'no content'
+      && (origin.entitlement ?? item.entitlement) === 'direct-download'
+      && !(origin.keyType ?? item.keyType)
+      && !(origin.formats ?? item.formats)?.length
+      && !origin.downloads?.length && !item.downloads?.length
+      && !origin.downloadPlatforms?.length && !item.downloadPlatforms?.length;
+  }
+
+  // Humble uses this title for empty delivery slots. Retain the purchase
+  // evidence and keep real files and keys, including products of the same name.
+  function contentPlaceholder(item) {
+    if (!item) return false;
+    if (item.namespace !== undefined) {
+      return String(item.title ?? '').normalize('NFKC').trim().toLowerCase() === 'no content'
+        && item.namespace === 'download_drm_free' && item.downloads === false;
+    }
+    const origins = item.provenance?.length ? item.provenance : [item];
+    return origins.every(origin => placeholderOrigin(item, origin));
+  }
+
+  function shareableHumbleItems(items) {
+    return items.flatMap(item => {
+      const origins = item.provenance?.length ? item.provenance : [item];
+      const shareable = origins.filter(origin => !placeholderOrigin(item, origin));
+      if (!shareable.length) return [];
+      if (shareable.length === origins.length) return [item];
+      // The aggregate ID can belong to the removed origin. Only the surviving
+      // origins may supply a product ID when evidence was mixed.
+      return [{...item, providerItemId:undefined, provenance:shareable}];
+    });
+  }
+
   // Synced Humble Library records join the existing purchase-sync snapshot (v1) for the
   // account they are bound to. Imported purchases are unchanged; see companionRecords.
-  function nativeShare(scope){
+  function nativeShare(scope,items){
     const E=global.HumbleLibraryEntitlements;if(!E?.ENABLED)return null;
-    return E.companionRecords({libraryEntitlements:scope.state.libraryEntitlements,accountId:scope.stableId,items:scope.items,historicalItems:scope.state.historicalLibraryItems??[]});
+    return E.companionRecords({libraryEntitlements:scope.state.libraryEntitlements,accountId:scope.stableId,
+      items,historicalItems:shareableHumbleItems(scope.state.historicalLibraryItems??[])});
   }
   async function companionAccounts(state){
     const A=global.GalacticPurchaseAdapters,rows=await A.accounts('hb',state),scopes=A.hbScopes(state);
-    return rows.map((row,index)=>{const native=nativeShare(scopes[index]);if(!native)return row;const shared=native.records.length,withheld=native.unknown+native.video;
-      return {...row,count:row.count+shared+withheld,eligibleCount:row.eligibleCount+shared,unassigned:row.unassigned&&!shared&&!withheld,limitations:withheld?[...row.limitations,withheld+' synced Humble Library items have no media type GL supports yet and are not shared.']:row.limitations};});
+    return rows.map((row,index)=>{const scope=scopes[index],items=shareableHumbleItems(scope.items),native=nativeShare(scope,items);
+      const eligibleCount=items.filter(item=>(item.provenance?.length?item.provenance:[item]).some(origin=>origin.purchaseKey)).length;
+      if(!native)return {...row,eligibleCount};const shared=native.records.length,withheld=native.unknown+native.video;
+      return {...row,count:row.count+shared+withheld,eligibleCount:eligibleCount+shared,unassigned:row.unassigned&&!shared&&!withheld,limitations:withheld?[...row.limitations,withheld+' synced Humble Library items have no media type GL supports yet and are not shared.']:row.limitations};});
   }
   async function companionSnapshot(state,ref){
-    const A=global.GalacticPurchaseAdapters,S=global.GalacticPurchaseSnapshot,data=await A.snapshot('hb',state,ref),native=nativeShare(await A.selected('hb',state,ref));
+    const A=global.GalacticPurchaseAdapters,S=global.GalacticPurchaseSnapshot,scope=await A.selected('hb',state,ref);
+    const items=shareableHumbleItems(scope.items);
+    const filtered=items.length!==scope.items.length||items.some((item,index)=>item!==scope.items[index]);
+    // Project only the selected account. Keep the original account reference
+    // on the wire, as it also binds the transfer to the full saved evidence.
+    const projectedRef=filtered?(await A.descriptor('humble',scope.label,items)).accountRef:ref;
+    const projected=await A.snapshot('hb',filtered?{humbleProfileLabel:scope.label,libraryItems:items}:state,projectedRef);
+    const data={...projected,accountRef:ref};
+    const native=nativeShare(scope,items);
     if(!native||!native.records.length&&!native.unknown&&!native.video)return data;
     const notes=[...(native.unknown?[native.unknown+' synced Humble Library items have unknown media and are not shared. A full Library sync can identify most of them.']:[]),...(native.video?[native.video+' synced Humble Library videos are not shared; GL does not store videos from Humble.']:[]),
       ...(native.represented?[native.represented+' synced Humble Library items are already shared as imported purchases and are not sent twice.']:[])];
@@ -1285,7 +1329,7 @@
 
   global.HumbleComicLibrary = {
     CURRENT_IMPORT_VERSION,
-    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds,
+    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields

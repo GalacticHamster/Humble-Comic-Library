@@ -119,6 +119,33 @@ test('purchase sync shares only the records of the account the snapshot is for',
   assert.equal(data.records.length, 0);assert.equal(state.libraryEntitlements.scopes[0].localAccountId, accountId);
 });
 
+test('companion snapshot excludes empty Humble delivery slots before media inference and overlap counting', async () => {
+  const slot={title:'No Content',kind:'comic',source:'humble',purchaseKey:'synthetic-comics',sourceBundle:'Synthetic Comics Bundle',
+    providerItemId:'synthetic-comics:product:slot',entitlement:'direct-download',formats:[]};
+  const book={...slot,title:'Real comic in the same order',providerItemId:'synthetic-comics:product:comic'};
+  const other={...slot,kind:'unclassified',purchaseKey:'synthetic-mixed',providerItemId:'synthetic-mixed:product:slot'};
+  const f=await synced([['slot','No Content'],['file','No Content','download_drm_free','ebook',['CBZ']],['key','No Content','steam']],{
+    companion:true,initial:{libraryItems:[slot,book,other],mediaTypeOverrides:{'synthetic-comics':'comic'}},
+    parent:{title:'Humble Comics Bundle: Synthetic'}});
+  const before=structuredClone(f.stored);
+  const read=async fixture=>{
+    const [account]=await fixture.writer.execute('handoffAccounts',[]);
+    const data=await fixture.writer.execute('handoffSnapshot',[account.accountRef]);
+    assert.equal(data.accountRef,account.accountRef);
+    assert.equal(account.eligibleCount,3);
+    return plain(data.records);
+  };
+  const records=await read(f);
+  assert.deepEqual(records.map(r=>[r.providerItemId,r.title,r.mediaType]),[
+    [book.providerItemId,book.title,'book'],['humble-library:download_drm_free:file','No Content','book'],['humble-library:steam:key','No Content','game']]);
+  assert.deepEqual(await read(f),records);
+  assert.deepEqual(f.stored,before);
+  const restored=f.H.restoreBackupState(f.H.createLibraryBackup(f.stored));
+  assert.deepEqual(plain(restored.libraryEntitlements),plain(before.libraryEntitlements));
+  assert.equal(restored.libraryItems.filter(item=>item.title==='No Content').length,2);
+  assert.deepEqual(await read(fixture({companion:true,initial:restored})),records);
+});
+
 test('sharing and matching scale to a large library without repeated work', async () => {
   const {E} = fixture();
   const scope = {principalId: 'principal-A', userId: 'hub-A'}, observations = [], items = [];

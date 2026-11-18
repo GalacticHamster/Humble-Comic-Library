@@ -379,18 +379,7 @@
     return out;
   }
 
-  // Humble lists a DRM-free item titled "No Content" in some purchases, with nothing to download: a placeholder, not a
-  // product. A Library entitlement or imported title with exactly that title, delivered as a direct download and with
-  // no download formats or platforms, is left out of Titles and the title catalog. Its purchase stays saved and listed
-  // under Bundles & Orders. An item with downloads, a key or any other title is never treated as a placeholder.
-  const PLACEHOLDER_TITLES = new Set(['no content']);
-  function contentPlaceholder(entry) {
-    if (!entry || !PLACEHOLDER_TITLES.has(String(entry.title ?? '').normalize('NFKC').trim().toLowerCase())) return false;
-    if (entry.namespace !== undefined) return entry.namespace === 'download_drm_free' && entry.downloads === false;
-    const records = Array.isArray(entry.provenance) && entry.provenance.length ? entry.provenance : [entry];
-    return records.every(rec => (rec.entitlement ?? entry.entitlement) === 'direct-download' && !rec.keyType && !(rec.formats ?? entry.formats)?.length
-      && !(Array.isArray(rec.downloads) && rec.downloads.length) && !(Array.isArray(entry.downloadPlatforms) && entry.downloadPlatforms.length));
-  }
+  const contentPlaceholder = entry => global.HumbleComicLibrary.contentPlaceholder(entry);
 
   function nativeOnlyTitles(model, items, links = null) {
     const key = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();

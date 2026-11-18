@@ -8,6 +8,7 @@ export function load({enabled = true} = {}) {
   context.globalThis = context;
   const source = fs.readFileSync(new URL('../library-entitlements.js', import.meta.url), 'utf8');
   vm.runInContext(enabled ? source : source.replace('const ENABLED = true;', 'const ENABLED = false;'), context);
+  vm.runInContext(fs.readFileSync(new URL('../shared.js', import.meta.url), 'utf8'), context);
   vm.runInContext(fs.readFileSync(new URL('../library-browser.js', import.meta.url), 'utf8'), context);
   return {E: context.HumbleLibraryEntitlements, B: context.HumbleLibraryBrowser};
 }

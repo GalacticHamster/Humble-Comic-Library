@@ -430,6 +430,10 @@
     const groups = new Map();let unknown = 0, video = 0;
     for (const r of scope.observations) {
       if (r.purchaseStatus !== 'purchased') continue;
+      if (global.HumbleComicLibrary?.contentPlaceholder({
+        title: r.title, namespace: r.namespace,
+        downloads: Boolean(r.delivery?.formats?.length || r.delivery?.platforms?.length)
+      })) continue;
       const kind = resolvedMedia(r, kinds);
       if (kind === 'unknown' || kind === 'unclassified') { unknown++; continue; }
       if (kind === 'video') { video++; continue; }
