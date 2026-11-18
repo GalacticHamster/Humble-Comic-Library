@@ -539,24 +539,26 @@
     };
     // A purchase recorded by an import or the Humble Library is Purchased. Whether a key was redeemed on its
     // store is not known from Humble records and is left out rather than repeated on every row.
-    // Dates as calendar days (YYYY-MM-DD) in this browser's time zone, as Options shows them; unknown stays empty.
+    // Dates are calendar days (YYYY-MM-DD) in this browser's time zone, as Options shows them; never inferred.
     const day=value=>{const time=typeof value==='number'?value:typeof value==='string'?Date.parse(value):NaN;if(!Number.isFinite(time))return '';const d=new Date(time);
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
-    const list=(values,format=v=>typeof v==='string'?v.trim():'')=>{const seen=new Map();for(const value of values){const v=format(value);if(v&&!seen.has(v.toLowerCase()))seen.set(v.toLowerCase(),v);}return [...seen.values()];};
-    const rows=[['Title','Media type','Purchase status','Purchase date','Purchase count','Source','Bundle / purchase name']];
+    const rows=[['Title','Media type','Purchase status','First purchased','Last purchased','Purchase count','Purchase count confidence','Source','Bundle / purchase name','Purchase dates']];
     catalog.items.forEach((item,index)=>{
       const original=items[index];
       const records=typeof original==='string'?[]:original.provenance?.length?original.provenance:[original];
-      const fallback=()=>{const keys=new Set(records.map((p,i)=>p.purchaseKey?'h:'+p.purchaseKey:String(p.sourceBundle??'').trim()?'hn:'+String(p.sourceBundle).trim().toLowerCase():null).filter(Boolean));
-        return {count:keys.size,exact:true,imported:keys.size>0,library:false,names:records.map(p=>p.sourceBundle),dates:records.map(p=>p.purchasedAt)};};
-      const p=describe?.(original)??fallback();
-      const purchased=p.count>0;
-      // Names and dates arrive in pairs; both are listed earliest purchase first, undated purchases last.
-      const pairs=p.names.map((name,i)=>({name,date:day(p.dates[i])})).sort((a,b)=>a.date===b.date?0:!a.date?1:!b.date?-1:a.date<b.date?-1:1);
-      p.names=pairs.map(pair=>pair.name);
-      const dates=list(pairs.map(pair=>pair.date));
-      rows.push([item.title,item.mediaType,purchased?'Purchased':'Not recorded as a purchase',dates.join('; '),purchased?(p.exact?String(p.count):`at least ${p.count}`):'',
-        p.imported&&p.library?'Imported purchase and Humble Library':p.library?'Humble Library':p.imported?'Imported purchase':'Added manually',list(p.names).join('; ')]);
+      // Without a description: the title's own imported records, one purchase per order key, else bundle name.
+      const fallback=()=>{const purchases=new Map();
+        for(const p of records){const bundle=String(p.sourceBundle??'').trim(),id=p.purchaseKey?'h:'+p.purchaseKey:bundle?'hn:'+bundle.toLowerCase():null;if(id&&!purchases.has(id))purchases.set(id,{name:bundle,date:p.purchasedAt??null});}
+        return {count:purchases.size,exact:true,imported:purchases.size>0,library:false,purchases:[...purchases.values()]};};
+      const p=describe?.(original)??fallback(),purchased=p.count>0;
+      // One entry per purchase, earliest first; a purchase without a known date is listed last as "unknown".
+      const time=value=>typeof value==='number'?value:typeof value==='string'?Date.parse(value):NaN;
+      const purchases=p.purchases.map(x=>({name:String(x.name??'').trim(),time:time(x.date),date:day(x.date)}))
+        .sort((a,b)=>{const x=Number.isFinite(a.time),y=Number.isFinite(b.time);return x&&y?a.time-b.time:x?-1:y?1:0;});
+      const dated=purchases.filter(x=>x.date);
+      rows.push([item.title,item.mediaType,purchased?'Purchased':'Not recorded as a purchase',dated[0]?.date??'',dated.at(-1)?.date??'',p.count,
+        purchased?(p.exact?'Exact':'At least'):'',p.imported&&p.library?'Imported purchase and Humble Library':p.library?'Humble Library':p.imported?'Imported purchase':'Added manually',
+        purchases.map(x=>x.name).join('; '),purchases.map(x=>x.date||'unknown').join('; ')]);
     });
     return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
   }

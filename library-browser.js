@@ -93,7 +93,8 @@
       const g = groups.get(key);
       if (!g.name && r.parentTitle) g.name = r.parentTitle;
       g.items.push({ title: r.title, kind: media, category: category(media), source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
-        gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId) });
+        gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId),
+        downloads: Boolean(r.delivery?.formats?.length || r.delivery?.platforms?.length) });
       // When a sync first saw the purchase: its earliest entitlement. Unknown if any entitlement was
       // saved before first-seen times were recorded. Never a purchase date.
       const seen = time(r.firstObservedAt);
@@ -378,15 +379,29 @@
     return out;
   }
 
+  // Humble lists a DRM-free item titled "No Content" in some purchases, with nothing to download: a placeholder, not a
+  // product. A Library entitlement or imported title with exactly that title, delivered as a direct download and with
+  // no download formats or platforms, is left out of Titles and the title catalog. Its purchase stays saved and listed
+  // under Bundles & Orders. An item with downloads, a key or any other title is never treated as a placeholder.
+  const PLACEHOLDER_TITLES = new Set(['no content']);
+  function contentPlaceholder(entry) {
+    if (!entry || !PLACEHOLDER_TITLES.has(String(entry.title ?? '').normalize('NFKC').trim().toLowerCase())) return false;
+    if (entry.namespace !== undefined) return entry.namespace === 'download_drm_free' && entry.downloads === false;
+    const records = Array.isArray(entry.provenance) && entry.provenance.length ? entry.provenance : [entry];
+    return records.every(rec => (rec.entitlement ?? entry.entitlement) === 'direct-download' && !rec.keyType && !(rec.formats ?? entry.formats)?.length
+      && !(Array.isArray(rec.downloads) && rec.downloads.length) && !(Array.isArray(entry.downloadPlatforms) && entry.downloadPlatforms.length));
+  }
+
   function nativeOnlyTitles(model, items, links = null) {
     const key = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
-    const historical = new Set(items.map(item => key(typeof item === 'string' ? item : item?.title)));
+    // An imported placeholder is not a title, so it never hides a Library product of the same name.
+    const historical = new Set(items.filter(item => typeof item === 'string' || !contentPlaceholder(item)).map(item => key(typeof item === 'string' ? item : item?.title)));
     const titles = new Map();
     for (const group of model.groups) {
       if (group.source !== 'native') continue;
       for (const entry of group.items) {
         // A copy the reconciliation pairs with a differently spelled historical title is listed there.
-        if (entry.excluded || historical.has(key(entry.title)) || links?.paired.has(entry.nativeId)) continue;
+        if (entry.excluded || historical.has(key(entry.title)) || links?.paired.has(entry.nativeId) || contentPlaceholder(entry)) continue;
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
@@ -400,5 +415,5 @@
     return [...titles.values()];
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
+  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, contentPlaceholder, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

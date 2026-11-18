@@ -322,17 +322,40 @@ test('native-only 600-title library has matching summary, Titles and catalog cou
   const ui=await harness({libraryItems:[],purchaseSummaries:[],libraryEntitlements:entitlements(observations)});const before=JSON.stringify(ui.stored);
   assert.match(ui.note(),/of 600 items/);assert.match(ui.get('#library-count').textContent,/600 unique items/);assert.match(ui.get('#library-count').textContent,/600 unclassified/);
   const catalog=await ui.exportCatalog();assert.equal(catalog.items.length,600);assert(catalog.items.every(i=>i.mediaType==='unclassified'));assert.equal(new Set(catalog.items.map(i=>i.title)).size,600);
-  const csv=await ui.exportCsv();assert.equal(csv.split('\r\n').length,602);assert.match(csv,/"Saved title 0","unclassified","Purchased","","1","Humble Library",""/);assert.match(csv,/Saved title 599/);
+  const csv=await ui.exportCsv();assert.equal(csv.split('\r\n').length,602);assert.match(csv,/"Saved title 0","unclassified","Purchased","","","1","Exact","Humble Library","","unknown"/);assert.match(csv,/Saved title 599/);
   await ui.view('groups');assert.match(ui.note(),/60 purchase groups/);assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
 });
 
 test('CSV retains source distinctions and escapes quotes, commas, newlines, Unicode and spreadsheet formulas',async()=>{
   const ui=await harness({libraryItems:[historical('Title, "雪"\nSecond line','order-1','Bundle, one',{kind:'book'}),historical('=formula','order-2','Other bundle',{kind:'game'}),{title:'Manual title',kind:'book',source:'manual'}]});
   const before=JSON.stringify(ui.stored),csv=await ui.exportCsv();
-  assert.match(csv,/"Title, ""雪""\nSecond line"/);assert.match(csv,/"'=formula"/);assert.match(csv,/","Purchased","2024-03-01","1","Imported purchase","Bundle, one"/);
-  assert.match(csv,/"Manual title","book","Not recorded as a purchase","","","Added manually",""/);
+  assert.match(csv,/"Title, ""雪""\nSecond line"/);assert.match(csv,/"'=formula"/);assert.match(csv,/","Purchased","2024-03-01","2024-03-01","1","Exact","Imported purchase","Bundle, one","2024-03-01"/);
+  assert.match(csv,/"Manual title","book","Not recorded as a purchase","","","0","","Added manually","",""/);
   assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
   const empty=await harness();assert.equal((await empty.exportCsv()).split('\r\n').length,2);
+});
+
+// Humble's "No Content" items, as found in a real library: imported direct downloads with no formats, and one
+// DRM-free Library entitlement with no download details in each of many unrelated purchases.
+test('"No Content" placeholders are not titles; their purchases, other titles and real products of that name stay', async () => {
+  const { E } = load(), drm = (id, parent, title, parentTitle, delivery = null) => E.observation({ ...nativeObservation(E, { id, parent, title, parentTitle }), ...(delivery ? { delivery } : {}) });
+  const pdf = { platforms: ['ebook'], formats: ['pdf'] };
+  const placeholder = (key, bundle, kind) => ({ title: 'No Content', kind, automaticKind: kind, source: 'humble', purchaseKey: key, sourceBundle: bundle, purchasedAt: '2016-06-22T12:00:00.000Z', entitlement: 'direct-download', delivery: 'direct-download', formats: [], providerItemId: key + ':product:synthetic',
+    provenance: [{ title: 'No Content', purchaseKey: key, sourceBundle: bundle, purchasedAt: '2016-06-22T12:00:00.000Z', entitlement: 'direct-download', delivery: 'direct-download', formats: [], providerItemId: key + ':product:synthetic' }] });
+  const ui = await harness({ libraryItems: [placeholder('K1', 'Synthetic Anniversary Bundle', 'unclassified'), placeholder('K2', 'Synthetic Comics Bundle', 'comic'), historical('Real Comic', 'K2', 'Synthetic Comics Bundle', { purchasedAt: '2016-06-22T12:00:00.000Z' })],
+    libraryEntitlements: entitlements([1, 2, 3].flatMap(n => [drm(n, n, 'No Content', 'Library Bundle ' + n), drm(n + 10, n, 'Product ' + n, 'Library Bundle ' + n, pdf)]).concat([drm(30, 4, 'Promotional Message', 'Library Bundle 4')])) });
+  const before = JSON.stringify(ui.stored), titleText = (r) => (r.textContent || r.children[0].children[0].textContent).split(' — ')[0];
+  await ui.change('#library-page-size', '200');
+  assert.deepEqual(ui.rows().map(titleText).sort(), ['Product 1', 'Product 2', 'Product 3', 'Promotional Message', 'Real Comic'], 'Titles lists real titles only; another title without downloads is kept');
+  const csv = await ui.exportCsv(), catalog = await ui.exportCatalog();
+  assert.doesNotMatch(csv, /No Content/u);assert(!catalog.items.some(i => i.title === 'No Content'));assert.equal(csv.trim().split('\r\n').length - 1, catalog.items.length);
+  assert.match(csv, /"Real Comic","comic","Purchased","2016-06-22","2016-06-22","1","Exact","Imported purchase","Synthetic Comics Bundle","2016-06-22"/);
+  await ui.view('groups');await ui.input('#library-search', 'no content');
+  assert.equal(ui.rows().length, 5, 'the purchases holding them stay listed and searchable in Bundles & Orders');
+  assert.equal(JSON.stringify(ui.stored), before, 'nothing saved is changed');assert.equal(ui.writes.length, 0);
+  // A real product named "No Content" (a key, or a download with files) is a title.
+  const real = await harness({ libraryItems: [], libraryEntitlements: entitlements([E.observation(nativeObservation(E, { id: 40, parent: 40, title: 'No Content', parentTitle: 'Game Bundle', namespace: 'steam' })), drm(41, 41, 'No Content', 'Book Bundle', pdf)]) });
+  assert.match(await real.exportCsv(), /"No Content","[^"]*","Purchased","","","2","Exact","Humble Library","Game Bundle; Book Bundle","unknown; unknown"/);
 });
 
 test('CSV: Purchased for every recorded purchase, purchase dates and counts as Titles shows them, and no activation column', async () => {
@@ -343,21 +366,23 @@ test('CSV: Purchased for every recorded purchase, purchase dates and counts as T
       historical('Shared One', 'K2', 'Game Bundle', { kind: 'game', purchasedAt: '2022-02-02T12:00:00.000Z' }), historical('Shared Two', 'K2', 'Game Bundle', { kind: 'game', purchasedAt: '2022-02-02T12:00:00.000Z' }),
       historical('Twice Bought', 'K3', 'First Order', { kind: 'book', purchasedAt: '2019-03-03T12:00:00.000Z' }), historical('Twice Bought', 'K4', 'Second Order', { kind: 'book', purchasedAt: '2023-04-04T12:00:00.000Z' }),
       historical('Loose Title', 'K5', 'Old Order', { kind: 'book', purchasedAt: '2018-05-05T12:00:00.000Z' }),
-      historical('=SUM(1)', 'K6', 'Formula Bundle', { kind: 'book', purchasedAt: '2020-01-01T12:00:00.000Z' })],
+      historical('=SUM(1)', 'K6', 'Formula Bundle', { kind: 'book', purchasedAt: '2020-01-01T12:00:00.000Z' }),
+      historical('Same Day', 'K7', 'Morning Order', { kind: 'book', purchasedAt: '2025-07-07T09:00:00.000Z' }), historical('Same Day', 'K8', 'Evening Order', { kind: 'book', purchasedAt: '2025-07-07T19:00:00.000Z' })],
     purchaseSummaries: [{ purchaseKey: 'K2', sourceBundle: 'Game Bundle', purchasedAt: '2022-02-02T12:00:00.000Z' }],
     // The imported Game Bundle order and its Humble Library purchase (one purchase, Steam keys); a Library-only
     // comic purchase with no date; and an unrelated Library purchase that also lists "Loose Title".
     libraryEntitlements: entitlements([copy(1, 10, 'Shared One', 'Game Bundle', 'steam'), copy(2, 10, 'Shared Two', 'Game Bundle', 'steam'),
       copy(3, 20, 'Library Comic', 'Library Comic Bundle'), copy(4, 30, 'Loose Title', 'Unrelated Purchase'), copy(5, 30, 'Other A', 'Unrelated Purchase'), copy(6, 30, 'Other B', 'Unrelated Purchase')]) });
   const csv = await ui.exportCsv(), lines = csv.replace(/^﻿/u, '').trim().split('\r\n'), row = title => lines.find(line => line.startsWith(`"${title}",`) || line.startsWith(`"'${title}",`));
-  assert.equal(lines[0], '"Title","Media type","Purchase status","Purchase date","Purchase count","Source","Bundle / purchase name"');
+  assert.equal(lines[0], '"Title","Media type","Purchase status","First purchased","Last purchased","Purchase count","Purchase count confidence","Source","Bundle / purchase name","Purchase dates"');
   assert.doesNotMatch(csv, /activation/iu, 'no activation wording on any row');
-  assert.equal(row('Imported Only'), '"Imported Only","book","Purchased","2021-06-01","1","Imported purchase","Book Bundle One"');
-  assert.equal(row('Shared One'), '"Shared One","game","Purchased","2022-02-02","1","Imported purchase and Humble Library","Game Bundle"', 'an imported order and its Library purchase count once');
-  assert.equal(row('Twice Bought'), '"Twice Bought","book","Purchased","2019-03-03; 2023-04-04","2","Imported purchase","First Order; Second Order"');
-  assert.equal(row('Library Comic'), '"Library Comic","comic","Purchased","","1","Humble Library","Library Comic Bundle"', 'a Library-only purchase with no known date');
-  assert.equal(row('Loose Title'), '"Loose Title","book","Purchased","2018-05-05","at least 1","Imported purchase and Humble Library","Old Order; Unrelated Purchase"', 'possibly the same purchase: a lower bound');
-  assert.equal(row('=SUM(1)'), `"'=SUM(1)","book","Purchased","2020-01-01","1","Imported purchase","Formula Bundle"`);
+  assert.equal(row('Imported Only'), '"Imported Only","book","Purchased","2021-06-01","2021-06-01","1","Exact","Imported purchase","Book Bundle One","2021-06-01"');
+  assert.equal(row('Shared One'), '"Shared One","game","Purchased","2022-02-02","2022-02-02","1","Exact","Imported purchase and Humble Library","Game Bundle","2022-02-02"', 'an imported order and its Library purchase count once');
+  assert.equal(row('Twice Bought'), '"Twice Bought","book","Purchased","2019-03-03","2023-04-04","2","Exact","Imported purchase","First Order; Second Order","2019-03-03; 2023-04-04"');
+  assert.equal(row('Same Day'), '"Same Day","book","Purchased","2025-07-07","2025-07-07","2","Exact","Imported purchase","Morning Order; Evening Order","2025-07-07; 2025-07-07"', 'two purchases on one day stay two');
+  assert.equal(row('Library Comic'), '"Library Comic","comic","Purchased","","","1","Exact","Humble Library","Library Comic Bundle","unknown"', 'a Library-only purchase with no known date');
+  assert.equal(row('Loose Title'), '"Loose Title","book","Purchased","2018-05-05","2018-05-05","1","At least","Imported purchase and Humble Library","Old Order; Unrelated Purchase","2018-05-05; unknown"', 'possibly the same purchase: a numeric lower bound; the undated purchase is listed as unknown');
+  assert.equal(row('=SUM(1)'), `"'=SUM(1)","book","Purchased","2020-01-01","2020-01-01","1","Exact","Imported purchase","Formula Bundle","2020-01-01"`);
   // CSV rows and the JSON catalog list the same titles in the same order; JSON keeps its identity-only shape.
   const catalog = await ui.exportCatalog();
   assert.equal(lines.length - 1, catalog.items.length);

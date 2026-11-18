@@ -193,7 +193,7 @@
   function renderDateCoverage(items) {
     const element = document.querySelector('#library-date-coverage');
     if (!element) return;
-    const titles = [...consolidateLibrary(items), ...latestNativeTitles];
+    const titles = [...titleRows(items), ...latestNativeTitles];
     if (!titles.length) { element.textContent = ''; return; }
     const dated = titles.filter((item) => getItemPurchaseDate(item) !== null).length, undated = titles.length - dated;
     const percent = Math.floor((dated / titles.length) * 1000) / 10;
@@ -377,6 +377,12 @@
     };
   }
 
+  // Imported titles as Titles lists them: consolidated, without Humble's "No Content" placeholders (contentPlaceholder).
+  function titleRows(items) {
+    const rows = consolidateLibrary(items);
+    return globalThis.HumbleLibraryBrowser?.contentPlaceholder ? rows.filter((item) => typeof item !== 'object' || !HumbleLibraryBrowser.contentPlaceholder(item)) : rows;
+  }
+
   function consolidateLibrary(items) {
     if (!Array.isArray(items)) return [];
     const buckets = new Map();
@@ -545,15 +551,26 @@
   }
 
   // One CSV row's purchase details for a Titles row: the same count, purchase names and dates Titles shows.
+  // Its purchases, one entry each: imported orders by order key (else bundle name), Humble Library purchases by
+  // purchase ID, and a Library purchase combined with an imported order as that order. Two purchases on one day stay two.
   function catalogPurchases(item, links) {
+    const purchases = new Map(), add = (id, name, date) => {
+      const known = purchases.get(id);
+      if (!known) purchases.set(id, { name: name || '', date: date ?? null });
+      else { known.name ||= name || ''; known.date ??= date ?? null; }
+    };
     if (item.nativeOnly) {
-      return { count: new Set(item.nativeCopies.map(copy => copy.parentId)).size, exact: true, imported: false, library: true,
-        names: item.nativeCopies.map(copy => copy.purchase), dates: item.nativeCopies.map(copy => copy.purchasedAt) };
+      for (const copy of item.nativeCopies) add('n:' + copy.parentId, copy.purchase, copy.purchasedAt);
+      return { count: new Set(item.nativeCopies.map(copy => copy.parentId)).size, exact: true, imported: false, library: true, purchases: [...purchases.values()] };
     }
     const title = typeof item === 'string' ? item : (item.title || ''), records = typeof item === 'string' ? [] : extractItemProvenance(item);
     const { copies, counted } = titlePurchaseTotals(title, records, links);
-    return { count: counted.count, exact: counted.exact, imported: counted.count > 0 && records.some(rec => rec.purchaseKey || String(rec.sourceBundle || '').trim()), library: copies.length > 0,
-      names: [...records.map(rec => rec.sourceBundle), ...copies.map(copy => copy.purchase)], dates: [...records.map(rec => rec.purchasedAt), ...copies.map(copy => copy.purchasedAt)] };
+    for (const rec of records) {
+      const bundle = String(rec.sourceBundle || '').trim();
+      if (rec.purchaseKey || bundle) add(rec.purchaseKey ? 'h:' + rec.purchaseKey : 'hn:' + bundle.toLowerCase(), bundle, rec.purchasedAt);
+    }
+    for (const copy of copies) add(copy.historicalKey ?? 'n:' + copy.parentId, copy.purchase, copy.purchasedAt);
+    return { count: counted.count, exact: counted.exact, imported: counted.count > 0 && records.some(rec => rec.purchaseKey || String(rec.sourceBundle || '').trim()), library: copies.length > 0, purchases: [...purchases.values()] };
   }
 
   function renderLibraryRow(item) {
@@ -1046,7 +1063,7 @@
     if (librarySort && librarySort.value !== libraryBrowserState.sort) librarySort.value = libraryBrowserState.sort;
     if (libraryPageSize && Number(libraryPageSize.value) !== libraryBrowserState.pageSize) libraryPageSize.value = String(libraryBrowserState.pageSize);
 
-    const uniqueItems = [...consolidateLibrary(latestLibraryItems), ...latestNativeTitles];
+    const uniqueItems = [...titleRows(latestLibraryItems), ...latestNativeTitles];
     const processed = filterAndSortLibrary(uniqueItems, {
       search: libraryBrowserState.search,
       scope: libraryBrowserState.scope,
@@ -1212,7 +1229,7 @@
       for (const value of ['both', 'native', 'ambiguous']) { const option = libraryGroupFilter?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
       for (const value of ['bundle', 'store', 'widget']) { const option = libraryGroupType?.querySelector?.(`option[value="${value}"]`); if (option) option.disabled = !latestGroupModel.native.present; }
     }
-    const titles = [...consolidateLibrary(items), ...latestNativeTitles];
+    const titles = [...titleRows(items), ...latestNativeTitles];
     renderWishlist(state.wishlistItems);
     if (!live) { const prefs = HumbleComicLibrary.normalizeSummaryPreferences(state.bundleSummaryPreferences); document.querySelector('#summary-minimized').checked = prefs.minimized; document.querySelector('#summary-position').value = prefs.position; }
     const pricedPurchases = purchaseSummaries.filter((purchase) => purchase.pricePaid !== null).length;
@@ -1692,7 +1709,7 @@
       const model=HumbleLibraryBrowser.buildGroups({items:saved.libraryItems,...saved});
       const reconciliation=model.native.present?HumbleLibraryBrowser.reconcile(model.groups):null;
       const links=model.native.present?HumbleLibraryBrowser.titleLinks(model.groups,reconciliation):null;
-      const titles=[...consolidateLibrary(saved.libraryItems),...HumbleLibraryBrowser.nativeOnlyTitles(model,saved.libraryItems,links)];
+      const titles=[...titleRows(saved.libraryItems),...HumbleLibraryBrowser.nativeOnlyTitles(model,saved.libraryItems,links)];
       const catalog=HumbleComicLibrary.createTitleCatalog(titles);
       const url=URL.createObjectURL(new Blob([format==='csv'?HumbleComicLibrary.createTitleCatalogCsv(titles,item=>catalogPurchases(item,links)):JSON.stringify(catalog,null,2)],{type:format==='csv'?'text/csv;charset=utf-8':'application/json'}));
       Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.'+format}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
