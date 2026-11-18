@@ -1002,7 +1002,9 @@
     const number = v => v.toLocaleString(), plural = (n, one, many = one + 's') => `${number(n)} ${n === 1 ? one : many}`;
     // Purchase-date refresh messages count orders checked, orders new to the extension and Library purchases
     // dated: different things, never interchangeable.
-    let undated = null;
+    // Saved Library purchases without any date, counted before and after a refresh: a purchase is recovered
+    // only when it had no date before (one already dated by an imported order is not counted again).
+    let undated = null, undatedBefore = null, starting = false;
     const datesProgressText = v => v.phase === 'cancelling' ? 'Stopping after the current Order History page… Dates already found stay saved.'
       : v.phase === 'retrying' && v.retry ? `Humble’s Order History did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds. Progress so far is saved.`
       : `Checking Humble Order History for purchase dates…${v.orderDates.orders ? ` ${plural(v.orderDates.orders, 'order')} checked so far.` : ''}`;
@@ -1025,8 +1027,10 @@
       }
       if (o.cancelled) parts.push('Purchase-date refresh stopped.');
       parts.push(`Checked ${plural(o.orders ?? 0, 'order')}${o.newOrders ? ` (${number(o.newOrders)} new)` : ''}.`);
-      parts.push(o.newlyDated > 0 ? `Recovered dates for ${plural(o.newlyDated, 'purchase')}.` : 'No additional purchase dates found.');
-      if (undated !== null && !o.resumable) parts.push(`${plural(undated, 'Library purchase')} still ${undated === 1 ? 'has' : 'have'} no purchase date.`);
+      const recovered = undated !== null && undatedBefore !== null ? Math.max(0, undatedBefore - undated) : null;
+      parts.push(recovered > 0 ? `Recovered dates for ${plural(recovered, 'purchase')} that had none.` : recovered === 0 ? 'No additional purchase dates found.' : '');
+      if (undated !== null && !o.resumable) parts.push(undated ? `${plural(undated, 'saved Library purchase')} still ${undated === 1 ? 'has' : 'have'} no purchase date.` : 'Every saved Library purchase now has a purchase date.',
+        'Extension options shows date coverage for all your titles.');
       parts.push(saved || 'More older orders may become available as Humble restores its order history.');
       return parts.filter(Boolean).join(' ');
     };
@@ -1075,7 +1079,7 @@
         `Coverage: ${cp.coverage === 'accessible-pages-traversed' ? 'every page Humble currently shows was read' : cp.coverage === 'recent-pages' ? 'recent pages only' : cp.coverage === 'in-progress' ? 'in progress' : 'incomplete'}`,
         ...(cp.lastProgressAt ? [`Last progress: ${new Date(cp.lastProgressAt).toLocaleString()}`] : []),
         // Purchases dated, not orders found: an order line counts only once matched to one Library purchase.
-        ...(stored.orders ? [`Purchase dates from your Humble order history: ${plural(stored.orders.dated, 'Library purchase')} dated. Humble is still adding older orders there; later syncs add their dates.`] : []),
+        ...(stored.orders ? [`Library purchases matched to an order in your Humble order history: ${number(stored.orders.dated)} (a purchase already dated by an earlier import keeps that date). Humble is still adding older orders there; Refresh purchase dates picks them up.`] : []),
         ...(stored.orders?.resumable ? ['An earlier purchase-date refresh stopped partway; Continue refreshing purchase dates picks it up.'] : []),
         // Technical detail for a stopped purchase-date check, kept out of the main status.
         ...(v.orderDates?.detail ? [`Purchase-date check stopped: ${v.orderDates.detail}`] : []),
@@ -1151,8 +1155,13 @@
     refresh.addEventListener('click', () => begin('refresh', null));
     datesButton.addEventListener('click', () => {
       if (!stored.bound) return;
-      try { message = ''; undated = null; sharedSync.refreshDates(); }
-      catch { message = 'The purchase-date refresh could not start. Your records are unchanged. Reload this page and try again.'; render(); }
+      if (starting) return;
+      starting = true; message = ''; undated = null;
+      countUndated().catch(() => null).then(before => {
+        undatedBefore = before;
+        try { sharedSync.refreshDates(); }
+        catch { message = 'The purchase-date refresh could not start. Your records are unchanged. Reload this page and try again.'; render(); }
+      }).finally(() => { starting = false; });
     });
     resume.addEventListener('click', () => { const cp = stored.checkpoint; if (cp) begin(cp.mode, cp); });
     pause.addEventListener('click', () => sharedSync.pause());

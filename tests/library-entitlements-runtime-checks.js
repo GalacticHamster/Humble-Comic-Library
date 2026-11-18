@@ -331,9 +331,9 @@ async function installedSyncResume({store,check,checks}){
   check(!after.hclLibraryEntitlementLease,'installed completed sync releases its lease');
   // The resumed full sync finished the saved refresh position (page 2). Refresh purchase dates then reads the whole Order History again, without Library pages.
   const sent=orderTransport.paths().length;datesButton.click();
-  for(let n=0;n<400&&!/^Checked/.test(pstatus.textContent);n++)await new Promise(r=>setTimeout(r,25));
+  for(let n=0;n<400&&!/^Checked.*date coverage/.test(pstatus.textContent);n++)await new Promise(r=>setTimeout(r,25));
   const refreshed=await chrome.storage.local.get(null),dated=E.syncView(refreshed).orders,paths=orderTransport.paths().slice(sent);
-  check(/^Checked 1 order \(1 new\)\. No additional purchase dates found\./.test(pstatus.textContent)&&paths.length===2&&paths.every(p=>p.startsWith('/home/purchases?page='))&&dated?.lines===2&&dated.dated===1&&E.orderDates(E.collection(refreshed.libraryEntitlements).scopes[0]).get('parent-A')?.purchasedAt==='2026-11-17T03:45:00.000Z','installed Refresh purchase dates reads only Order History, reports orders checked and new, and keeps the purchase dated');
+  check(/^Checked 1 order \(1 new\)\. No additional purchase dates found\. Every saved Library purchase now has a purchase date\. Extension options shows date coverage for all your titles\./.test(pstatus.textContent)&&paths.length===2&&paths.every(p=>p.startsWith('/home/purchases?page='))&&dated?.lines===2&&dated.dated===1&&E.orderDates(E.collection(refreshed.libraryEntitlements).scopes[0]).get('parent-A')?.purchasedAt==='2026-11-17T03:45:00.000Z','installed Refresh purchase dates reads only Order History, reports orders checked and new, and keeps the purchase dated');
   check(JSON.stringify(refreshed.libraryEntitlements.scopes[0].observations)===JSON.stringify(after.libraryEntitlements.scopes[0].observations)&&['libraryItems','purchaseSummaries'].every(k=>JSON.stringify(refreshed[k])===JSON.stringify(after[k])),'installed purchase-date refresh leaves purchases, first-synced times and imports unchanged');
   // A genuine sign-in problem says so, without claiming orders were checked or nothing was found.
   const stored=JSON.stringify((await chrome.storage.local.get(null)).libraryEntitlements);

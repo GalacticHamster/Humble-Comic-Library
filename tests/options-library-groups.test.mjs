@@ -365,3 +365,24 @@ test('Recently added sorts Library purchases first seen by sync, labelled apart 
   assert.match(text(ui.expand(ui.rows()[3])), /saved before first-found dates were recorded/);
   assert.equal(ui.writes.length, 0, 'sorting never writes storage');
 });
+
+test('Titles: dates reach Library-only titles of combined purchases; date coverage, undated filter and both date sorts', async () => {
+  const { E } = load(), book = (id, parent, title, parentTitle) => nativeObservation(E, { id, parent, title, parentTitle });
+  const ui = await harness({ libraryItems: [historical('Shared One', 'K1', 'Combined Bundle', { purchasedAt: '2021-06-01T12:00:00.000Z' }), historical('Shared Two', 'K1', 'Combined Bundle', { purchasedAt: '2021-06-01T12:00:00.000Z' }),
+      historical('Mixed Title', 'K2', 'Older Order', { purchasedAt: '2019-03-03T12:00:00.000Z' })],
+    purchaseSummaries: [{ purchaseKey: 'K1', sourceBundle: 'Combined Bundle', purchasedAt: '2021-06-01T12:00:00.000Z' }, { purchaseKey: 'K2', sourceBundle: 'Older Order', purchasedAt: '2019-03-03T12:00:00.000Z' }],
+    libraryEntitlements: entitlements([book(1, 10, 'Shared One', 'Combined Bundle'), book(2, 10, 'Shared Two', 'Combined Bundle'), book(3, 10, 'Library Extra', 'Combined Bundle'),
+      book(4, 20, 'Undated Only', 'Loose Purchase'), book(5, 20, 'Mixed Title', 'Loose Purchase'), book(6, 20, 'Another Undated', 'Loose Purchase')]) });
+  const titleText = (r) => (r.textContent || r.children[0].children[0].textContent).split(' — ')[0];
+  // Library Extra was undated before: its purchase is combined with the dated order K1.
+  assert.equal(ui.get('#library-date-coverage').textContent, 'Purchase dates known for 4 of 6 titles (66.6%). 2 titles have no known purchase date yet; some older purchases may get dates as Humble restores its order history. Choose “No known purchase date” under Metadata in Titles to list them.');
+  await ui.change('#library-sort', 'date-desc');
+  assert.deepEqual(ui.rows().map(titleText), ['Library Extra', 'Shared One', 'Shared Two', 'Mixed Title', 'Another Undated', 'Undated Only']);
+  await ui.change('#library-sort', 'date-asc');
+  assert.deepEqual(ui.rows().map(titleText), ['Another Undated', 'Undated Only', 'Mixed Title', 'Library Extra', 'Shared One', 'Shared Two']);
+  await ui.change('#library-filter-metadata', 'undated');
+  assert.deepEqual(ui.rows().map(titleText), ['Another Undated', 'Undated Only'], 'a title with one dated purchase is not undated');
+  await ui.input('#library-search', 'another');
+  assert.deepEqual(ui.rows().map(titleText), ['Another Undated'], 'the filter works with search');
+  assert.equal(ui.writes.length, 0);
+});

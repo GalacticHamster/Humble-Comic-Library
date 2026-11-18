@@ -176,6 +176,31 @@
     return latest;
   }
 
+  // The earliest known purchase date of a title (its first purchase), for oldest-first sorting.
+  function getItemEarliestPurchaseDate(item) {
+    if (!item || typeof item !== 'object') return null;
+    const list = Array.isArray(item.provenance) ? item.provenance : (Array.isArray(item.purchaseOrigins) ? item.purchaseOrigins : []);
+    let earliest = null;
+    for (const raw of [item.purchasedAt || item.purchaseDate, ...list.map((rec) => rec?.purchasedAt || rec?.purchaseDate)]) {
+      const time = raw ? Date.parse(raw) : NaN;
+      if (Number.isFinite(time) && (earliest === null || time < earliest)) earliest = time;
+    }
+    return earliest;
+  }
+
+  // Date coverage across the rows of Titles (imported titles and titles only in the synced Humble Library). A title
+  // counts as dated when any of its purchases has a known date.
+  function renderDateCoverage(items) {
+    const element = document.querySelector('#library-date-coverage');
+    if (!element) return;
+    const titles = [...consolidateLibrary(items), ...latestNativeTitles];
+    if (!titles.length) { element.textContent = ''; return; }
+    const dated = titles.filter((item) => getItemPurchaseDate(item) !== null).length, undated = titles.length - dated;
+    const percent = Math.floor((dated / titles.length) * 1000) / 10;
+    element.textContent = `Purchase dates known for ${dated.toLocaleString()} of ${titles.length.toLocaleString()} title${titles.length === 1 ? '' : 's'} (${percent}%).`
+      + (undated ? ` ${undated.toLocaleString()} ${undated === 1 ? 'title has' : 'titles have'} no known purchase date yet; some older purchases may get dates as Humble restores its order history. Choose “No known purchase date” under Metadata in Titles to list them.` : '');
+  }
+
   // The calendar date in this browser's time zone, as the bundle page shows it: a purchase made late in the
   // evening is shown on that day, not on the next day in UTC.
   function formatPurchaseDate(timestamp) {
@@ -437,6 +462,8 @@
     if (metadata) {
       result = result.filter((item) => {
         if (metadata === 'dated') return getItemPurchaseDate(item) !== null;
+        // No purchase of the title has a known date; one dated purchase makes it dated.
+        if (metadata === 'undated') return typeof item === 'string' || getItemPurchaseDate(item) === null;
         if (metadata === 'bundle') return Boolean(typeof item === 'object' && (item.sourceBundle || item.bundle?.title));
         if (metadata === 'humble') return typeof item === 'object' && (item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
         if (metadata === 'manual') return typeof item === 'string' || !(item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
@@ -474,15 +501,17 @@
         if (dateB !== null) return 1;
         return collator.compare(titleA, titleB);
       }
+      // Oldest first: by each title's first known purchase; titles without a known date lead, so they are not
+      // mistaken for the oldest purchases. Newest first (above) uses the latest purchase and lists them last.
       if (sort === 'date-asc') {
-        const dateA = getItemPurchaseDate(a);
-        const dateB = getItemPurchaseDate(b);
+        const dateA = getItemEarliestPurchaseDate(a);
+        const dateB = getItemEarliestPurchaseDate(b);
         if (dateA !== null && dateB !== null) {
           if (dateA !== dateB) return dateA - dateB;
           return collator.compare(titleA, titleB);
         }
-        if (dateA !== null) return -1;
-        if (dateB !== null) return 1;
+        if (dateA !== null) return 1;
+        if (dateB !== null) return -1;
         return collator.compare(titleA, titleB);
       }
       return collator.compare(titleA, titleB);
@@ -1035,8 +1064,8 @@
         const pageInfo = totalPages > 1 ? ` (page ${libraryBrowserState.page + 1} of ${totalPages})` : '';
         const filterInfo = processed.length !== uniqueItems.length ? ` (filtered from ${uniqueItems.length})` : '';
         const sortLabel = libraryBrowserState.sort === 'added-desc' ? 'recently added first'
-          : libraryBrowserState.sort === 'date-desc' ? 'by purchase date (newest)'
-          : libraryBrowserState.sort === 'date-asc' ? 'by purchase date (oldest)'
+          : libraryBrowserState.sort === 'date-desc' ? 'by latest purchase date (newest), titles without a known date last'
+          : libraryBrowserState.sort === 'date-asc' ? 'by first purchase date (oldest), titles without a known date first'
           : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'
           : 'alphabetically';
         const nativeShown = processed.filter(item => item.nativeOnly).length;
@@ -1157,6 +1186,7 @@
         latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
         latestTitleLinks = latestGroupModel.native.present ? HumbleLibraryBrowser.titleLinks(latestGroupModel.groups, latestReconciliation) : null;
         latestNativeTitles = latestGroupModel.native.present ? HumbleLibraryBrowser.nativeOnlyTitles(latestGroupModel, items, latestTitleLinks) : [];
+        renderDateCoverage(items);
         refreshStats.modelBuilds++;
         refreshStats.lastModelMs = clock() - modelStarted;
         refreshStats.maxModelMs = Math.max(refreshStats.maxModelMs, refreshStats.lastModelMs);

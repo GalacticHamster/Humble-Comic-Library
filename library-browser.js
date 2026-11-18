@@ -266,12 +266,16 @@
   function titleLinks(groups, reconciliation = null) {
     const links = new Map(), paired = new Set();
     const unified = new Map((reconciliation?.groups ?? []).filter(g => g.source === 'unified').map(g => [g.native.key, g]));
+    // A Library purchase's date as Bundles & Orders shows it: the imported order it is combined with, else its own
+    // (Order History) date. Combined repeats of one bundle hold the same titles, so each title still gets every
+    // repeat's date even though which repeat pairs with which order is arbitrary.
+    const purchaseDate = native => unified.get(native.key)?.purchasedAt ?? native.purchasedAt ?? null;
     const add = (key, entry, native) => {
       if (!key || entry.excluded || !entry.route || entry.route !== entitlementRoute(entry.nativeId)) return;
       const list = links.get(key) ?? [];
       if (list.some(c => c.nativeId === entry.nativeId)) return;
       const u = unified.get(native.key);
-      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam', firstSeenAt: native.firstSeenAt, purchasedAt: native.purchasedAt ?? null,
+      list.push({ nativeId: entry.nativeId, parentId: native.parentId, route: entry.route, title: entry.title, purchase: native.name || '', type: native.type, namespace: entry.namespace, kind: entry.kind, steam: entry.namespace === 'steam', firstSeenAt: native.firstSeenAt, purchasedAt: purchaseDate(native),
         historicalKey: u ? u.historical.key : null, interchangeable: u ? u.evidence.interchangeable : 0, matchState: native.matchState ?? 'unmatched' });
       links.set(key, list);
     };
@@ -280,7 +284,7 @@
       for (const e of g.items) if (e.source === 'both' && e.historicalTitle && titleKey(e.historicalTitle) !== titleKey(e.title)) { add(titleKey(e.historicalTitle), e, g.native); paired.add(e.nativeId); }
     }
     for (const list of links.values()) list.sort((a, b) => COLLATOR.compare(a.purchase, b.purchase) || (a.nativeId < b.nativeId ? -1 : 1));
-    return { links, paired, key: titleKey };
+    return { links, paired, key: titleKey, purchaseDate };
   }
 
   // One list of purchases for an expanded title. An imported order and a Library copy share a row only
@@ -365,7 +369,8 @@
     const name = r => r.group.name ?? '', date = r => r.group.purchasedAt, size = r => r.group.items.length, added = r => recentlyAdded(r.group);
     // Unnamed groups sort after named ones in either direction.
     const byName = (a, b, dir = 1) => (a.group.name ? 0 : 1) - (b.group.name ? 0 : 1) || dir * collator.compare(name(a), name(b)) || collator.compare(a.group.key, b.group.key);
-    const byDate = dir => (a, b) => date(a) === null ? (date(b) === null ? byName(a, b) : 1) : date(b) === null ? -1 : dir * (date(a) - date(b)) || byName(a, b);
+    // Undated purchases come last when newest first and first when oldest first, never mixed in as old dates.
+    const byDate = dir => (a, b) => date(a) === null ? (date(b) === null ? byName(a, b) : -dir) : date(b) === null ? dir : dir * (date(a) - date(b)) || byName(a, b);
     // Recently added first; everything else follows newest purchase first.
     const byAdded = (a, b) => added(a) === null ? (added(b) === null ? byDate(-1)(a, b) : 1) : added(b) === null ? -1 : added(b) - added(a) || byName(a, b);
     out.sort(sort === 'name-desc' ? (a, b) => byName(a, b, -1) : sort === 'date-desc' ? byDate(-1) : sort === 'date-asc' ? byDate(1) : sort === 'added-desc' ? byAdded
@@ -385,9 +390,11 @@
         const k = key(entry.title);
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt, purchasedAt: group.purchasedAt ?? null });
-        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name))
-          title.provenance.push({ sourceBundle: group.name, ...(group.purchasedAt !== null ? { purchasedAt: new Date(group.purchasedAt).toISOString() } : {}) });
+        const at = links?.purchaseDate ? links.purchaseDate(group) : group.purchasedAt ?? null, iso = at === null ? null : new Date(at).toISOString();
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt, purchasedAt: at });
+        // One record per purchase name and date: repeat purchases with different dates keep each date.
+        if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name && (rec.purchasedAt ?? null) === iso))
+          title.provenance.push({ sourceBundle: group.name, ...(iso ? { purchasedAt: iso } : {}) });
       }
     }
     return [...titles.values()];

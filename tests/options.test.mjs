@@ -227,15 +227,15 @@ test('options library sorting supports title A-Z, title Z-A, date newest, and da
     ui.get('#library-preview').children.map((r) => r.textContent.split(' — ')[0]),
     ['Alpha Book', 'Beta Book', 'Gamma Book']
   );
-  assert.match(ui.get('#preview-note').textContent, /by purchase date \(newest\)/);
+  assert.match(ui.get('#preview-note').textContent, /by latest purchase date \(newest\), titles without a known date last/);
 
-  // date-asc (oldest first, undated at end)
+  // date-asc (oldest first; undated first, so an unknown date is never shown as the oldest purchase)
   await ui.change('#library-sort', 'date-asc');
   assert.deepEqual(
     ui.get('#library-preview').children.map((r) => r.textContent.split(' — ')[0]),
-    ['Beta Book', 'Alpha Book', 'Gamma Book']
+    ['Gamma Book', 'Beta Book', 'Alpha Book']
   );
-  assert.match(ui.get('#preview-note').textContent, /by purchase date \(oldest\)/);
+  assert.match(ui.get('#preview-note').textContent, /by first purchase date \(oldest\), titles without a known date first/);
 });
 
 test('options library pagination handles selectable page sizes, previous/next, and out-of-bounds clamping', async () => {
