@@ -38,7 +38,8 @@ async function installedRuntimeChecks(phase) {
     check(/of 600 items/.test(document.getElementById('preview-note').textContent),'Titles displays 600 unique native titles with no legacy title collection');
     const nativeCatalog=await catalog();
     check(nativeCatalog.items.length===600,'catalog includes the 600 visible native titles instead of an empty legacy-only export');
-    const csv=await catalog(true);check(csv.split('\r\n').length===602&&csv.includes('Verified native Library purchase'),'installed CSV contains the same 600 native titles and their purchase evidence source');
+    const csv=await catalog(true),csvRows=csv.replace(/^﻿/u,'').trim().split('\r\n');
+    check(csvRows.length===601&&csvRows[0]==='"Title","Media type","Purchase status","Purchase date","Purchase count","Source","Bundle / purchase name"'&&csvRows.slice(1).every(r=>/^"[^"]*","[^"]*","Purchased","[^"]*","\d+","Humble Library",/u.test(r))&&!/activation/iu.test(csv),'installed CSV lists the same 600 native titles as Purchased from the Humble Library, with a purchase count and no activation wording');
     check(/600 unique items/.test(counts())&&/300 games/.test(counts())&&/300 unclassified/.test(counts()),'summary counts the same known and unclassified native titles');
     check(/0 historical purchase records/.test(counts())&&/61 synced Humble Library purchase groups/.test(counts()),'summary distinguishes historical orders from synced native purchase groups');
     check(nativeCatalog.items.filter(i=>i.mediaType==='unclassified').length===300&&new Set(nativeCatalog.items.map(i=>i.title)).size===600,'unclassified titles survive export and separate purchase copies do not duplicate catalog titles');

@@ -527,7 +527,9 @@
     })};
   }
 
-  function createTitleCatalogCsv(items) {
+  // describe(item) gives a title's purchases as Titles shows them ({count, exact, imported, library, names, dates});
+  // without it, only the title's own imported records are counted.
+  function createTitleCatalogCsv(items, describe = null) {
     const catalog=createTitleCatalog(items);
     const cell=value=>{
       let text=String(value??'');
@@ -535,14 +537,26 @@
       if(/^[=+@\-\t\r]/u.test(text))text="'"+text;
       return '"'+text.replace(/"/gu,'""')+'"';
     };
-    const rows=[['Title','Media type','Purchase status','Evidence source','Purchase sources','Acquisition dates']];
+    // A purchase recorded by an import or the Humble Library is Purchased. Whether a key was redeemed on its
+    // store is not known from Humble records and is left out rather than repeated on every row.
+    // Dates as calendar days (YYYY-MM-DD) in this browser's time zone, as Options shows them; unknown stays empty.
+    const day=value=>{const time=typeof value==='number'?value:typeof value==='string'?Date.parse(value):NaN;if(!Number.isFinite(time))return '';const d=new Date(time);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+    const list=(values,format=v=>typeof v==='string'?v.trim():'')=>{const seen=new Map();for(const value of values){const v=format(value);if(v&&!seen.has(v.toLowerCase()))seen.set(v.toLowerCase(),v);}return [...seen.values()];};
+    const rows=[['Title','Media type','Purchase status','Purchase date','Purchase count','Source','Bundle / purchase name']];
     catalog.items.forEach((item,index)=>{
-      const original=items[index],sources=original.provenance?.length?original.provenance:[original];
-      const unique=values=>[...new Set(values.filter(value=>typeof value==='string'&&value.trim()))].join('\n');
-      const purchased=original.nativeOnly||sources.some(p=>typeof p.purchaseKey==='string'&&p.purchaseKey);
-      rows.push([item.title,item.mediaType,purchased?'Purchased on Humble; destination activation not established':'Ownership recorded locally',
-        original.nativeOnly?'Verified native Library purchase':purchased?'Historical purchase record':'Manual/local title record',
-        unique(sources.map(p=>p.sourceBundle)),unique(sources.map(p=>p.purchasedAt))]);
+      const original=items[index];
+      const records=typeof original==='string'?[]:original.provenance?.length?original.provenance:[original];
+      const fallback=()=>{const keys=new Set(records.map((p,i)=>p.purchaseKey?'h:'+p.purchaseKey:String(p.sourceBundle??'').trim()?'hn:'+String(p.sourceBundle).trim().toLowerCase():null).filter(Boolean));
+        return {count:keys.size,exact:true,imported:keys.size>0,library:false,names:records.map(p=>p.sourceBundle),dates:records.map(p=>p.purchasedAt)};};
+      const p=describe?.(original)??fallback();
+      const purchased=p.count>0;
+      // Names and dates arrive in pairs; both are listed earliest purchase first, undated purchases last.
+      const pairs=p.names.map((name,i)=>({name,date:day(p.dates[i])})).sort((a,b)=>a.date===b.date?0:!a.date?1:!b.date?-1:a.date<b.date?-1:1);
+      p.names=pairs.map(pair=>pair.name);
+      const dates=list(pairs.map(pair=>pair.date));
+      rows.push([item.title,item.mediaType,purchased?'Purchased':'Not recorded as a purchase',dates.join('; '),purchased?(p.exact?String(p.count):`at least ${p.count}`):'',
+        p.imported&&p.library?'Imported purchase and Humble Library':p.library?'Humble Library':p.imported?'Imported purchase':'Added manually',list(p.names).join('; ')]);
     });
     return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
   }

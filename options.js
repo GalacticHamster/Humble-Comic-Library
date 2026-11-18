@@ -533,6 +533,29 @@
     }
   }
 
+  // The purchases of an imported title, as its Titles row lists them: imported orders and this account's Humble
+  // Library copies, counted together without counting a combined order twice (HumbleLibraryBrowser.titlePurchaseCount).
+  function titlePurchaseTotals(title, records, links = latestTitleLinks) {
+    const copies = links ? links.links.get(links.key(title)) ?? [] : [];
+    const orders = records.map(rec => ({ ...rec, sourceBundle: rec.sourceBundle || rec.bundle?.title || '' }));
+    // Without the presentation model there are no Library copies: distinct imported orders, by the same rule.
+    const counted = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.titlePurchaseCount(orders, copies)
+      : { count: new Set(orders.map((rec, i) => rec.purchaseKey ? 'h:' + rec.purchaseKey : rec.sourceBundle.trim() ? 'hn:' + rec.sourceBundle.trim().toLowerCase() : 'record:' + i)).size, exact: true };
+    return { copies, counted };
+  }
+
+  // One CSV row's purchase details for a Titles row: the same count, purchase names and dates Titles shows.
+  function catalogPurchases(item, links) {
+    if (item.nativeOnly) {
+      return { count: new Set(item.nativeCopies.map(copy => copy.parentId)).size, exact: true, imported: false, library: true,
+        names: item.nativeCopies.map(copy => copy.purchase), dates: item.nativeCopies.map(copy => copy.purchasedAt) };
+    }
+    const title = typeof item === 'string' ? item : (item.title || ''), records = typeof item === 'string' ? [] : extractItemProvenance(item);
+    const { copies, counted } = titlePurchaseTotals(title, records, links);
+    return { count: counted.count, exact: counted.exact, imported: counted.count > 0 && records.some(rec => rec.purchaseKey || String(rec.sourceBundle || '').trim()), library: copies.length > 0,
+      names: [...records.map(rec => rec.sourceBundle), ...copies.map(copy => copy.purchase)], dates: [...records.map(rec => rec.purchasedAt), ...copies.map(copy => copy.purchasedAt)] };
+  }
+
   function renderLibraryRow(item) {
     const row = document.createElement('li');
     row.className = 'library-item';
@@ -540,14 +563,7 @@
     const title = typeof item === 'string' ? item : (item.title || '');
     row.dataset.rowKeys = titleRowKey(title);
     const records = sortProvenanceRecords(extractItemProvenance(item));
-
-    // The same purchases the expanded list shows: imported orders and this account's Humble Library
-    // copies, counted together without counting a combined order twice (HumbleLibraryBrowser.titlePurchaseCount).
-    const copies = latestTitleLinks ? latestTitleLinks.links.get(latestTitleLinks.key(title)) ?? [] : [];
-    const orders = records.map(rec => ({ ...rec, sourceBundle: rec.sourceBundle || rec.bundle?.title || '' }));
-    // Without the presentation model there are no Library copies: distinct imported orders, by the same rule.
-    const counted = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.titlePurchaseCount(orders, copies)
-      : { count: new Set(orders.map((rec, i) => rec.purchaseKey ? 'h:' + rec.purchaseKey : rec.sourceBundle.trim() ? 'hn:' + rec.sourceBundle.trim().toLowerCase() : 'record:' + i)).size, exact: true };
+    const { copies, counted } = titlePurchaseTotals(title, records);
     const summarySuffix = counted.count ? ` — ${purchaseCountText(counted)}` : ' — manual entry';
 
     const headerText = `${title}${summarySuffix}`;
@@ -1678,7 +1694,7 @@
       const links=model.native.present?HumbleLibraryBrowser.titleLinks(model.groups,reconciliation):null;
       const titles=[...consolidateLibrary(saved.libraryItems),...HumbleLibraryBrowser.nativeOnlyTitles(model,saved.libraryItems,links)];
       const catalog=HumbleComicLibrary.createTitleCatalog(titles);
-      const url=URL.createObjectURL(new Blob([format==='csv'?HumbleComicLibrary.createTitleCatalogCsv(titles):JSON.stringify(catalog,null,2)],{type:format==='csv'?'text/csv;charset=utf-8':'application/json'}));
+      const url=URL.createObjectURL(new Blob([format==='csv'?HumbleComicLibrary.createTitleCatalogCsv(titles,item=>catalogPurchases(item,links)):JSON.stringify(catalog,null,2)],{type:format==='csv'?'text/csv;charset=utf-8':'application/json'}));
       Object.assign(document.createElement('a'),{href:url,download:'humble-title-catalog.'+format}).click();setTimeout(()=>URL.revokeObjectURL(url),0);
       status.textContent='Exported catalog titles and identity metadata only; this is not a recoverable ownership backup.';
     }catch(error){status.textContent='Could not export the title catalog: '+error.message;}

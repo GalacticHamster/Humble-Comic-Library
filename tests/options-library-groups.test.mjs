@@ -322,17 +322,48 @@ test('native-only 600-title library has matching summary, Titles and catalog cou
   const ui=await harness({libraryItems:[],purchaseSummaries:[],libraryEntitlements:entitlements(observations)});const before=JSON.stringify(ui.stored);
   assert.match(ui.note(),/of 600 items/);assert.match(ui.get('#library-count').textContent,/600 unique items/);assert.match(ui.get('#library-count').textContent,/600 unclassified/);
   const catalog=await ui.exportCatalog();assert.equal(catalog.items.length,600);assert(catalog.items.every(i=>i.mediaType==='unclassified'));assert.equal(new Set(catalog.items.map(i=>i.title)).size,600);
-  const csv=await ui.exportCsv();assert.equal(csv.split('\r\n').length,602);assert.match(csv,/Verified native Library purchase/);assert.match(csv,/Saved title 599/);
+  const csv=await ui.exportCsv();assert.equal(csv.split('\r\n').length,602);assert.match(csv,/"Saved title 0","unclassified","Purchased","","1","Humble Library",""/);assert.match(csv,/Saved title 599/);
   await ui.view('groups');assert.match(ui.note(),/60 purchase groups/);assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
 });
 
 test('CSV retains source distinctions and escapes quotes, commas, newlines, Unicode and spreadsheet formulas',async()=>{
   const ui=await harness({libraryItems:[historical('Title, "雪"\nSecond line','order-1','Bundle, one',{kind:'book'}),historical('=formula','order-2','Other bundle',{kind:'game'}),{title:'Manual title',kind:'book',source:'manual'}]});
   const before=JSON.stringify(ui.stored),csv=await ui.exportCsv();
-  assert.match(csv,/"Title, ""雪""\nSecond line"/);assert.match(csv,/"'=formula"/);assert.match(csv,/Historical purchase record/);
-  assert.match(csv,/"Manual title","book","Ownership recorded locally","Manual\/local title record"/);
+  assert.match(csv,/"Title, ""雪""\nSecond line"/);assert.match(csv,/"'=formula"/);assert.match(csv,/","Purchased","2024-03-01","1","Imported purchase","Bundle, one"/);
+  assert.match(csv,/"Manual title","book","Not recorded as a purchase","","","Added manually",""/);
   assert.equal(JSON.stringify(ui.stored),before);assert.equal(ui.writes.length,0);
   const empty=await harness();assert.equal((await empty.exportCsv()).split('\r\n').length,2);
+});
+
+test('CSV: Purchased for every recorded purchase, purchase dates and counts as Titles shows them, and no activation column', async () => {
+  const { E } = load(), copy = (id, parent, title, parentTitle, namespace = 'download_drm_free') => nativeObservation(E, { id, parent, title, parentTitle, namespace });
+  const ui = await harness({
+    libraryItems: [
+      historical('Imported Only', 'K1', 'Book Bundle One', { kind: 'book', purchasedAt: '2021-06-01T12:00:00.000Z' }),
+      historical('Shared One', 'K2', 'Game Bundle', { kind: 'game', purchasedAt: '2022-02-02T12:00:00.000Z' }), historical('Shared Two', 'K2', 'Game Bundle', { kind: 'game', purchasedAt: '2022-02-02T12:00:00.000Z' }),
+      historical('Twice Bought', 'K3', 'First Order', { kind: 'book', purchasedAt: '2019-03-03T12:00:00.000Z' }), historical('Twice Bought', 'K4', 'Second Order', { kind: 'book', purchasedAt: '2023-04-04T12:00:00.000Z' }),
+      historical('Loose Title', 'K5', 'Old Order', { kind: 'book', purchasedAt: '2018-05-05T12:00:00.000Z' }),
+      historical('=SUM(1)', 'K6', 'Formula Bundle', { kind: 'book', purchasedAt: '2020-01-01T12:00:00.000Z' })],
+    purchaseSummaries: [{ purchaseKey: 'K2', sourceBundle: 'Game Bundle', purchasedAt: '2022-02-02T12:00:00.000Z' }],
+    // The imported Game Bundle order and its Humble Library purchase (one purchase, Steam keys); a Library-only
+    // comic purchase with no date; and an unrelated Library purchase that also lists "Loose Title".
+    libraryEntitlements: entitlements([copy(1, 10, 'Shared One', 'Game Bundle', 'steam'), copy(2, 10, 'Shared Two', 'Game Bundle', 'steam'),
+      copy(3, 20, 'Library Comic', 'Library Comic Bundle'), copy(4, 30, 'Loose Title', 'Unrelated Purchase'), copy(5, 30, 'Other A', 'Unrelated Purchase'), copy(6, 30, 'Other B', 'Unrelated Purchase')]) });
+  const csv = await ui.exportCsv(), lines = csv.replace(/^﻿/u, '').trim().split('\r\n'), row = title => lines.find(line => line.startsWith(`"${title}",`) || line.startsWith(`"'${title}",`));
+  assert.equal(lines[0], '"Title","Media type","Purchase status","Purchase date","Purchase count","Source","Bundle / purchase name"');
+  assert.doesNotMatch(csv, /activation/iu, 'no activation wording on any row');
+  assert.equal(row('Imported Only'), '"Imported Only","book","Purchased","2021-06-01","1","Imported purchase","Book Bundle One"');
+  assert.equal(row('Shared One'), '"Shared One","game","Purchased","2022-02-02","1","Imported purchase and Humble Library","Game Bundle"', 'an imported order and its Library purchase count once');
+  assert.equal(row('Twice Bought'), '"Twice Bought","book","Purchased","2019-03-03; 2023-04-04","2","Imported purchase","First Order; Second Order"');
+  assert.equal(row('Library Comic'), '"Library Comic","comic","Purchased","","1","Humble Library","Library Comic Bundle"', 'a Library-only purchase with no known date');
+  assert.equal(row('Loose Title'), '"Loose Title","book","Purchased","2018-05-05","at least 1","Imported purchase and Humble Library","Old Order; Unrelated Purchase"', 'possibly the same purchase: a lower bound');
+  assert.equal(row('=SUM(1)'), `"'=SUM(1)","book","Purchased","2020-01-01","1","Imported purchase","Formula Bundle"`);
+  // CSV rows and the JSON catalog list the same titles in the same order; JSON keeps its identity-only shape.
+  const catalog = await ui.exportCatalog();
+  assert.equal(lines.length - 1, catalog.items.length);
+  assert.deepEqual(catalog.items.map(i => i.title), lines.slice(1).map(line => line.match(/^"'?((?:[^"]|"")*)"/u)[1].replaceAll('""', '"')));
+  assert(catalog.items.every(i => Object.keys(i).every(k => ['title', 'mediaType', 'authors', 'isbn', 'asin', 'series', 'volume', 'issue', 'language'].includes(k))), 'JSON fields unchanged');
+  assert.equal(ui.writes.length, 0);
 });
 
 test('historical upgrade and restored backup retain titles without native observations or derived checkpoints',async()=>{
