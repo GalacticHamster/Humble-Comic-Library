@@ -140,7 +140,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
 
 // Synthetic Library transport shared by both phases (the resume phase runs after reload/restart).
 function syncTransport(rows,{title=null,orders=null}={}){
-  let requests=0,failNext=null,hang=null;const paths=[];
+  let requests=0,failNext=null,hang=null,signedOut=false;const paths=[];
   const frames=components=>components.map((c,i)=>`${(i+1).toString(16)}:I${JSON.stringify([i+1,c.name==='UserLibrary'?['static/chunks/synthetic-library.js']:[],c.name])}`).join('\n')+'\n0:'+JSON.stringify(components.map((c,i)=>['$','$L'+(i+1).toString(16),null,c.props]))+'\n';
   const response=(body,status=200,type='text/x-component')=>({ok:status===200,status,type:'basic',headers:{get:name=>name==='content-type'?type:null},text:async()=>body});
   const html=components=>response('<!doctype html><script>self.__next_f.push('+JSON.stringify([1,frames(components)])+')</script>',200,'text/html');
@@ -154,10 +154,15 @@ function syncTransport(rows,{title=null,orders=null}={}){
     if(path==='/home/library'&&init.method!=='POST')return html([auth,{name:'UserLibrary',props:{bundleItems:[{id:'group-A',productEntitlementId:'parent-A',userId:'hub-A',type:'bundle'}]}}]);
     if(path==='/home/library'&&init.method==='POST'){const page=Number(init.body.get('_1_page'));return response('0:'+JSON.stringify({success:true,results:rows.slice((page-1)*Number(init.body.get('_1_limit')),page*Number(init.body.get('_1_limit'))),pagination:{page,totalPages:Math.max(1,Math.ceil(rows.length/Number(init.body.get('_1_limit')))),totalDocs:rows.length}})+'\n');}
     if(path==='/home/library/parent-A')return html([auth,{name:'ProductKeysDownloads',props:{productEntitlementId:'parent-A',userLibraryItem:{id:'detail-A',preOrder:false,...(title?{title}:{}),entitlements:{redemptionGroups:[],downloads:[],keys:rows.map(child)}}}}]);
-    if(orders&&path.startsWith('/home/purchases?page=')){const page=Number(path.split('=').pop());return response(frames([auth,{name:'OrderHistory',props:{data:{results:page===1?orders:[],pagination:{page,totalPages:2,totalDocs:orders.length}}}}]));}
+    if(orders&&path.startsWith('/home/purchases?page=')){
+      // As on Humble: an RSC GET without the _rsc cache key is redirected to the same URL with the key added.
+      if(init.redirect!=='follow')return {ok:false,status:0,type:'opaqueredirect',redirected:false,url:'',headers:{get:()=>null},text:async()=>''};
+      const page=Number(path.split('=').pop()),body=signedOut?frames([{name:'AuthProvider',props:{user:null}},{name:'StepUpRedirect',props:{}}]):frames([auth,{name:'OrderHistory',props:{data:{results:page===1?orders:[],pagination:{page,totalPages:2,totalDocs:orders.length}}}}]);
+      return {...response(body),redirected:true,url:'https://www.humblebundle.com'+path+'&_rsc=synthetic'};
+    }
     throw Error('Unexpected fixture request');
   };
-  return {fetch,requests:()=>requests,paths:()=>[...paths],fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
+  return {fetch,requests:()=>requests,paths:()=>[...paths],signOut(){signedOut=true;},fail(test,response){failNext=Object.assign(test,{response});},hang(test){hang=test;}};
 }
 // Drives the real Options page: 2,345 synthetic native entitlements under one parent whose IDs are not UUIDs.
 async function installedBrowserChecks({check,store}){
@@ -330,6 +335,11 @@ async function installedSyncResume({store,check,checks}){
   const refreshed=await chrome.storage.local.get(null),dated=E.syncView(refreshed).orders,paths=orderTransport.paths().slice(sent);
   check(/^Checked 1 order \(1 new\)\. No additional purchase dates found\./.test(pstatus.textContent)&&paths.length===2&&paths.every(p=>p.startsWith('/home/purchases?page='))&&dated?.lines===2&&dated.dated===1&&E.orderDates(E.collection(refreshed.libraryEntitlements).scopes[0]).get('parent-A')?.purchasedAt==='2026-11-17T03:45:00.000Z','installed Refresh purchase dates reads only Order History, reports orders checked and new, and keeps the purchase dated');
   check(JSON.stringify(refreshed.libraryEntitlements.scopes[0].observations)===JSON.stringify(after.libraryEntitlements.scopes[0].observations)&&['libraryItems','purchaseSummaries'].every(k=>JSON.stringify(refreshed[k])===JSON.stringify(after[k])),'installed purchase-date refresh leaves purchases, first-synced times and imports unchanged');
+  // A genuine sign-in problem says so, without claiming orders were checked or nothing was found.
+  const stored=JSON.stringify((await chrome.storage.local.get(null)).libraryEntitlements);
+  orderTransport.signOut();datesButton.click();
+  for(let n=0;n<400&&!/no longer signed in/.test(pstatus.textContent);n++)await new Promise(r=>setTimeout(r,25));
+  check(/^Humble did not show your Order History because this tab is no longer signed in./.test(pstatus.textContent)&&!/Checked|No additional|still have no purchase date/.test(pstatus.textContent)&&JSON.stringify((await chrome.storage.local.get(null)).libraryEntitlements)===stored,'installed signed-out refresh explains the sign-in problem, reports no check and changes nothing');
   panel.remove();
   const firsts=s=>JSON.stringify(s.libraryEntitlements.scopes.flatMap(x=>x.observations.map(o=>[o.nativeId,o.firstObservedAt])).sort());
   check(before.libraryEntitlements.scopes.every(s=>s.observations.length&&s.observations.every(o=>typeof o.firstObservedAt==='string'))&&firsts(after)===firsts(before),'installed first-seen times survive extension restart and are kept by the resumed sync');

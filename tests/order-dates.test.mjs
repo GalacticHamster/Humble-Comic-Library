@@ -147,7 +147,7 @@ test('a completed sync looks up purchase dates; an unavailable Order History doe
   assert.deepEqual(ok.f.stored.libraryEntitlements.scopes[0].orders.lines, lines);
   const down = await run(() => 503);
   assert.equal(down.f.stored.libraryEntitlements.scopes[0].sync.status, 'completed');
-  assert.equal(down.s.view.orderDates.error, true);assert.equal(down.f.stored.libraryEntitlements.scopes[0].orders, undefined);
+  assert.equal(down.s.view.orderDates.error, 'unavailable');assert.equal(down.f.stored.libraryEntitlements.scopes[0].orders, undefined);
 });
 
 // Presentation: dated purchases sort by purchase date; Recently added and counts are unchanged.

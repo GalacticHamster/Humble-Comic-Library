@@ -333,11 +333,15 @@
     const foreign = () => Object.assign(Error('Order History belongs to a different Humble account.'), { fatalScope: true });
     let newest = start > 1 ? state.resume.newest : null, total = start, page = start, done = false;
     for (let pages = 0; page <= total && pages < maxPages && !done && !shouldStop(); page++, pages++) {
-      const f = await read(fetcher, '/home/purchases?page=' + page, { headers: { RSC: '1', Accept: 'text/x-component' } });
+      const f = await read(fetcher, '/home/purchases?page=' + page, { sameRoute: true, headers: { RSC: '1', Accept: 'text/x-component' } });
+      // Signed out, Humble answers with the page shell: an AuthProvider without a user and no Order History.
+      const users = f.components.filter(c => c.name === 'AuthProvider').map(c => f.resolve(c.props?.user));
+      if (!users.length) throw Object.assign(Error('Unreadable Order History.'), { unexpected: true });
+      if (users.every(u => !u?.id)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true, signin: true });
       if (principal(f) !== scope.principalId) throw foreign();
       const history = f.components.filter(c => c.name === 'OrderHistory');
       const data = history.length === 1 ? f.resolve(history[0].props?.data) : null, results = f.resolve(data?.results), totalPages = f.resolve(f.resolve(data?.pagination)?.totalPages);
-      if (!Array.isArray(results)) throw Error('Unreadable Order History.');
+      if (!Array.isArray(results)) throw Object.assign(Error('Unreadable Order History.'), { unexpected: true });
       total = Number.isSafeInteger(totalPages) && totalPages >= 0 ? Math.min(totalPages, 100000) : page;
       for (const value of results) {
         const o = f.resolve(value), fields = f.resolve(f.resolve(o?.custom)?.fields) ?? {};
@@ -567,21 +571,25 @@
     const at = /\d{4}|GMT/u.test(v) ? Date.parse(v) : NaN;
     return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
   }
-  async function read(fetcher, path, options = {}) {
+  // Redirects are not followed by default: a redirect identifies an expired sign-in. With sameRoute, a redirect
+  // that stays on the requested page is followed. Humble redirects every RSC GET that lacks Next.js's `_rsc`
+  // cache key to the same URL with that key added, whether or not anyone is signed in; such a request then
+  // has to check the signed-in user in the response itself. A redirect anywhere else is still a sign-in.
+  async function read(fetcher, path, { sameRoute = false, ...options } = {}) {
     const action = options.method === 'POST';
     let r;
-    // Redirects are never followed; a manual redirect identifies an expired sign-in.
-    try { r = await fetcher(path, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(12000), ...options,
+    try { r = await fetcher(path, { credentials: 'same-origin', redirect: sameRoute ? 'follow' : 'manual', cache: 'no-store', signal: AbortSignal.timeout(12000), ...options,
       headers: { Accept: action ? 'text/x-component' : 'text/html', ...options.headers } }); }
-    catch { throw Object.assign(Error('Humble Library could not be reached.'), { transient: true }); }
-    if (r.type === 'opaqueredirect' || [301,302,303,307,308,401,403].includes(r.status)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true, signin: true });
+    catch { throw Object.assign(Error('Humble Library could not be reached.'), { transient: true, network: true }); }
+    const moved = sameRoute && r.redirected && (() => { try { return new URL(r.url).pathname !== new URL(path, r.url).pathname; } catch { return true; } })();
+    if (moved || r.type === 'opaqueredirect' || [301,302,303,307,308,401,403].includes(r.status)) throw Object.assign(Error('Sign in to Humble again; saved records were kept.'), { fatalScope: true, signin: true });
     // The provider asked for fewer requests: stop rather than retry around it.
     if (r.status === 429 || r.status === 503 && retryAfter(r) !== null) throw Object.assign(Error('Humble asked for fewer requests.'), { rateLimited: true, retryAfter: retryAfter(r) });
-    if (r.status === 408 || r.status >= 500) throw Object.assign(Error('Unreadable Library response.'), { transient: true });
+    if (r.status === 408 || r.status >= 500) throw Object.assign(Error('Unreadable Library response.'), { transient: true, status: r.status });
     const type = r.headers.get('content-type') ?? '';
-    if (!r.ok) throw Error('Unreadable Library response.');
+    if (!r.ok) throw Object.assign(Error('Unreadable Library response.'), { status: r.status });
     if (!action && /^text\/html(?:;|$)/iu.test(type)) return htmlFlight(await r.text());
-    if (!/^text\/x-component(?:;|$)/iu.test(type)) throw Error('Unreadable Library response.');
+    if (!/^text\/x-component(?:;|$)/iu.test(type)) throw Object.assign(Error('Unreadable Library response.'), { unexpected: true });
     return flight(await r.text());
   }
   async function envelope(fetcher) {
@@ -783,6 +791,12 @@
       || !Number.isInteger(c.maxSessionRequests) || c.maxSessionRequests < 1 || c.maxSessionRequests > 50000 || !(c.maxSessionMs > 0 && c.maxSessionMs <= 24 * 3600 * 1000)) throw Error('Invalid Library sync settings.');
     return c;
   }
+  // Why an Order History read stopped: sign-in, another account, rate limit, network, server unavailable, or
+  // an unexpected response. Unlike failureKind, unknown errors are never treated as retryable.
+  function orderFailure(error) {
+    return error?.signin ? 'signed-out' : error?.rateLimited ? 'rate-limited' : error?.fatalScope ? 'account'
+      : error?.network ? 'network' : error?.transient ? 'unavailable' : 'unexpected';
+  }
   function failureKind(error) {
     if (error?.signin) return 'signed-out';
     if (error?.rateLimited) return 'rate-limited';
@@ -814,7 +828,7 @@
       try {
         const orders = await readOrderHistory({ fetcher: paced, scope: result.scope, state: result.orders ?? null, full: mode === 'full', maxPages: mode === 'full' ? ORDER_PAGES_PER_SYNC : RECENT_ORDER_PAGES });
         emit({ orderDates: await store('entitlementOrders', { scope: result.scope, lines: orders.lines, state: orders.state }) });
-      } catch { emit({ orderDates: { error: true } }); }
+      } catch (error) { emit({ orderDates: { error: orderFailure(error), detail: String(error?.message ?? error).slice(0, 200) + (error?.status ? ` (HTTP ${error.status})` : '') } }); }
     }
     // Refresh purchase dates: the whole Order History, newest order to oldest, without reading Library pages.
     // Each batch of pages is saved with its resume position before the next is read, so a cancelled,
@@ -831,12 +845,14 @@
         try {
           read = await readOrderHistory({ fetcher: paced, scope: before.scope, state, full: true, maxPages: Math.min(ORDER_PAGES_PER_BATCH, ORDER_PAGES_PER_REFRESH - pages), shouldStop: () => stop });
         } catch (error) {
-          const kind = failureKind(error);
-          if (kind === 'transient' && ++failures <= config.retryDelaysMs.length) {
+          const kind = orderFailure(error);
+          // Network and server failures are retried; anything else stops with progress saved.
+          if (['network', 'unavailable'].includes(kind) && ++failures <= config.retryDelaysMs.length) {
             emit({ phase: 'retrying', retry: { attempt: failures, of: config.retryDelaysMs.length, at: now() + config.retryDelaysMs[failures - 1] }, error: 'transient' });
             await wait(config.retryDelaysMs[failures - 1]); emit({ phase: 'dates', retry: null }); continue;
           }
-          return emit({ phase: 'dates-done', retry: null, retryAfter: error.retryAfter ?? null, orderDates: report({ error: kind === 'transient' ? 'failed' : kind }) });
+          return emit({ phase: 'dates-done', retry: null, retryAfter: error.retryAfter ?? null,
+            orderDates: report({ error: kind, detail: String(error?.message ?? error).slice(0, 200) + (error?.status ? ` (HTTP ${error.status})` : '') }) });
         }
         failures = 0;
         for (const order of read.orders) checked.add(order);
@@ -990,17 +1006,28 @@
     const datesProgressText = v => v.phase === 'cancelling' ? 'Stopping after the current Order History page… Dates already found stay saved.'
       : v.phase === 'retrying' && v.retry ? `Humble’s Order History did not respond as expected. Trying again in about ${Math.max(1, Math.round((v.retry.at - Date.now()) / 1000))} seconds. Progress so far is saved.`
       : `Checking Humble Order History for purchase dates…${v.orderDates.orders ? ` ${plural(v.orderDates.orders, 'order')} checked so far.` : ''}`;
+    // A refresh that stopped says why and what to do; it never reports a check that did not happen.
+    const DATE_ERRORS = {
+      'signed-out': 'Humble did not show your Order History because this tab is no longer signed in. Sign in on humblebundle.com, then refresh purchase dates again.',
+      account: 'The Humble account signed in here is not your saved account, so its Order History was not used and nothing was saved from it.',
+      'rate-limited': 'Humble asked for fewer requests, so the purchase-date refresh stopped. Try again later.',
+      network: 'Humble could not be reached, so the purchase-date refresh stopped. Check your connection and try again.',
+      unavailable: 'Humble’s Order History is temporarily unavailable, so the purchase-date refresh stopped. Try again later.',
+      unexpected: 'Humble’s Order History did not look as expected, so the purchase-date refresh stopped and nothing was changed from it. Try again later; if this continues, the extension may need an update.'
+    };
     const datesText = o => {
       if (o.error === 'not-synced') return 'Sync your Library first: purchase dates are matched to purchases already saved.';
-      const parts = [o.error === 'rate-limited' ? 'Humble asked for fewer requests, so the purchase-date refresh stopped.'
-        : o.error === 'signed-out' ? 'Sign in to Humble again to refresh purchase dates.'
-        : o.error === 'account' ? 'The Humble account signed in here is not your saved account, so its Order History was not used.'
-        : o.error ? 'Humble’s Order History could not be read, so the purchase-date refresh stopped.'
-        : o.cancelled ? 'Purchase-date refresh stopped.' : ''];
+      const parts = [], saved = o.resumable ? 'Progress is saved: Continue refreshing purchase dates picks up where this stopped.' : '';
+      if (o.error) {
+        parts.push(DATE_ERRORS[o.error] ?? DATE_ERRORS.unexpected);
+        if (o.orders) parts.push(`${plural(o.orders, 'order')} checked before it stopped${o.newlyDated > 0 ? `; dates recovered for ${plural(o.newlyDated, 'purchase')}` : ''}.`, saved);
+        return parts.filter(Boolean).join(' ');
+      }
+      if (o.cancelled) parts.push('Purchase-date refresh stopped.');
       parts.push(`Checked ${plural(o.orders ?? 0, 'order')}${o.newOrders ? ` (${number(o.newOrders)} new)` : ''}.`);
       parts.push(o.newlyDated > 0 ? `Recovered dates for ${plural(o.newlyDated, 'purchase')}.` : 'No additional purchase dates found.');
-      if (undated !== null) parts.push(`${plural(undated, 'Library purchase')} still ${undated === 1 ? 'has' : 'have'} no purchase date.`);
-      parts.push(o.resumable ? 'Progress is saved: Continue refreshing purchase dates picks up where this stopped.' : 'More older orders may become available as Humble restores its order history.');
+      if (undated !== null && !o.resumable) parts.push(`${plural(undated, 'Library purchase')} still ${undated === 1 ? 'has' : 'have'} no purchase date.`);
+      parts.push(saved || 'More older orders may become available as Humble restores its order history.');
       return parts.filter(Boolean).join(' ');
     };
     // Library purchases with no date from any source (imported order or Order History), as Bundles & Orders shows them.
@@ -1050,6 +1077,8 @@
         // Purchases dated, not orders found: an order line counts only once matched to one Library purchase.
         ...(stored.orders ? [`Purchase dates from your Humble order history: ${plural(stored.orders.dated, 'Library purchase')} dated. Humble is still adding older orders there; later syncs add their dates.`] : []),
         ...(stored.orders?.resumable ? ['An earlier purchase-date refresh stopped partway; Continue refreshing purchase dates picks it up.'] : []),
+        // Technical detail for a stopped purchase-date check, kept out of the main status.
+        ...(v.orderDates?.detail ? [`Purchase-date check stopped: ${v.orderDates.detail}`] : []),
         ...(v.retry ? [`Retrying after a failed request: attempt ${v.retry.attempt} of ${v.retry.of}`] : []),
         ...(v.retryAfter ? [`Humble asked to wait about ${Math.max(1, Math.ceil(v.retryAfter / 60000))} minutes before more requests`] : [])
       ] : []).map(text => make('li', { textContent: text })));

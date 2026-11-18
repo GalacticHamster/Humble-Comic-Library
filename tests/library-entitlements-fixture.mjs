@@ -39,8 +39,19 @@ export function fixture(options={}) {
       return response(body);
     }
     if(path.startsWith('/home/library/parent-'))return response(frames([{name:'AuthProvider',props:{user:{id:options.detailForeign?'principal-B':'principal-A'}}},{name:'ProductKeysDownloads',props:{productEntitlementId:decodeURIComponent(path.split('/').at(-1)),userLibraryItem:{id:'detail-A',preOrder:false,entitlements:{keys:children.filter(c=>c.type!=='download_drm_free'),downloads:children.filter(c=>c.type==='download_drm_free'),redemptionGroups:[],...options.entitlements},...options.parent}}}]));
-    // Synthetic Order History, when a test supplies one: options.orders(page) returns that page's body or a status.
-    if(path.startsWith('/home/purchases?page=')&&options.orders){const page=Number(path.split('=').pop()),body=options.orders(page);return typeof body==='number'?response('unavailable',body):response(body);}
+    // Synthetic Order History, when a test supplies one: options.orders(page) returns that page's body, a status,
+    // 'network' (the request fails) or 'login' (a redirect to the sign-in page). As on Humble, an RSC GET without
+    // Next.js's `_rsc` cache key is redirected to the same URL with the key added (options.rscRedirect: false
+    // turns that off); signed out (options.signedOut), the page shell has no user and no Order History.
+    if(path.startsWith('/home/purchases?page=')&&options.orders){
+      const page=Number(path.split('=').pop()),body=options.signedOut?frames([{name:'AuthProvider',props:{user:null}},{name:'StepUpRedirect',props:{}}]):options.orders(page);
+      if(body==='network')throw TypeError('Synthetic network failure');
+      const redirect=(options.rscRedirect??true)||body==='login';
+      if(redirect&&init.redirect!=='follow')return {ok:false,status:0,type:'opaqueredirect',redirected:false,url:'',headers:{get:()=>null},text:async()=>''};
+      if(body==='login')return {...response('<!doctype html>',200,'text/html'),redirected:true,url:'https://www.humblebundle.com/login?goal=%2Fhome%2Fpurchases'};
+      const r=typeof body==='number'?response('unavailable',body):response(body);
+      return redirect?{...r,redirected:true,url:'https://www.humblebundle.com'+path+'&_rsc=synthetic'}:{...r,redirected:false,url:'https://www.humblebundle.com'+path};
+    }
     throw Error('Unexpected synthetic request');
   };
   const store=(op,...args)=>writer.execute(op,op==='entitlementBegin'?[{expectedAccountId:stored.humbleAccountId,expectedProfileLabel:stored.humbleProfileLabel,...args[0]},7]:op==='entitlementCommit'?[...args,7]:op==='entitlementAbort'?[...args,7]:args);
