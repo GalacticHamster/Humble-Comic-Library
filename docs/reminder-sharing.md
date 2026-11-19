@@ -4,7 +4,7 @@ Sharing is local and on by default when compatible HB and GL are installed. Impo
 
 Use **Automatically share purchases with Galactic Library** to stop future purchase and automatic reminder transfers. Re-enable it to reconcile. Accounts that cannot be safely mapped need one decision under Advanced. Advanced manual feed controls remain for repair and removal; they are not the normal setup flow.
 
-Run **Rescan every purchase** first to establish or refresh a complete reminder baseline. Partial baselines are clearly identified. Only dated observed entitlement evidence is shared. Sharing does not sync the library, mark a game owned, or establish destination-platform activation.
+Key reminders come from purchase imports made before Humble changed its site in 2026; Library syncs do not add new reminders. Whether those imports checked every purchase is shown as a complete or partial baseline. Only dated observed entitlement evidence is shared. Sharing does not sync the library, mark a game owned, or establish destination-platform activation.
 
 GL's **Entitlement reminders** dashboard shows HB as the source, the check date and baseline coverage, separately from native GL records. Review opens HB's options through Chrome's trusted extensions route. Dismiss/snooze/restore affects only reminders. Either HB's **Remove shared reminders** or GL's **Remove Humble companion feed** removes that source feed without deleting native purchases.
 

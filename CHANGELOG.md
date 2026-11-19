@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Options, saved-account help and documentation no longer send people to the retired purchase-page importer (Import new purchases, Rescan all purchases). Key reminders say they come from imports made before Humble changed its site and that Library syncs do not add them. Saved reminders are unchanged.
 - A saved purchase that cannot be represented for sharing (control characters, a title over 500 characters, an unreadable date or an unsafe purchase identity) is left out and counted in the connection limitations instead of stopping Galactic Library from pairing with the whole account. An unsafe optional store link is dropped and the purchase is still shared. Saved records are not changed.
 
 ## 1.1.2

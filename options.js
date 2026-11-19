@@ -1291,7 +1291,7 @@
       if (mediaImportVersion < HumbleComicLibrary.CURRENT_IMPORT_VERSION && purchaseSummaries.length > 0) {
         const note = document.createElement('p');
         note.className = 'library-rescan-tip';
-        note.textContent = 'Choose Import new purchases on the Humble Bundle website to update older saved purchases automatically.';
+        note.textContent = 'Some purchases were saved before Humble changed its site and keep the details recorded then. Run Sync full Library in your Humble Library to also save the details Humble lists today.';
         diagnostics.append(note);
       }
     }
@@ -1473,7 +1473,7 @@
 
   function renderKeyReminders(reminders, scan) {
     if (!scan) {
-      keyReminderSummary.textContent = 'No key-reminder scan yet. Open Humble Purchases and select Rescan all purchases to establish complete reminders.';
+      keyReminderSummary.textContent = 'No key reminders were saved. Reminders came from purchase imports made before Humble changed its site; Library syncs do not add them.';
       keyReminderList.replaceChildren();
       return;
     }
@@ -1486,7 +1486,7 @@
     const needsReview = sorted.filter((record) => record.status === 'needs-review').length;
     const baseline = scan.complete
       ? ''
-      : ' Older purchases have not been checked yet; use Rescan all purchases to establish complete reminders.';
+      : ' These reminders cover only the purchases checked before Humble changed its site; some older purchases were never checked.';
     keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.${baseline}`;
     const groups = [
       ['Expiring or dated', sorted.filter((record) => {

@@ -4,9 +4,9 @@ Compatible official installations connect automatically. In Settings, check the 
 
 ## Managed identities
 
-On Humble Purchases, Humble Library remains the importer when a compatible
-Galactic Library is also installed. GL hides its duplicate panel. Import and
-inspect diagnostics in the Humble Library panel as usual. Importer precedence is independent of the default-on local sharing setting. Existing saved purchases can sync without
+On Humble's pages, Humble Library remains the importer when a compatible
+Galactic Library is also installed: purchases are synced from the Humble
+Library page, and GL hides its duplicate panel. Importer precedence is independent of the default-on local sharing setting. Existing saved purchases can sync without
 another store scan. Reload an already-open purchase page after an extension
 installation or update when prompted. Humble Library still works without GL.
 
