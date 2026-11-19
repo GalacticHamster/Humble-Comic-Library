@@ -1732,7 +1732,7 @@
   });
 
   document.querySelector('#export-library').addEventListener('click', async () => {
-    const saved = await chrome.storage.local.get(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS);
+    const saved = await chrome.storage.local.get({...HumbleComicLibrary.LIBRARY_STATE_DEFAULTS, humbleKeyReviews: {}});
     const contents = JSON.stringify(HumbleComicLibrary.createLibraryBackup(saved), null, 2);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-library-export.json' });

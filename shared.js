@@ -762,7 +762,8 @@
     let libraryEntitlements={version:1,scopes:[]};
     if(global.HumbleLibraryEntitlements)libraryEntitlements=global.HumbleLibraryEntitlements.collection(value.libraryEntitlements);
     else if(value.libraryEntitlements?.scopes?.length)throw Error('Library entitlement validation is unavailable.');
-    return { humbleAccountId:value.accountId??null, libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems, libraryEntitlements };
+    const reviews = Object.hasOwn(value, 'humbleKeyReviews') ? {humbleKeyReviews: checkedKeyReviews(value.humbleKeyReviews)} : {};
+    return { humbleAccountId:value.accountId??null, libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems, libraryEntitlements, ...reviews };
   }
 
   function createLibraryBackup(state, exportedAt = new Date().toISOString()) {
@@ -773,6 +774,7 @@
       keyReminderScan: saved.keyReminderScan, lastImport: saved.lastImport, mediaImportVersion: saved.mediaImportVersion,
       historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries, profileLabel:saved.humbleProfileLabel, profileArchives:saved.profileArchives,
       mediaTypeOverrides: saved.mediaTypeOverrides ?? {}, rejectedPurchaseItems: saved.rejectedPurchaseItems ?? [],
+      ...(Object.hasOwn(state, 'humbleKeyReviews') ? {humbleKeyReviews: checkedKeyReviews(state.humbleKeyReviews)} : {}),
       libraryEntitlements: global.HumbleLibraryEntitlements ? global.HumbleLibraryEntitlements.collection(saved.libraryEntitlements) : saved.libraryEntitlements
     };
   }
@@ -864,6 +866,14 @@
       && ['active', 'dismissed', 'snoozed'].includes(value.action) && ['unrevealed', 'expired'].includes(value.basis)
       && typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt))
       && (value.action === 'snoozed' ? typeof value.until === 'string' && Number.isFinite(Date.parse(value.until)) : value.until === null || value.until === undefined));
+  }
+
+  function checkedKeyReviews(value) {
+    const entries = value && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value) : null;
+    if (!entries || entries.length > 50000 || entries.some(([ref, review]) => ref.length > 600 || !validKeyReview(review))) {
+      throw new Error('Invalid key reminder review.');
+    }
+    return Object.fromEntries(entries.map(([ref, {action, basis, until, updatedAt}]) => [ref, {action, basis, until: until ?? null, updatedAt}]));
   }
 
   function normalizeSummaryPreferences(value={},strict=false) {
@@ -1196,6 +1206,15 @@
       }
       if(operation==='replace'){
         const parsed=restoreBackupState(createLibraryBackup(args[0])),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',parsed):parsed;const retirement=await globalThis.GalacticPurchaseSync?.restorationPatch(area,{humble:[replacement.humbleAccountId,...replacement.profileArchives.map(a=>a.backup.accountId)]});
+        if (Object.hasOwn(replacement, 'humbleKeyReviews')) {
+          const {humbleKeyReviews: current} = await area.get({humbleKeyReviews: {}});
+          const reviews = new Map(Object.entries(checkedKeyReviews(current)));
+          for (const [ref, review] of Object.entries(replacement.humbleKeyReviews)) {
+            const existing = reviews.get(ref);
+            if (!existing || Date.parse(review.updatedAt) > Date.parse(existing.updatedAt)) reviews.set(ref, review);
+          }
+          replacement.humbleKeyReviews = checkedKeyReviews(Object.fromEntries(reviews));
+        }
         await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...retirement?.patch,...replacement,hclPurchaseFocus:null,[controlKey]:null,...invalidateEntitlements,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       if(operation==='shareSnapshot'){
@@ -1304,7 +1323,7 @@
       if(operation==='patch'){
         const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance','mediaTypeOverrides','rejectedPurchaseItems','humbleKeyReviews'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
-        if(Object.hasOwn(updates,'humbleKeyReviews')){const reviews=updates.humbleKeyReviews,entries=reviews&&typeof reviews==='object'&&!Array.isArray(reviews)?Object.entries(reviews):null;if(!entries||entries.length>50000||entries.some(([ref,value])=>ref.length>600||!validKeyReview(value)))throw new Error('Invalid key reminder review.');}
+        if(Object.hasOwn(updates,'humbleKeyReviews')) updates.humbleKeyReviews = checkedKeyReviews(updates.humbleKeyReviews);
         if(Object.hasOwn(updates,'galacticHamsterAppearance'))globalThis.GalacticHamsterTheme.validatePreferences(updates.galacticHamsterAppearance);
         if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
         await area.set(updates);return true;
@@ -1319,7 +1338,7 @@
         const clear=keys.includes('libraryItems');
         if(!clear&&keys.some(key=>!['hclPurchaseFocus','galacticLibraryExtensionId'].includes(key)))throw new Error('Unsupported removal.');
         const retirement=clear?await globalThis.GalacticPurchaseSync?.retirementPatch(area):null;
-        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'hclPurchaseFocus',controlKey,shareScopeKey,'hclLibraryEntitlementControl','hclLibraryEntitlementLease']:keys);Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
+        await area.remove(clear?['galacticPurchaseAccountIds','galacticPurchaseSync',...Object.keys(LIBRARY_STATE_DEFAULTS),'humbleKeyReviews','hclPurchaseFocus',controlKey,shareScopeKey,'hclLibraryEntitlementControl','hclLibraryEntitlementLease']:keys);Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});return true;
       }
       throw new Error('Unsupported library operation.');
     }

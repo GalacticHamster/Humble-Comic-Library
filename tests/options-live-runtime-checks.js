@@ -153,6 +153,19 @@ async function installedRuntimeChecks(phase){
    await until(async()=>Boolean(keyRow()),'the dismissed key is under Dismissed and snoozed');
    [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Restore reminder').click();
    view.value='unrevealed';view.dispatchEvent(new Event('change'));await until(async()=>Boolean(keyRow()),'Restore lists the key again');
+   [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Dismiss reminder').click();
+   await until(async()=>!keyRow(),'the key is dismissed before backup');
+   const backup=H.createLibraryBackup(await chrome.storage.local.get({...H.LIBRARY_STATE_DEFAULTS,humbleKeyReviews:{}}));
+   const savedReview=Object.values(backup.humbleKeyReviews)[0];
+   check(savedReview.action==='dismissed','the exported backup includes the dismissal');
+   await store('patch',{humbleKeyReviews:{}});
+   await until(async()=>Boolean(keyRow()),'the key reappears in the test profile without reviews');
+   for(let n=0;n<2;n++)await store('replace',H.restoreBackupState(backup));
+   await until(async()=>!keyRow(),'restoring the same backup twice keeps the dismissal');
+   const legacy={...backup};delete legacy.humbleKeyReviews;
+   await store('replace',H.restoreBackupState(legacy));
+   view.value='hidden';view.dispatchEvent(new Event('change'));
+   await until(async()=>keyRows().length===1&&Boolean(keyRow()),'a legacy restore keeps exactly one dismissed reminder');
    const after=await chrome.storage.local.get(Object.keys(preserved));check(JSON.stringify(after)===JSON.stringify(preserved),'key reviews leave purchases, history, corrections and reminders unchanged');
    await store('replace',current);await settled('Options settles after the key check');}
 
