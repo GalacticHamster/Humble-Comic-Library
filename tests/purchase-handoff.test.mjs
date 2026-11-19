@@ -41,3 +41,24 @@ test('Read-only HB preview distinguishes new names from additional records and q
  const unchanged=await store.execute('handoffPreview',[snapshot([row(1,'humble')],'humble'),{accountRef:await ref()}]);assert.equal(unchanged.newTitleNames,0);assert.equal(unchanged.additionalRecords,0);assert.equal(unchanged.unchanged,1);assert.equal(unchanged.updateBreakdownKnown,false);
  const extra=await store.execute('handoffPreview',[snapshot([{...row(1,'humble'),providerItemId:'purchase_1:product:second'},row(2,'humble')],'humble'),{accountRef:await ref()}]);assert.equal(extra.newTitleNames,1);assert.equal(extra.additionalRecords,1);assert.equal(extra.added,2);assert.equal(JSON.stringify(area.values),before);assert.equal(area.sets,writes);
 });
+
+test('one malformed saved Humble record is withheld from sharing instead of blocking the account',async()=>{
+ const good=n=>({title:'Synthetic book '+n,kind:'book',source:'humble',providerItemId:`purchase_${n}:product:native_${n}`,purchaseKey:'purchase_'+n,entitlement:'direct-download',purchasedAt:'2026-01-'+String(n+1).padStart(2,'0')+'T12:00:00Z'});
+ const valid=[good(1),good(2),{...good(3),kind:'comic'},{...good(4),kind:'unclassified'}];
+ const malformed=[{...good(5),title:'Synthetic\u0008control'},{...good(6),title:'x'.repeat(501)},{...good(7),purchasedAt:'not a date'}];
+ const snap=async items=>{const area=memory({libraryItems:items,humbleProfileLabel:'Personal',profileArchives:[]}),store=H.createSyncStore(area),before=structuredClone(area.values),[account]=await store.execute('handoffAccounts');const data=await store.execute('handoffSnapshot',[account.accountRef]);assert.deepEqual(area.values.libraryItems,before.libraryItems,'saved records unchanged');return data;};
+ const clean=await snap(valid);
+ for(const bad of malformed){
+  const data=await snap([...valid.slice(0,2),bad,...valid.slice(2)]);
+  assert.deepEqual(data.records,clean.records,bad.title.slice(0,20));
+  assert(data.limitations.includes('1 saved record has details that cannot be shared and was left out; it remains saved here.'),JSON.stringify(data.limitations));
+ }
+ const all=await snap([...valid,...malformed]);assert.deepEqual(all.records,clean.records);assert(all.limitations.some(l=>l.startsWith('3 saved records have details')));
+ const linked=await snap([...valid,{...good(8),detailUrl:'https://example.invalid/product'},{...good(9),detailUrl:'https://www.humblebundle.com/books/synthetic'}]);
+ assert.equal(linked.records.length,clean.records.length+2,'a record with an unsafe optional link is still shared');
+ assert.equal(linked.records.find(r=>r.providerItemId==='purchase_8:product:native_8').metadata.detailUrl,undefined);
+ assert.equal(linked.records.find(r=>r.providerItemId==='purchase_9:product:native_9').metadata.detailUrl,'https://www.humblebundle.com/books/synthetic');
+ assert(linked.limitations.includes('1 saved store link was not a Humble or Fanatical address and was left out; the purchase is still shared.'),JSON.stringify(linked.limitations));
+ assert.deepEqual(Object.fromEntries(clean.records.map(r=>[r.providerItemId,r.mediaType])),{'purchase_1:product:native_1':'book','purchase_2:product:native_2':'book','purchase_3:product:native_3':'book','purchase_4:product:native_4':'other'});
+ assert(!clean.limitations.some(l=>/cannot be shared/.test(l)));
+});

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A saved purchase that cannot be represented for sharing (control characters, a title over 500 characters, an unreadable date or an unsafe purchase identity) is left out and counted in the connection limitations instead of stopping Galactic Library from pairing with the whole account. An unsafe optional store link is dropped and the purchase is still shared. Saved records are not changed.
+
 ## 1.1.2
 
 ### Bundle pages
