@@ -442,3 +442,15 @@ test('Titles: dates reach Library-only titles of combined purchases; date covera
   assert.deepEqual(ui.rows().map(titleText), ['Another Undated'], 'the filter works with search');
   assert.equal(ui.writes.length, 0);
 });
+
+test('Titles: Bought more than once uses the same purchase count as each title heading', async () => {
+  const { E } = load(), book = (id, parent, title, parentTitle) => nativeObservation(E, { id, parent, title, parentTitle });
+  const ui = await harness({ libraryItems: [historical('Shared One', 'K1', 'Combined Bundle', { purchasedAt: '2021-06-01T12:00:00.000Z' }), historical('Maybe Twice', 'K2', 'Older Order', { purchasedAt: '2019-03-03T12:00:00.000Z' })],
+    purchaseSummaries: [{ purchaseKey: 'K1', sourceBundle: 'Combined Bundle', purchasedAt: '2021-06-01T12:00:00.000Z' }, { purchaseKey: 'K2', sourceBundle: 'Older Order', purchasedAt: '2019-03-03T12:00:00.000Z' }],
+    libraryEntitlements: entitlements([book(1, 10, 'Shared One', 'Combined Bundle'), book(5, 20, 'Maybe Twice', 'Loose Purchase'), book(6, 20, 'Library Only', 'Loose Purchase'), book(7, 20, 'Bought Twice', 'Loose Purchase'), book(8, 30, 'Bought Twice', 'Second Purchase')]) });
+  const heading = (r) => r.textContent || r.children[0].children[0].textContent;
+  assert(ui.rows().map(heading).includes('Maybe Twice — at least 1 purchase'));
+  await ui.change('#library-filter-metadata', 'repeat');
+  assert.deepEqual(ui.rows().map(heading), ['Bought Twice — 2 purchases'], 'two Library purchases count twice; an order combined with its Library purchase, or one that may be, counts once');
+  assert.equal(ui.writes.length, 0);
+});

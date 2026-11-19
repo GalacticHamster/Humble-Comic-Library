@@ -470,6 +470,8 @@
         if (metadata === 'dated') return getItemPurchaseDate(item) !== null;
         // No purchase of the title has a known date; one dated purchase makes it dated.
         if (metadata === 'undated') return typeof item === 'string' || getItemPurchaseDate(item) === null;
+        // The same count as the title's heading, so the filter and the row always agree.
+        if (metadata === 'repeat') return typeof item === 'object' && titlePurchaseTotals(item.title || '', sortProvenanceRecords(extractItemProvenance(item))).counted.count > 1;
         if (metadata === 'bundle') return Boolean(typeof item === 'object' && (item.sourceBundle || item.bundle?.title));
         if (metadata === 'humble') return typeof item === 'object' && (item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
         if (metadata === 'manual') return typeof item === 'string' || !(item.source === 'humble' || Boolean(item.purchaseKey) || Boolean(item.provenance?.length));
