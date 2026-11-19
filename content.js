@@ -3305,6 +3305,13 @@ function showPurchaseFocusNotice(message) {
   setTimeout(() => notice.remove(), 8000);
 }
 
+// Confirmed-new items in a tier, used by bundle summaries and tier recommendations.
+function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0, unchecked = 0 }) {
+  return total - owned - elsewhere - partial - possible - unchecked;
+}
+
+// ---- Earlier purchase-page importer: everything below; see docs/development/legacy-importer.md ----
+
 // Humble's redesigned purchase pages cannot be imported from. Instead of retired import buttons,
 // point to the Library sync without mounting obsolete importer/account controls.
 function addRetiredImporterNotice() {
@@ -4698,10 +4705,6 @@ function hasSoftwareAssetDelivery(product) {
   const serialized = JSON.stringify(product);
   return /\.(?:gmz|gmx|yyz|yymp|yymps|gmez|unitypackage|uproject|uasset|blend)(?:["?\\]|$)/iu.test(serialized)
     || /"(?:format|filetype|extension)"\s*:\s*"(?:gmz|gmx|yyz|yymp|yymps|gmez|unitypackage|uproject|uasset|blend)"/iu.test(serialized);
-}
-
-function confirmedNewItemCount({ total = 0, owned = 0, elsewhere = 0, partial = 0, possible = 0, unchecked = 0 }) {
-  return total - owned - elsewhere - partial - possible - unchecked;
 }
 
 function hasSoftwareEntitlement(product) {
