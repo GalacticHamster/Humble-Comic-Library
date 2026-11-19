@@ -2393,5 +2393,161 @@
       }
     ],
     "expected": "possible"
+  },
+  {
+    "label": "dotted game acronym offered against the undotted title",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "undotted game title offered against a dotted acronym",
+    "media": "game",
+    "offer": {
+      "title": "FEAR 2"
+    },
+    "records": [
+      {
+        "title": "F.E.A.R. 2"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "dotted acronym with a longer name",
+    "media": "game",
+    "offer": {
+      "title": "S.T.A.L.K.E.R. 2"
+    },
+    "records": [
+      {
+        "title": "STALKER 2"
+      }
+    ],
+    "expected": "owned"
+  },
+  {
+    "label": "dotted acronym never erases a sequel number",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 3"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym against the unnumbered original",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym never erases remaster wording",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2 Remastered"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym never erases an edition",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2 Gold Edition"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym never makes a collection the game",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR Collection"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym never erases a different subtitle",
+    "media": "game",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2: Different subtitle"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "partially dotted letters are not an acronym",
+    "media": "game",
+    "offer": {
+      "title": "AB.CD 2"
+    },
+    "records": [
+      {
+        "title": "ABCD 2"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym equality applies only to games",
+    "media": "book",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2"
+      }
+    ],
+    "expected": "new"
+  },
+  {
+    "label": "dotted acronym equality does not apply to software",
+    "media": "software",
+    "offer": {
+      "title": "F.E.A.R. 2"
+    },
+    "records": [
+      {
+        "title": "FEAR 2"
+      }
+    ],
+    "expected": "new"
   }
 ]
