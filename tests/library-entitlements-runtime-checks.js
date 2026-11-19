@@ -305,8 +305,8 @@ async function installedFreshInstallChecks({store,check,row}){
   const opened=[],create=chrome.tabs.create;chrome.tabs.create=async o=>{opened.push(o.url);};
   try{card('Synthetic game 3').querySelector('button').click();card('Gone').querySelector('button').click();await tick();}finally{chrome.tabs.create=create;}
   const target=entitlements.scopes[0].observations.find(o=>o.title==='Synthetic game 3').nativeId;
-  check(card('Synthetic game 3').querySelector('button').textContent==='Open in Humble Library'&&/Likely the same order as “Synthetic Bundle”/.test(card('Synthetic game 3').textContent)&&opened[0]==='https://www.humblebundle.com/home/library/content/'+target,'installed key reminder opens its likely Library item');
-  check(card('Gone').querySelector('button').textContent==='Open Humble Library'&&opened[1]==='https://www.humblebundle.com/home/library'&&!opened.some(u=>u.includes('downloads?key=')),'installed key reminder without a Library match opens the Library, never an order-key link');
+  check(card('Synthetic game 3').querySelector('button').textContent==='Open item'&&/Likely the same order as “Synthetic Bundle”/.test(card('Synthetic game 3').textContent)&&opened[0]==='https://www.humblebundle.com/home/library/content/'+target,'installed key reminder opens its likely Library item');
+  check(card('Gone').querySelector('button').textContent==='Find in Library'&&opened[1]==='https://www.humblebundle.com/home/library'&&!opened.some(u=>u.includes('downloads?key=')),'installed key reminder without a Library match opens the Library, never an order-key link');
   state=await chrome.storage.local.get(H.LIBRARY_STATE_DEFAULTS);
   check(['keyReminders','keyReminderScan','libraryItems','libraryEntitlements'].every(k=>JSON.stringify(state[k])===JSON.stringify(before[k]))&&!(await chrome.storage.local.get({hclPurchaseFocus:null})).hclPurchaseFocus,'installed reminder navigation writes nothing');
 }

@@ -20,8 +20,17 @@ test('a single likely purchase with exactly one matching key opens that Library 
   const {B, groups} = setup(order('K1', 'Indie Bundle', ['Celeste', 'Hades']), obs);
   const r = reminder('K1', 'Celeste'), before = JSON.stringify(r), snapshot = JSON.stringify(groups.map(g => g.key));
   const d = B.reminderDestination(r, groups);
-  assert.deepEqual(plain(d), {name: 'Indie Bundle', likely: true, kind: 'entitlement', url: 'https://www.humblebundle.com/home/library/content/' + obs[0].nativeId});
+  assert.deepEqual(plain(d), {name: 'Indie Bundle', likely: true, kind: 'entitlement', url: 'https://www.humblebundle.com/home/library/content/' + obs[0].nativeId, purchaseUrl:LIBRARY+'/'+uuid(100)});
   assert.equal(JSON.stringify(r), before, 'the reminder is not changed');assert.equal(JSON.stringify(groups.map(g => g.key)), snapshot);
+});
+
+test('a missing route does not suppress a verified item or disambiguate repeated copies', () => {
+  const {E} = load(), items = order('K1', 'Indie Bundle', ['Celeste']);
+  const [key] = purchase(E, 100, 'Indie Bundle', ['Celeste']);
+  const direct = setup(items, [{...key,parentId:'no-purchase-route'}]);
+  assert.equal(direct.B.reminderDestination(reminder('K1','Celeste'),direct.groups).url,direct.B.entitlementRoute(key.nativeId));
+  const repeated = setup(items, [key,{...key,nativeId:'no-item-route'}]);
+  assert.equal(repeated.B.reminderDestination(reminder('K1','Celeste'),repeated.groups).url,repeated.B.purchaseRoute(key.parentId));
 });
 
 test('a likely purchase without one unambiguous key opens the purchase, never a guessed item', () => {

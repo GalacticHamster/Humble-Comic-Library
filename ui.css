@@ -10,20 +10,22 @@ button { padding: 0.55rem 0.8rem; cursor: pointer; }
 .actions { display: flex; gap: 0.75rem; }
 #galactic-library-extension-id { display: block; width: min(100%, 28rem); margin-top: 0.35rem; }
 #library-preview { max-height: 28rem; overflow: auto; padding-left: 4.25rem; }
-#key-reminder-list { display: grid; gap: 0.75rem; max-height: 30rem; margin: 0.75rem 0 0; padding: 0; overflow: auto; list-style: none; }
-.key-reminder-group { margin-top: 0.5rem; color: var(--gh-text-muted); font-size: 0.85rem; font-weight: 700; }
-.key-reminder-card { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid var(--gh-divider); border-left: 0.3rem solid var(--gh-neutral-fill); border-radius: 0.45rem; background: var(--gh-surface); }
-.key-reminder-card[data-key-reminder-state="soon"] { border-left-color: var(--gh-possible); }
-.key-reminder-card[data-key-reminder-state="expired"] { border-left-color: var(--gh-danger-fill); }
-.key-reminder-heading { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; font-weight: 700; }
-.key-reminder-meta { color: var(--gh-text-muted); font-size: 0.9rem; }
-.key-reminder-source { font-size: 0.9rem; }
-.key-reminder-destination { color: var(--gh-text-muted); font-size: 0.9rem; }
-.key-reminder-status { flex: 0 0 auto; padding: 0.18rem 0.4rem; border-radius: 999px; background: var(--gh-neutral-fill); color: var(--gh-on-status); font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
-.key-reminder-card[data-key-reminder-state="soon"] .key-reminder-status { background: var(--gh-possible); }
-.key-reminder-card[data-key-reminder-state="expired"] .key-reminder-status { background: var(--gh-danger-fill); }
-.key-reminder-card button { justify-self: start; padding: 0.4rem 0.6rem; }
-.key-reminder-direct-note { margin: 0.35rem 0 0; color: var(--gh-text-muted); font-size: 0.9rem; }
+/* Compact Settings reminder cards. */
+.key-reminder-filters { display:flex; align-items:end; flex-wrap:wrap; gap:.6rem 1rem; }
+.key-reminder-filters label { display:grid; gap:.25rem; min-width:0; }
+.key-reminder-filters input, .key-reminder-filters select { max-width:100%; }
+.key-reminder-list { display:grid; gap:.5rem; max-height:28rem; margin:.75rem 0 0; padding:0 .25rem .15rem 0; overflow:auto; list-style:none; }
+.key-reminder-card { display:grid; gap:.3rem; min-width:0; padding:.65rem .75rem; border:1px solid var(--gh-divider); border-left:.3rem solid var(--gh-neutral-fill); border-radius:.45rem; background:var(--gh-surface); overflow-wrap:anywhere; }
+.key-reminder-card[data-key-reminder-state="soon"] { border-left-color:var(--gh-possible); }
+.key-reminder-card[data-key-reminder-state="expired"] { border-left-color:var(--gh-danger-fill); }
+.key-reminder-heading { display:flex; flex-wrap:wrap; align-items:start; justify-content:space-between; gap:.25rem .75rem; font-weight:700; }
+.key-reminder-meta, .key-reminder-destination { color:var(--gh-text-muted); font-size:.85rem; }
+.key-reminder-source { font-size:.9rem; }
+.key-reminder-status { padding:.18rem .45rem; border-radius:999px; background:var(--gh-neutral-fill); color:var(--gh-on-status); font-size:.75rem; font-weight:700; }
+.key-reminder-card[data-key-reminder-state="soon"] .key-reminder-status { background:var(--gh-possible); }
+.key-reminder-card[data-key-reminder-state="expired"] .key-reminder-status { background:var(--gh-danger-fill); }
+.key-reminder-actions { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.15rem; }
+.key-reminder-actions button { padding:.35rem .55rem; }
 code { font-family: ui-monospace, monospace; }
 #wishlist-list { max-height: 20rem; overflow: auto; padding-left: 1.25rem; }
 #wishlist-list li { margin-block: .5rem; }

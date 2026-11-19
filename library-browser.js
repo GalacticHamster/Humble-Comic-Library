@@ -241,19 +241,20 @@
   // had no working Humble route since the 2026 redesign. A Humble Library destination is offered
   // only through one non-interchangeable presentation match, is labelled as likely, and is
   // worked out on each render; nothing is stored. Everything else opens the Library itself.
-  function reminderDestination(reminder, groups) {
+  function reminderDestination(reminder, groups, index) {
     const fallback = reason => ({ kind: 'library', url: HUMBLE + '/home/library', reason });
     if (!Array.isArray(groups)) return fallback('not-synced');
     const key = 'h:' + reminder?.purchaseKey;
-    const match = groups.find(g => g.source === 'unified' && g.historical.key === key);
-    if (!match) return fallback(groups.find(g => g.source === 'historical' && g.key === key)?.matchState ?? 'no-record');
+    const candidate = index ? index.get(key) : groups.find(g => g.source === 'unified' ? g.historical.key === key : g.source === 'historical' && g.key === key);
+    if (candidate?.source !== 'unified') return fallback(candidate?.matchState ?? 'no-record');
+    const match = candidate;
     if (match.evidence.interchangeable) return fallback('repeat');
-    if (!match.route) return fallback('unmatched');
     const title = matchKey(reminder.title), steam = /steam/iu.test(reminder.keyType ?? '');
     // Reminders are about keys, so a DRM-free download of the same title is not the destination.
-    const items = match.native.items.filter(i => !i.excluded && i.route && i.namespace !== 'download_drm_free' && (!steam || i.namespace === 'steam') && matchKey(i.title) === title);
+    const items = match.native.items.filter(i => !i.excluded && i.namespace !== 'download_drm_free' && (!steam || i.namespace === 'steam') && matchKey(i.title) === title);
     const base = { name: match.name, likely: true };
-    return items.length === 1 ? { ...base, kind: 'entitlement', url: items[0].route } : { ...base, kind: 'purchase', url: match.route };
+    if (items.length === 1 && items[0].route) return { ...base, kind: 'entitlement', url: items[0].route, purchaseUrl: match.route };
+    return match.route ? { ...base, kind: 'purchase', url: match.route } : fallback('unmatched');
   }
 
   // Verified Humble pages for the Titles view, keyed like the Titles list (exact normalized title).
@@ -413,13 +414,14 @@
     const E = global.HumbleLibraryEntitlements, validKeyReview = global.HumbleComicLibrary.validKeyReview;
     if (!E?.ENABLED) return [];
     const rows = [];
-    for (const s of E.collection(state?.libraryEntitlements).scopes) {
+    for (const s of E.collection(state?.libraryEntitlements ?? undefined).scopes) {
       if (s.localAccountId !== (state.humbleAccountId ?? null) || s.localAccountId === null && (s.profileLabel !== (state.humbleProfileLabel ?? '') || state.libraryItems?.length)) continue;
       for (const r of s.observations) {
         if (r.namespace === 'download_drm_free' || r.purchaseStatus !== 'purchased' || r.eligibility?.redeemedAt?.state !== 'none') continue;
         const status = r.eligibility.expired === true ? 'expired' : 'unrevealed', ref = E.identity(r), review = validKeyReview(reviews?.[ref]) ? reviews[ref] : null;
         const hidden = Boolean(review && review.basis === status && (review.action === 'dismissed' || review.action === 'snoozed' && Date.parse(review.until) > now));
         rows.push({ ref, title: r.title, bundle: r.parentTitle ?? '', status, hidden, review,
+          itemUrl: entitlementRoute(r.nativeId), purchaseUrl: purchaseRoute(r.parentId),
           availableUntil: r.eligibility.unavailableAfter?.state === 'date' ? r.eligibility.unavailableAfter.value : null, checkedAt: r.observedAt });
       }
     }
@@ -427,5 +429,65 @@
     return rows.sort((a, b) => at(a) - at(b) || globalThis.LibraryTitleSort.compare(a.title, b.title) || (a.ref < b.ref ? -1 : 1));
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ keyReminders, buildGroups, nativeOnlyTitles, contentPlaceholder, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
+  function unifiedKeyReminders(state, groups, reviews = {}, now = Date.now()) {
+    const native = keyReminders(state, reviews, now).map(row => ({...row, native: true, targets: [{ref: row.ref, basis: row.status}]}));
+    const legacy = new Map(), byItem = new Map();
+    const orders = new Map();
+    for (const group of groups ?? []) {
+      if (group.source === 'unified') orders.set(group.historical.key, group);
+      if (group.source === 'historical') orders.set(group.key, group);
+    }
+    for (const record of state.keyReminders ?? []) {
+      const ref = JSON.stringify(['legacy', state.humbleAccountId || state.humbleProfileLabel || '', record.purchaseKey, record.id]);
+      if (legacy.has(ref)) continue;
+      const destination = reminderDestination(record, groups, orders);
+      const inferred = new Date(Date.parse(record.checkedAt) + (record.daysUntilExpiry >= 0 ? record.daysUntilExpiry * 86400000 : NaN));
+      const availableUntil = record.expiresAt || (Number.isFinite(record.daysUntilExpiry) && Number.isFinite(inferred.getTime()) ? inferred.toISOString() : null);
+      const status = record.isExpired ? 'expired' : record.status;
+      const row = {ref, title: record.title, bundle: record.sourceBundle, status, availableUntil, purchasedAt: record.purchasedAt,
+        keyType: record.keyType, directRedeem: record.directRedeem,
+        checkedAt: record.checkedAt, destination, itemUrl: destination.kind === 'entitlement' ? destination.url : null,
+        purchaseUrl: destination.kind === 'purchase' ? destination.url : destination.purchaseUrl, targets: [{ref, basis: status}]};
+      legacy.set(ref, row);
+      if (row.itemUrl) {
+        const candidates = byItem.get(row.itemUrl) ?? [];
+        candidates.push(row);
+        byItem.set(row.itemUrl, candidates);
+      }
+    }
+    const nativeCounts = new Map();
+    for (const row of native) nativeCounts.set(row.itemUrl, (nativeCounts.get(row.itemUrl) ?? 0) + 1);
+    for (const row of native) {
+      const candidates = byItem.get(row.itemUrl);
+      if (nativeCounts.get(row.itemUrl) !== 1 || candidates?.length !== 1) continue;
+      const [older] = candidates;
+      row.targets.push(...older.targets);
+      row.combined = true;
+      row.destination = older.destination;
+      row.purchasedAt = older.purchasedAt;
+      row.keyType = older.keyType;
+      row.directRedeem = older.directRedeem;
+      row.bundle ||= older.bundle;
+      row.availableUntil ||= older.availableUntil;
+      legacy.delete(older.ref);
+    }
+    return [...native, ...legacy.values()].map(row => {
+      const decisions = row.targets.map(target => {
+        const review = reviews[target.ref];
+        return global.HumbleComicLibrary.validKeyReview(review) && review.basis === target.basis ? review : null;
+      }).filter(Boolean).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+      // Changed current evidence reopens the card, even if an old source still reports the old state.
+      const ownReview = reviews[row.ref];
+      const review = row.native && global.HumbleComicLibrary.validKeyReview(ownReview) && ownReview.basis !== row.status ? null : decisions[0];
+      const reviewState = review?.action === 'dismissed' || review?.action === 'snoozed' && Date.parse(review.until) > now ? review.action : 'active';
+      const deadline = Date.parse(row.availableUntil);
+      const expired = row.status === 'expired' || deadline <= now;
+      return {...row, review, reviewState, expired, expiring: !expired && deadline > now && deadline <= now + 30 * 86400000};
+    }).sort((a, b) => {
+      const priority = row => row.expired ? Infinity : Date.parse(row.availableUntil) || Infinity;
+      return priority(a) - priority(b) || Number(a.expired) - Number(b.expired) || global.LibraryTitleSort.compare(a.title, b.title);
+    });
+  }
+
+  global.HumbleLibraryBrowser = Object.freeze({ keyReminders, unifiedKeyReminders, buildGroups, nativeOnlyTitles, contentPlaceholder, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

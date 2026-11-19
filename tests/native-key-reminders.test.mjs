@@ -30,6 +30,25 @@ test('another account\'s keys are never listed',()=>{
  assert.equal(B.keyReminders(other).length,0);
 });
 
+test('legacy-only reminders retain review and deadline evidence and sort actionable deadlines first',()=>{
+ const {B}=load(),now=Date.parse('2026-11-19T00:00:00Z');
+ const legacy=(id,fields={})=>({id,purchaseKey:'order-'+id,title:id,sourceBundle:'Synthetic Bundle',status:'unrevealed',checkedAt:'2026-11-10T00:00:00Z',...fields});
+ const model={humbleAccountId:ACCOUNT,libraryEntitlements:null,keyReminders:[
+   legacy('A undated'),legacy('Z expires soon',{expiresAt:'2026-11-20T00:00:00Z'}),legacy('Expired',{isExpired:true,expiresAt:'2026-11-20T00:00:00Z'}),legacy('Unknown',{status:'needs-review'})
+ ]};
+ const rows=B.unifiedKeyReminders(model,null,{},now);
+ assert.deepEqual(Array.from(rows,r=>r.title),['Z expires soon','A undated','Unknown','Expired']);
+ assert.equal(rows[0].expiring,true);
+ assert.equal(rows[2].status,'needs-review');
+ assert.equal(rows[3].expired,true);
+ assert.equal(rows[3].expiring,false,'explicit expiration outranks a conflicting future deadline');
+ assert(rows.every(r=>!r.itemUrl&&!r.purchaseUrl));
+ const review={action:'dismissed',basis:'unrevealed',until:null,updatedAt:'2026-11-18T00:00:00Z'};
+ const stored={[rows[0].ref]:review};
+ assert.equal(B.unifiedKeyReminders(model,null,stored,now)[0].reviewState,'dismissed');
+ assert.equal(B.unifiedKeyReminders({...model,humbleAccountId:'other-account'},null,stored,now)[0].reviewState,'active');
+});
+
 test('dismissing or snoozing hides a reminder only while its status is unchanged, and Restore brings it back',()=>{
  const {E,B}=load(),now=Date.parse('2026-11-19T00:00:00Z'),ref=E.identity(key(E,1));
  const rows=reviews=>plain(B.keyReminders(state([key(E,1)]),reviews,now))[0];

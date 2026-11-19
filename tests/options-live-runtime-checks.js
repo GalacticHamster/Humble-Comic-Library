@@ -143,16 +143,26 @@ async function installedRuntimeChecks(phase){
   {const withKey=structuredClone(current),observations=withKey.libraryEntitlements.scopes[0].observations,base=structuredClone(observations[0]);
    observations.push({...base,namespace:'steam',nativeId:u(900),title:'Synthetic Key Game',mediaType:'game',delivery:undefined,eligibility:{...base.eligibility,redeemedAt:{state:'none',value:null},unavailableAfter:{state:'date',value:'2027-01-31T00:00:00.000Z'},expired:false}});
    delete observations.at(-1).delivery;
+   Object.assign(observations.at(-1),{parentId:u(901),parentTitle:'Synthetic Key Bundle'});
+   withKey.libraryItems.push({title:'Synthetic Key Game',kind:'game',source:'humble',purchaseKey:'synthetic-key-order',sourceBundle:'Synthetic Key Bundle',purchasedAt:'2025-01-01'});
+   withKey.keyReminders=[{id:'synthetic-key',purchaseKey:'synthetic-key-order',title:'Synthetic Key Game',sourceBundle:'Synthetic Key Bundle',
+     keyType:'Steam',status:'unrevealed',directRedeem:false,isExpired:false,checkedAt:'2026-01-01T00:00:00.000Z'}];
    await store('replace',withKey);await settled('Options settles after a key is synced');
-   const keyRows=()=>[...document.querySelectorAll('#native-key-list > li')],keyRow=()=>keyRows().find(li=>li.textContent.startsWith('Synthetic Key Game'));
+   const reminderEvidence=await chrome.storage.local.get(Object.keys(preserved));
+   const keyRows=()=>[...document.querySelectorAll('#key-reminder-list > li')],keyRow=()=>keyRows().find(li=>li.textContent.startsWith('Synthetic Key Game'));
    await until(async()=>Boolean(keyRow()),'the not-yet-redeemed key is listed');
-   check(/Not yet redeemed; Humble lists it as available until/.test(keyRow().textContent)&&/Activation is unknown\./.test(keyRow().textContent),'the key row gives Humble\u2019s deadline and leaves activation unknown');
+   check(keyRows().length===1&&keyRow().textContent.includes('Also recorded in an earlier import'),'both sources display one combined card');
+   const controls=[...keyRow().querySelectorAll('button')],openedBefore=opened.length;
+   controls.find(button=>button.textContent==='Open item').click();
+   controls.find(button=>button.textContent==='Open purchase').click();
+   check(JSON.stringify(opened.slice(openedBefore))===JSON.stringify([content(900),'https://www.humblebundle.com/home/library/'+u(901)]),'installed reminder uses the same exact item and purchase routes as Titles and Bundles');
+   check(/not yet redeemed.*Reported deadline/.test(keyRow().textContent)&&/Activation is unknown\./.test(keyRow().textContent),'the key row gives Humble\u2019s deadline and leaves activation unknown');
    [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Dismiss reminder').click();
-   await until(async()=>!keyRow()&&Object.keys((await chrome.storage.local.get({humbleKeyReviews:{}})).humbleKeyReviews).length===1,'dismissing hides the key and saves one review');
-   const view=document.getElementById('native-key-view');view.value='hidden';view.dispatchEvent(new Event('change'));
+   await until(async()=>!keyRow()&&Object.keys((await chrome.storage.local.get({humbleKeyReviews:{}})).humbleKeyReviews).length===2,'dismissing hides both sources in one action');
+   const view=document.getElementById('key-reminder-filter');view.value='dismissed';view.dispatchEvent(new Event('change'));
    await until(async()=>Boolean(keyRow()),'the dismissed key is under Dismissed and snoozed');
    [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Restore reminder').click();
-   view.value='unrevealed';view.dispatchEvent(new Event('change'));await until(async()=>Boolean(keyRow()),'Restore lists the key again');
+   view.value='active';view.dispatchEvent(new Event('change'));await until(async()=>Boolean(keyRow()),'Restore lists the key again');
    [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Dismiss reminder').click();
    await until(async()=>!keyRow(),'the key is dismissed before backup');
    const backup=H.createLibraryBackup(await chrome.storage.local.get({...H.LIBRARY_STATE_DEFAULTS,humbleKeyReviews:{}}));
@@ -164,9 +174,9 @@ async function installedRuntimeChecks(phase){
    await until(async()=>!keyRow(),'restoring the same backup twice keeps the dismissal');
    const legacy={...backup};delete legacy.humbleKeyReviews;
    await store('replace',H.restoreBackupState(legacy));
-   view.value='hidden';view.dispatchEvent(new Event('change'));
+   view.value='dismissed';view.dispatchEvent(new Event('change'));
    await until(async()=>keyRows().length===1&&Boolean(keyRow()),'a legacy restore keeps exactly one dismissed reminder');
-   const after=await chrome.storage.local.get(Object.keys(preserved));check(JSON.stringify(after)===JSON.stringify(preserved),'key reviews leave purchases, history, corrections and reminders unchanged');
+   const after=await chrome.storage.local.get(Object.keys(preserved));check(JSON.stringify(after)===JSON.stringify(reminderEvidence),'key reviews leave purchases, history, corrections and reminders unchanged');
    await store('replace',current);await settled('Options settles after the key check');}
 
   // Performance at the reported scale: 8,233 native entitlements and 234 historical orders.

@@ -392,5 +392,5 @@ test('key reminders no longer offer the obsolete order-key route or write a purc
   const optionsHtml = fs.readFileSync(new URL('../options.html', import.meta.url), 'utf8');
   assert.doesNotMatch(optionsSource, /downloads\?key=|hclPurchaseFocus: \{|openDirectPurchaseLinks/u);
   assert.doesNotMatch(optionsHtml, /open-direct-purchase-links/u);
-  assert(optionsSource.includes('reminderDestination(record, latestReconciliation?.groups ?? null)'));
+  assert.match(optionsSource,/HumbleLibraryBrowser\.unifiedKeyReminders\(reminderState\.library, latestReconciliation\?\.groups/u);
 });

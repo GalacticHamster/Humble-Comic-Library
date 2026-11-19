@@ -25,6 +25,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const extensionPage=own&&typeof sender.url==='string'&&sender.url.startsWith(chrome.runtime.getURL(''));
   let humble=false;try{humble=own&&new URL(sender.url).origin==='https://www.humblebundle.com';}catch{}
   if(!extensionPage&&!humble){respond({ok:false,error:'Untrusted library request.'});return false;}
+  if(message.operation==='patch'&&Object.hasOwn(message.args?.[0]??{},'humbleKeyReviews')&&!extensionPage){respond({ok:false,error:'Review reminders in Extension options.'});return false;}
   // Humble routes client-side; sender.url stays at the address the document loaded, so page rules use the
   // current route our content script reports. Origin, extension and tab checks above still apply.
   const page=humble?(typeof message.page==='string'&&message.page.startsWith('/')?message.page:new URL(sender.url).pathname):'';

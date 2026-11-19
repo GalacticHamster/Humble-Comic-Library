@@ -863,7 +863,7 @@
   // A dismissed, snoozed or restored key reminder. basis is the key status it was made for.
   function validKeyReview(value) {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => ['action', 'basis', 'until', 'updatedAt'].includes(k))
-      && ['active', 'dismissed', 'snoozed'].includes(value.action) && ['unrevealed', 'expired'].includes(value.basis)
+      && ['active', 'dismissed', 'snoozed'].includes(value.action) && ['unrevealed', 'expired', 'needs-review'].includes(value.basis)
       && typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt))
       && (value.action === 'snoozed' ? typeof value.until === 'string' && Number.isFinite(Date.parse(value.until)) : value.until === null || value.until === undefined));
   }
@@ -1323,7 +1323,15 @@
       if(operation==='patch'){
         const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance','mediaTypeOverrides','rejectedPurchaseItems','humbleKeyReviews'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
-        if(Object.hasOwn(updates,'humbleKeyReviews')) updates.humbleKeyReviews = checkedKeyReviews(updates.humbleKeyReviews);
+        if(Object.hasOwn(updates,'humbleKeyReviews')) {
+          const scope = args[1];
+          if (scope) {
+            const current = await area.get({humbleAccountId:null, humbleProfileLabel:'', humbleKeyReviews:{}});
+            if (current.humbleAccountId !== scope.accountId || current.humbleProfileLabel !== scope.label) throw new Error('The saved account changed. Refresh the reminders.');
+            updates.humbleKeyReviews = {...current.humbleKeyReviews, ...checkedKeyReviews(updates.humbleKeyReviews)};
+          }
+          updates.humbleKeyReviews = checkedKeyReviews(updates.humbleKeyReviews);
+        }
         if(Object.hasOwn(updates,'galacticHamsterAppearance'))globalThis.GalacticHamsterTheme.validatePreferences(updates.galacticHamsterAppearance);
         if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
         await area.set(updates);return true;

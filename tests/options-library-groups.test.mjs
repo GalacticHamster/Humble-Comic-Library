@@ -170,14 +170,40 @@ test('key reminders open a likely Library item or the Library itself and never w
   const ui = await harness({ libraryItems: [historical('Celeste', 'K1', 'Indie Bundle', { kind: 'game' }), historical('Repeat', 'R1', 'Monthly', { kind: 'game' }), historical('Repeat', 'R2', 'Monthly', { kind: 'game' })],
     libraryEntitlements: entitlements(obs), keyReminders: [reminder('K1', 'Celeste'), reminder('R1', 'Repeat')], keyReminderScan: { complete: true, checkedAt: '2026-01-01T00:00:00.000Z' }, openDirectPurchaseLinks: true });
   const cards = ui.get('#key-reminder-list').children.filter(c => c.className === 'key-reminder-card');
-  const button = card => card.children.find(c => c.type === 'button'), info = card => card.children.find(c => c.className === 'key-reminder-destination').textContent;
-  const [celeste, repeat] = ['Celeste', 'Repeat'].map(t => cards.find(c => c.children[0].children[0].textContent === t));
-  assert.equal(button(celeste).textContent, 'Open in Humble Library');assert.match(info(celeste), /Likely the same order as “Indie Bundle”.*opens this item/u);
-  assert.equal(button(repeat).textContent, 'Open Humble Library');assert.match(info(repeat), /more than once/u);
+  const button = card => card.children.at(-1).children[0], info = card => card.children.find(c => c.className === 'key-reminder-destination').textContent;
+  assert.equal(cards.length, 4, 'one combined reminder, two named native copies, and an ambiguous older reminder');
+  const celeste = cards.find(c => c.children[0].children[0].textContent === 'Celeste');
+  const repeat = cards.find(c => c.children[0].children[0].textContent === 'Repeat' && button(c).textContent === 'Find in Library');
+  assert.equal(button(celeste).textContent, 'Open item');assert.match(info(celeste), /Likely the same order as.*Indie Bundle/u);
+  assert.equal(button(repeat).textContent, 'Find in Library');assert.match(info(repeat), /more than once/u);
   const before = ui.writes.length;
-  await button(celeste).listeners.click();await button(repeat).listeners.click();
-  assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/content/' + obs[0].nativeId, 'https://www.humblebundle.com/home/library'], 'the old order-key link setting no longer applies');
+  await button(celeste).listeners.click();
+  await celeste.children.at(-1).children[1].listeners.click();
+  await button(repeat).listeners.click();
+  assert.deepEqual(ui.opened, ['https://www.humblebundle.com/home/library/content/' + obs[0].nativeId, 'https://www.humblebundle.com/home/library/' + obs[0].parentId, 'https://www.humblebundle.com/home/library'], 'the old order-key link setting no longer applies');
   assert.equal(ui.writes.length, before, 'opening a reminder writes nothing');assert.equal(ui.stored.hclPurchaseFocus, undefined);
+  await ui.input('#key-reminder-search', 'Indie Bundle');
+  assert.equal(ui.get('#key-reminder-list').children.length, 1);
+  const action = label => ui.get('#key-reminder-list').children[0].children.at(-1).children.find(button => button.textContent === label);
+  const originalEvidence = JSON.stringify([ui.stored.libraryItems, ui.stored.keyReminders, ui.stored.libraryEntitlements]);
+  await action('Snooze 7 days').listeners.click();
+  assert.equal(ui.get('#key-reminder-list').children.length, 0, 'neither source can bring back the snoozed card');
+  await ui.change('#key-reminder-filter', 'snoozed');
+  assert.equal(Object.values(ui.stored.humbleKeyReviews).filter(review => review.action === 'snoozed' && Date.parse(review.until) > Date.now()).length, 2);
+  await action('Restore reminder').listeners.click();
+  await ui.change('#key-reminder-filter', 'active');
+  await action('Dismiss reminder').listeners.click();
+  assert.equal(ui.get('#key-reminder-list').children.length, 0);
+  await ui.change('#key-reminder-filter', 'dismissed');
+  assert.equal(ui.get('#key-reminder-list').children.length, 1);
+  await action('Restore reminder').listeners.click();
+  assert.equal(JSON.stringify([ui.stored.libraryItems, ui.stored.keyReminders, ui.stored.libraryEntitlements]), originalEvidence);
+  await ui.change('#key-reminder-filter', 'active');
+  const stale = action('Dismiss reminder'), decisions = JSON.stringify(ui.stored.humbleKeyReviews);
+  ui.stored.humbleAccountId = '22222222-2222-4222-8222-222222222222';
+  await stale.listeners.click();
+  assert.match(ui.get('#key-reminder-action-status').textContent,/saved account changed/);
+  assert.equal(JSON.stringify(ui.stored.humbleKeyReviews),decisions,'a stale control cannot change either account’s reviews');
 });
 
 test('Sync from Humble reports progress, unfinished syncs and unverified items in plain language', async () => {

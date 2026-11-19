@@ -1207,7 +1207,7 @@
     const state = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '',
       libraryItems: [], wishlistItems: [], bundleSummaryPreferences: {}, rejectedPurchaseItems: [], mediaImportVersion: 1, mediaTypeOverrides: {},
       historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], libraryEntitlements: null, humbleAccountId: null, humbleKeyReviews: {} });
-    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = state;
+    const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = state;
     const items = state.libraryItems;
     const { libraryEntitlements = null, humbleAccountId = null } = state;
     showMatchDetails = Boolean(diagnosticsEnabled);
@@ -1425,8 +1425,9 @@
         : 'Automatic Galactic Library pairing ready. Connection not yet verified; check the connection.';
     }
     renderLibrarySync(libraryEntitlements, humbleAccountId);
-    renderKeyReminders(keyReminders, keyReminderScan);
-    nativeKeys.state = { libraryEntitlements, humbleAccountId, humbleProfileLabel: state.humbleProfileLabel, libraryItems: items };nativeKeys.reviews = state.humbleKeyReviews ?? {};renderNativeKeys();
+    reminderState.library = {libraryEntitlements, humbleAccountId, humbleProfileLabel: state.humbleProfileLabel, libraryItems: items, keyReminders};
+    reminderState.reviews = state.humbleKeyReviews ?? {};
+    refreshKeyReminders();
     refreshStats.renders++;
     if (live) refreshStats.liveRenders++;
     refreshStats.lastRenderMs = clock() - started;
@@ -1474,150 +1475,106 @@
     status.textContent = parts.join(' ');
   }
 
-  // Keys in the Humble Library (HumbleLibraryBrowser.keyReminders): 50 per page, with reviews that
-  // change only this list. A review is saved explicitly, so Restore outranks an older dismissal.
-  const nativeKeys = { state: null, reviews: {}, view: 'unrevealed', page: 0 };
-  const nativeKeyView = document.querySelector('#native-key-view'), nativeKeyList = document.querySelector('#native-key-list'), nativeKeyStatus = document.querySelector('#native-key-status');
-  const nativeKeyPrevious = document.querySelector('#native-key-previous'), nativeKeyNext = document.querySelector('#native-key-next');
-  function renderNativeKeys() {
-    if (!nativeKeyList || !globalThis.HumbleLibraryBrowser || !nativeKeys.state) return;
-    const rows = HumbleLibraryBrowser.keyReminders(nativeKeys.state, nativeKeys.reviews);
-    const shown = rows.filter(row => nativeKeys.view === 'hidden' ? row.hidden : !row.hidden && row.status === nativeKeys.view);
-    const pages = Math.max(1, Math.ceil(shown.length / 50));nativeKeys.page = Math.min(nativeKeys.page, pages - 1);
-    const page = shown.slice(nativeKeys.page * 50, nativeKeys.page * 50 + 50), day = value => new Date(value).toLocaleDateString();
-    nativeKeyList.replaceChildren(...page.map(row => {
-      const li = document.createElement('li'), text = document.createElement('span');
-      text.textContent = `${row.title}${row.bundle ? ' — ' + row.bundle : ''}. ${row.status === 'expired' ? 'Humble marks this key expired' : 'Not yet redeemed'}${row.availableUntil ? `; Humble lists it as available until ${day(row.availableUntil)}` : ''}. Checked ${day(row.checkedAt)}. Activation is unknown.`;
-      li.append(text);
-      const act = (label, action) => { const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', () => reviewNativeKey(row, action)); li.append(' ', button); };
-      if (row.hidden) act('Restore reminder', 'active'); else { act('Dismiss reminder', 'dismissed'); act('Snooze 7 days', 'snoozed'); }
-      return li;
-    }));
-    const total = rows.filter(row => !row.hidden && row.status === 'unrevealed').length;
-    nativeKeyStatus.textContent = rows.length ? `${shown.length.toLocaleString()} ${shown.length === 1 ? 'key' : 'keys'} in this view; page ${nativeKeys.page + 1} of ${pages}. ${total.toLocaleString()} not yet redeemed and not dismissed.`
-      : 'No keys from your Humble Library are listed as not yet redeemed. Keys appear here after a Library sync.';
-    nativeKeyPrevious.disabled = nativeKeys.page === 0;nativeKeyNext.disabled = nativeKeys.page >= pages - 1;
-  }
-  async function reviewNativeKey(row, action) {
-    const now = new Date();
-    const review = { action, basis: row.status, until: action === 'snoozed' ? new Date(now.getTime() + 7 * 86400000).toISOString() : null, updatedAt: now.toISOString() };
-    const current = (await chrome.storage.local.get({ humbleKeyReviews: {} })).humbleKeyReviews ?? {};
-    try { await HumbleComicLibrary.storageSet({ humbleKeyReviews: { ...current, [row.ref]: review } }); nativeKeys.reviews = { ...current, [row.ref]: review }; renderNativeKeys(); }
-    catch (error) { nativeKeyStatus.textContent = 'Could not save this reminder review: ' + error.message; }
-  }
-  nativeKeyView?.addEventListener('change', () => { nativeKeys.view = nativeKeyView.value; nativeKeys.page = 0; renderNativeKeys(); });
-  nativeKeyPrevious?.addEventListener('click', () => { nativeKeys.page = Math.max(0, nativeKeys.page - 1); renderNativeKeys(); });
-  nativeKeyNext?.addEventListener('click', () => { nativeKeys.page++; renderNativeKeys(); });
+  const reminderState = {library: null, reviews: {}, rows: [], timer: null};
+  const reminderFilter = document.querySelector('#key-reminder-filter');
+  const reminderSearch = document.querySelector('#key-reminder-search');
+  const reminderActionStatus = document.querySelector('#key-reminder-action-status');
+  const reminderDate = date => Number.isFinite(Date.parse(date)) ? new Date(date).toLocaleDateString() : '';
 
-  function renderKeyReminders(reminders, scan) {
-    if (!scan) {
-      keyReminderSummary.textContent = 'No key reminders were saved. Reminders came from purchase imports made before Humble changed its site; Library syncs do not add them.';
-      keyReminderList.replaceChildren();
-      return;
-    }
+  function refreshKeyReminders() {
+    if (!reminderState.library || !globalThis.HumbleLibraryBrowser) return;
     const now = Date.now();
-    const sorted = [...reminders].sort((left, right) => keyReminderSortValue(left, now) - keyReminderSortValue(right, now) || globalThis.LibraryTitleSort.compare(left.title,right.title));
-    const expiringSoon = sorted.filter((record) => {
-      const days = keyReminderDaysRemaining(record, now);
-      return days !== null && days >= 0 && days <= 30;
-    }).length;
-    const needsReview = sorted.filter((record) => record.status === 'needs-review').length;
-    const baseline = scan.complete
-      ? ''
-      : ' These reminders cover only the purchases checked before Humble changed its site; some older purchases were never checked.';
-    keyReminderSummary.textContent = `${sorted.length} pending entitlement${sorted.length === 1 ? '' : 's'}${needsReview ? `; ${needsReview} needs review` : ''}${expiringSoon ? `; ${expiringSoon} expiring within 30 days` : ''}. Last checked ${new Date(scan.checkedAt).toLocaleString()}.${baseline}`;
-    const groups = [
-      ['Expiring or dated', sorted.filter((record) => {
-        const days = keyReminderDaysRemaining(record, now);
-        return !record.isExpired && days !== null && days >= 0;
-      })],
-      ['No expiry reported', sorted.filter((record) => !record.isExpired && keyReminderDaysRemaining(record, now) === null)],
-      ['Expired or may be expired', sorted.filter((record) => record.isExpired || keyReminderDaysRemaining(record, now) < 0)]
-    ];
-    const rows = [];
-    for (const [label, records] of groups) {
-      if (!records.length) continue;
-      const heading = document.createElement('li');
-      heading.className = 'key-reminder-group';
-      heading.textContent = label;
-      rows.push(heading, ...records.map((record) => keyReminderRow(record, now)));
+    reminderState.rows = HumbleLibraryBrowser.unifiedKeyReminders(reminderState.library, latestReconciliation?.groups, reminderState.reviews, now);
+    clearTimeout(reminderState.timer);
+    let next = Infinity;
+    for (const row of reminderState.rows) {
+      if (row.reviewState === 'snoozed') next = Math.min(next, Date.parse(row.review.until));
+      const deadline = Date.parse(row.availableUntil);
+      if (!row.expired && deadline > now) next = Math.min(next, row.expiring ? deadline : deadline - 30 * 86400000);
     }
-    keyReminderList.replaceChildren(...rows);
+    if (Number.isFinite(next)) {
+      reminderState.timer = setTimeout(refreshKeyReminders, Math.min(60000, Math.max(1, next - now + 5)));
+      reminderState.timer?.unref?.();
+    }
+    renderKeyReminders();
   }
 
-  function keyReminderRow(record, now) {
-    const row = document.createElement('li');
-    const days = keyReminderDaysRemaining(record, now);
-    const state = record.isExpired || days < 0 ? 'expired' : days !== null && days <= 30 ? 'soon' : 'normal';
-    row.className = 'key-reminder-card';
-    row.dataset.keyReminderState = state;
-
-    const heading = document.createElement('div');
-    heading.className = 'key-reminder-heading';
-    const title = document.createElement('span');
-    title.textContent = record.title;
-    const expiry = document.createElement('span');
-    expiry.className = 'key-reminder-status';
-    expiry.textContent = keyReminderExpiryLabel(record, now);
-    heading.append(title, expiry);
-
-    const detail = document.createElement('div');
-    detail.className = 'key-reminder-meta';
-    detail.textContent = [record.keyType, record.directRedeem ? 'direct redemption' : '', record.status === 'needs-review' ? 'needs review' : ''].filter(Boolean).join(' · ');
-
-    const source = document.createElement('div');
-    source.className = 'key-reminder-source';
-    source.textContent = [record.sourceBundle || 'Humble purchase', record.purchasedAt ? `purchased ${new Date(record.purchasedAt).toLocaleDateString()}` : ''].filter(Boolean).join(' — ');
-
-    // Worked out from this render's presentation match; the reminder itself is never changed.
-    const destination = globalThis.HumbleLibraryBrowser
-      ? HumbleLibraryBrowser.reminderDestination(record, latestReconciliation?.groups ?? null)
-      : { kind: 'library', url: 'https://www.humblebundle.com/home/library', reason: 'not-synced' };
-    const where = document.createElement('div');
-    where.className = 'key-reminder-destination';
-    where.textContent = destination.kind === 'library'
-      ? REMINDER_FALLBACK_TEXT[destination.reason] ?? REMINDER_FALLBACK_TEXT.unmatched
-      : `Likely the same order as “${destination.name}” in your Humble Library${destination.kind === 'entitlement' ? '; opens this item' : '; opens that purchase'}. Check it before revealing a key.`;
-    const open = document.createElement('button');
-    open.type = 'button';
-    open.textContent = destination.kind === 'library' ? 'Open Humble Library' : 'Open in Humble Library';
-    open.dataset.destination = destination.kind;
-    open.addEventListener('click', async () => {
-      open.disabled = true;
-      try {
-        await chrome.tabs.create({ url: destination.url });
-      } finally {
-        open.disabled = false;
-      }
+  function renderKeyReminders() {
+    const filter = reminderFilter.value || 'active', query = (reminderSearch.value || '').trim().toLowerCase();
+    const filtered = reminderState.rows.filter(row => {
+      const matchesView = ['dismissed', 'snoozed'].includes(filter) ? row.reviewState === filter
+        : row.reviewState === 'active' && (filter === 'active' || filter === 'expired' && row.expired
+          || filter === 'expiring' && row.expiring || filter === 'unknown' && row.status === 'needs-review');
+      return matchesView && [row.title, row.bundle].some(value => value?.toLowerCase().includes(query));
     });
-    row.append(heading, detail, source, where, open);
-    return row;
+    keyReminderSummary.textContent = filtered.length
+      ? filtered.length.toLocaleString() + ' ' + (filtered.length === 1 ? 'reminder' : 'reminders')
+      : 'No reminders match this view.';
+    keyReminderList.replaceChildren(...filtered.map(keyReminderCard));
   }
 
-  function keyReminderDaysRemaining(record, now) {
-    if (record.isExpired) return -1;
-    const expiry = record.expiresAt ? Date.parse(record.expiresAt) : NaN;
-    if (!Number.isNaN(expiry)) return Math.ceil((expiry - now) / 86400000);
-    if (!Number.isFinite(record.daysUntilExpiry) || record.daysUntilExpiry < 0) return null;
-    const checkedAt = Date.parse(record.checkedAt);
-    return Number.isNaN(checkedAt) ? record.daysUntilExpiry : Math.max(-1, Math.ceil(record.daysUntilExpiry - ((now - checkedAt) / 86400000)));
+  function keyReminderCard(row) {
+    const card = document.createElement('li');
+    card.className = 'key-reminder-card';
+    card.dataset.keyReminderState = row.expired ? 'expired' : row.expiring ? 'soon' : 'normal';
+    const part = (tag, css, value) => {
+      const node = document.createElement(tag);
+      node.className = css;
+      node.textContent = value;
+      return node;
+    };
+    const heading = part('div', 'key-reminder-heading', '');
+    const badge = row.reviewState === 'dismissed' ? 'Dismissed' : row.reviewState === 'snoozed' ? 'Snoozed until ' + reminderDate(row.review.until)
+      : row.status === 'expired' ? 'Expired' : row.expired ? 'Past reported deadline' : row.expiring ? 'Expiring soon'
+      : row.status === 'needs-review' ? 'Needs review' : row.native ? 'Not yet redeemed' : 'Reported unrevealed';
+    heading.append(part('span', '', row.title), part('span', 'key-reminder-status', badge));
+    const purchaseDate = Number.isFinite(Date.parse(row.purchasedAt)) ? formatPurchaseDate(Date.parse(row.purchasedAt)) : '';
+    const context = [row.bundle || 'Humble purchase', purchaseDate ? 'Purchased ' + purchaseDate : ''].filter(Boolean).join(' \u00b7 ');
+    const evidence = row.status === 'needs-review' ? 'Redemption status unknown.'
+      : row.status === 'expired' ? 'Humble reported this key expired.'
+      : row.native ? 'Humble reports this key as not yet redeemed.' : 'Earlier import reported this key unrevealed.';
+    const details = [evidence, row.keyType ? 'Key type: ' + row.keyType + '.' : '', row.directRedeem ? 'Direct redemption reported.' : '',
+      row.combined ? 'Also recorded in an earlier import.' : '', row.availableUntil ? 'Reported deadline ' + reminderDate(row.availableUntil) + '.' : '',
+      row.checkedAt ? 'Checked ' + reminderDate(row.checkedAt) + '.' : '', 'Activation is unknown.'].filter(Boolean).join(' ');
+    card.append(heading, part('div', 'key-reminder-source', context), part('div', 'key-reminder-meta', details));
+    if (row.destination) {
+      const note = row.destination.kind === 'library' ? REMINDER_FALLBACK_TEXT[row.destination.reason] || REMINDER_FALLBACK_TEXT.unmatched
+        : 'Likely the same order as \u201c' + row.destination.name + '\u201d in your Humble Library.';
+      card.append(part('div', 'key-reminder-destination', note));
+    }
+    const actions = part('div', 'key-reminder-actions', '');
+    const button = (text, action, secondary = false) => {
+      const control = part('button', secondary ? 'secondary' : '', text);
+      control.type = 'button';
+      control.addEventListener('click', action);
+      actions.append(control);
+    };
+    if (row.itemUrl) button('Open item', () => openOnHumble(row.itemUrl));
+    if (row.purchaseUrl) button('Open purchase', () => openOnHumble(row.purchaseUrl), Boolean(row.itemUrl));
+    if (!row.itemUrl && !row.purchaseUrl) button('Find in Library', () => chrome.tabs.create({url:'https://www.humblebundle.com/home/library'}));
+    const scope = {accountId: reminderState.library.humbleAccountId ?? null, label: reminderState.library.humbleProfileLabel || ''};
+    const review = (label, action) => button(label, async event => {
+      const now = Date.now(), control = event?.currentTarget;
+      if (control) control.disabled = true;
+      const updates = Object.fromEntries(row.targets.map(({ref, basis}) => [ref, {action, basis, updatedAt: new Date(now).toISOString(),
+        until: action === 'snoozed' ? new Date(now + 7 * 86400000).toISOString() : null}]));
+      try {
+        await HumbleComicLibrary.storageRequest('patch', {humbleKeyReviews: updates}, scope);
+        await render();
+        reminderActionStatus.textContent = 'Reminder review saved.';
+      } catch (error) {
+        if (control) control.disabled = false;
+        reminderActionStatus.textContent = 'Could not save this reminder review: ' + error.message;
+      }
+    }, true);
+    if (row.reviewState !== 'active') review('Restore reminder', 'active');
+    else { review('Dismiss reminder', 'dismissed'); review('Snooze 7 days', 'snoozed'); }
+    card.append(actions);
+    return card;
   }
 
-  function keyReminderSortValue(record, now) {
-    if (record.isExpired) return Number.MAX_SAFE_INTEGER;
-    const days = keyReminderDaysRemaining(record, now);
-    if (days === null) return Number.MAX_SAFE_INTEGER - 1;
-    return days < 0 ? Number.MAX_SAFE_INTEGER : days;
-  }
-
-  function keyReminderExpiryLabel(record, now) {
-    if (record.isExpired) return 'expired';
-    const days = keyReminderDaysRemaining(record, now);
-    if (days === null) return 'no expiry reported';
-    if (days < 0) return 'may be expired; refresh to confirm';
-    if (days <= 0) return 'expires today';
-    return `expires in ${days} day${days === 1 ? '' : 's'}`;
-  }
+  reminderFilter.addEventListener('change', () => { keyReminderList.scrollTop = 0; renderKeyReminders(); });
+  reminderSearch.addEventListener('input', () => { keyReminderList.scrollTop = 0; renderKeyReminders(); });
 
   const REMINDER_FALLBACK_TEXT = {
     'not-synced': 'Sync your Humble Library to link this reminder to its purchase. Until then, find the title in your Library.',
@@ -1727,7 +1684,7 @@
     galacticLibraryLinkStatus.textContent = 'Override removed. Automatic Galactic Library pairing remains available; check the connection.';
   });
 
-  for (const id of ['#open-purchases', '#open-key-reminders']) document.querySelector(id).addEventListener('click', () => {
+  document.querySelector('#open-purchases').addEventListener('click', () => {
     chrome.tabs.create({ url: 'https://www.humblebundle.com/home/library' });
   });
 
@@ -1798,9 +1755,9 @@
         if (signature !== knownSignature) { knownSignature = signature; modelDirty = true; data = true; }
         else if (!data) { refreshStats.progressOnly++; renderLibrarySync(next, renderedAccountId); }
         // Key redemption can change without changing the Library titles; the key list is cheap to redraw.
-        if (nativeKeys.state) { nativeKeys.state = { ...nativeKeys.state, libraryEntitlements: next }; renderNativeKeys(); }
+        if (!data && reminderState.library) { reminderState.library = { ...reminderState.library, libraryEntitlements: next }; refreshKeyReminders(); }
       }
-      if (changes.humbleKeyReviews) { nativeKeys.reviews = changes.humbleKeyReviews.newValue ?? {}; renderNativeKeys(); }
+      if (changes.humbleKeyReviews && !data) { reminderState.reviews = changes.humbleKeyReviews.newValue ?? {}; refreshKeyReminders(); }
       if (data) scheduleLiveRefresh();
     } catch {}
   });

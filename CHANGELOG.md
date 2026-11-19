@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Key and access reminders combine Humble Library observations and earlier imports in one searchable, scrollable list. Cards open the matching item or purchase when available and support dismissal, snoozing and restoration.
+
 - Library backups include dismissed and snoozed key reminders. Restoring an older backup keeps newer reminder decisions.
 
 - Titles can be filtered to Bought more than once, using the same purchase count as each title's heading, as in Fanatical Library.
