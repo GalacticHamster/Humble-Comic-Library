@@ -68,3 +68,11 @@ When modifying library classification, matching, or UI in either extension, veri
 - [ ] **Rejected Lifecycle**: Does rejected purchase review support empty states, recovery, dismissal, and deduplication across rescans?
 - [ ] **GL Contract**: Are GL snapshots and entitlement sharing mapped to valid GL media types without breaking schemas?
 - [ ] **Edition Safety**: Are software versions (e.g. 2024 vs 2025) and distinct editions kept separate without false consolidation?
+
+## Floating panel coexistence and refreshes
+
+Both companions hide their bundle panel and other floating controls while the store's own blocking dialog or cart is open (a modal dialog, an aria-modal element, or an open dialog while the page blocks input), and show the same panel again when it closes. Nothing is removed, re-rendered or rechecked. The default corner is bottom right in both.
+
+Moving, minimizing or expanding the panel updates only the panel. Storage changes that do not affect ownership, such as purchase-sync bookkeeping or appearance, never recheck ownership, request Galactic Library again or recreate badges. Changes to saved purchases, the active account, the Galactic Library link, the wishlist or display settings still refresh results. Installed checks in both repositories count ownership reads to protect this.
+
+Humble Library also keeps its bottom-docked panel above Humble's pinned Add to Cart bar in narrow windows. Fanatical Library has no equivalent adjustment; it would need one only if Fanatical pins a purchase bar over the panel.
