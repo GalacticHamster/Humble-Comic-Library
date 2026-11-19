@@ -404,5 +404,28 @@
     return [...titles.values()];
   }
 
-  global.HumbleLibraryBrowser = Object.freeze({ buildGroups, nativeOnlyTitles, contentPlaceholder, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
+  // Keys Humble's Library lists as not yet redeemed, from the active account's synced purchases.
+  // Redeeming on Humble reveals a key; whether it was then activated on Steam or another store is
+  // unknown either way. Only an explicit "not redeemed" record counts: unknown stays out. A key Humble
+  // marks expired is listed separately. Reviews (dismissed, snoozed) apply only while the status they
+  // were made for is unchanged, so a changed key is reviewed again.
+  function keyReminders(state, reviews = {}, now = Date.now()) {
+    const E = global.HumbleLibraryEntitlements, validKeyReview = global.HumbleComicLibrary.validKeyReview;
+    if (!E?.ENABLED) return [];
+    const rows = [];
+    for (const s of E.collection(state?.libraryEntitlements).scopes) {
+      if (s.localAccountId !== (state.humbleAccountId ?? null) || s.localAccountId === null && (s.profileLabel !== (state.humbleProfileLabel ?? '') || state.libraryItems?.length)) continue;
+      for (const r of s.observations) {
+        if (r.namespace === 'download_drm_free' || r.purchaseStatus !== 'purchased' || r.eligibility?.redeemedAt?.state !== 'none') continue;
+        const status = r.eligibility.expired === true ? 'expired' : 'unrevealed', ref = E.identity(r), review = validKeyReview(reviews?.[ref]) ? reviews[ref] : null;
+        const hidden = Boolean(review && review.basis === status && (review.action === 'dismissed' || review.action === 'snoozed' && Date.parse(review.until) > now));
+        rows.push({ ref, title: r.title, bundle: r.parentTitle ?? '', status, hidden, review,
+          availableUntil: r.eligibility.unavailableAfter?.state === 'date' ? r.eligibility.unavailableAfter.value : null, checkedAt: r.observedAt });
+      }
+    }
+    const at = row => row.availableUntil ? Date.parse(row.availableUntil) : Infinity;
+    return rows.sort((a, b) => at(a) - at(b) || globalThis.LibraryTitleSort.compare(a.title, b.title) || (a.ref < b.ref ? -1 : 1));
+  }
+
+  global.HumbleLibraryBrowser = Object.freeze({ keyReminders, buildGroups, nativeOnlyTitles, contentPlaceholder, reconcile, filterGroups, recentlyAdded, titleAddedAt, reminderDestination, titleLinks, titlePurchases, titlePurchaseCount, nativeSignature, purchaseRoute, entitlementRoute, category });
 })(globalThis);

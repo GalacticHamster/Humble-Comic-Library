@@ -139,6 +139,23 @@ async function installedRuntimeChecks(phase){
   const kept=await chrome.storage.local.get(Object.keys(preserved));
   check(JSON.stringify(kept)===JSON.stringify(preserved),'syncs and live refreshes left historical purchases, history, corrections, reminders and the account name unchanged');
 
+  // A key the Humble Library lists as not yet redeemed is a reminder; dismissing and restoring change only the list.
+  {const withKey=structuredClone(current),observations=withKey.libraryEntitlements.scopes[0].observations,base=structuredClone(observations[0]);
+   observations.push({...base,namespace:'steam',nativeId:u(900),title:'Synthetic Key Game',mediaType:'game',delivery:undefined,eligibility:{...base.eligibility,redeemedAt:{state:'none',value:null},unavailableAfter:{state:'date',value:'2027-01-31T00:00:00.000Z'},expired:false}});
+   delete observations.at(-1).delivery;
+   await store('replace',withKey);await settled('Options settles after a key is synced');
+   const keyRows=()=>[...document.querySelectorAll('#native-key-list > li')],keyRow=()=>keyRows().find(li=>li.textContent.startsWith('Synthetic Key Game'));
+   await until(async()=>Boolean(keyRow()),'the not-yet-redeemed key is listed');
+   check(/Not yet redeemed; Humble lists it as available until/.test(keyRow().textContent)&&/Activation is unknown\./.test(keyRow().textContent),'the key row gives Humble\u2019s deadline and leaves activation unknown');
+   [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Dismiss reminder').click();
+   await until(async()=>!keyRow()&&Object.keys((await chrome.storage.local.get({humbleKeyReviews:{}})).humbleKeyReviews).length===1,'dismissing hides the key and saves one review');
+   const view=document.getElementById('native-key-view');view.value='hidden';view.dispatchEvent(new Event('change'));
+   await until(async()=>Boolean(keyRow()),'the dismissed key is under Dismissed and snoozed');
+   [...keyRow().querySelectorAll('button')].find(b=>b.textContent==='Restore reminder').click();
+   view.value='unrevealed';view.dispatchEvent(new Event('change'));await until(async()=>Boolean(keyRow()),'Restore lists the key again');
+   const after=await chrome.storage.local.get(Object.keys(preserved));check(JSON.stringify(after)===JSON.stringify(preserved),'key reviews leave purchases, history, corrections and reminders unchanged');
+   await store('replace',current);await settled('Options settles after the key check');}
+
   // Performance at the reported scale: 8,233 native entitlements and 234 historical orders.
   const big=structuredClone(current),scope=big.libraryEntitlements.scopes[0],template=scope.observations[0],orders=234;
   scope.observations=Array.from({length:8233},(_,n)=>({...structuredClone(template),nativeId:u(100000+n),title:'Scale title '+n,parentId:u(200000+n%600),parentTitle:'Scale purchase '+(n%600)}));

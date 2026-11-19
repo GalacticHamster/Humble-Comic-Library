@@ -1204,7 +1204,7 @@
     // One read for every library key, so titles and Library records always come from the same account.
     const state = await chrome.storage.local.get({ lastImport: null, purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, keyReminders: [], keyReminderScan: null, galacticLibraryExtensionId: '',
       libraryItems: [], wishlistItems: [], bundleSummaryPreferences: {}, rejectedPurchaseItems: [], mediaImportVersion: 1, mediaTypeOverrides: {},
-      historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], libraryEntitlements: null, humbleAccountId: null });
+      historicalLibraryItems: [], historicalPurchaseSummaries: [], humbleProfileLabel: '', profileArchives: [], libraryEntitlements: null, humbleAccountId: null, humbleKeyReviews: {} });
     const { lastImport: summary, purchaseSummaries = [], customCollectionMappings = [], showDiagnostics: diagnosticsEnabled = false, keyReminders = [], keyReminderScan = null, galacticLibraryExtensionId: savedGalacticLibraryExtensionId = '' } = state;
     const items = state.libraryItems;
     const { libraryEntitlements = null, humbleAccountId = null } = state;
@@ -1424,6 +1424,7 @@
     }
     renderLibrarySync(libraryEntitlements, humbleAccountId);
     renderKeyReminders(keyReminders, keyReminderScan);
+    nativeKeys.state = { libraryEntitlements, humbleAccountId, humbleProfileLabel: state.humbleProfileLabel, libraryItems: items };nativeKeys.reviews = state.humbleKeyReviews ?? {};renderNativeKeys();
     refreshStats.renders++;
     if (live) refreshStats.liveRenders++;
     refreshStats.lastRenderMs = clock() - started;
@@ -1470,6 +1471,41 @@
     if (cp.unresolved) parts.push(`${number(cp.unresolved)} item${cp.unresolved === 1 ? '' : 's'} could not be verified and ${cp.unresolved === 1 ? 'was' : 'were'} not saved.`);
     status.textContent = parts.join(' ');
   }
+
+  // Keys in the Humble Library (HumbleLibraryBrowser.keyReminders): 50 per page, with reviews that
+  // change only this list. A review is saved explicitly, so Restore outranks an older dismissal.
+  const nativeKeys = { state: null, reviews: {}, view: 'unrevealed', page: 0 };
+  const nativeKeyView = document.querySelector('#native-key-view'), nativeKeyList = document.querySelector('#native-key-list'), nativeKeyStatus = document.querySelector('#native-key-status');
+  const nativeKeyPrevious = document.querySelector('#native-key-previous'), nativeKeyNext = document.querySelector('#native-key-next');
+  function renderNativeKeys() {
+    if (!nativeKeyList || !globalThis.HumbleLibraryBrowser || !nativeKeys.state) return;
+    const rows = HumbleLibraryBrowser.keyReminders(nativeKeys.state, nativeKeys.reviews);
+    const shown = rows.filter(row => nativeKeys.view === 'hidden' ? row.hidden : !row.hidden && row.status === nativeKeys.view);
+    const pages = Math.max(1, Math.ceil(shown.length / 50));nativeKeys.page = Math.min(nativeKeys.page, pages - 1);
+    const page = shown.slice(nativeKeys.page * 50, nativeKeys.page * 50 + 50), day = value => new Date(value).toLocaleDateString();
+    nativeKeyList.replaceChildren(...page.map(row => {
+      const li = document.createElement('li'), text = document.createElement('span');
+      text.textContent = `${row.title}${row.bundle ? ' — ' + row.bundle : ''}. ${row.status === 'expired' ? 'Humble marks this key expired' : 'Not yet redeemed'}${row.availableUntil ? `; Humble lists it as available until ${day(row.availableUntil)}` : ''}. Checked ${day(row.checkedAt)}. Activation is unknown.`;
+      li.append(text);
+      const act = (label, action) => { const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', () => reviewNativeKey(row, action)); li.append(' ', button); };
+      if (row.hidden) act('Restore reminder', 'active'); else { act('Dismiss reminder', 'dismissed'); act('Snooze 7 days', 'snoozed'); }
+      return li;
+    }));
+    const total = rows.filter(row => !row.hidden && row.status === 'unrevealed').length;
+    nativeKeyStatus.textContent = rows.length ? `${shown.length.toLocaleString()} ${shown.length === 1 ? 'key' : 'keys'} in this view; page ${nativeKeys.page + 1} of ${pages}. ${total.toLocaleString()} not yet redeemed and not dismissed.`
+      : 'No keys from your Humble Library are listed as not yet redeemed. Keys appear here after a Library sync.';
+    nativeKeyPrevious.disabled = nativeKeys.page === 0;nativeKeyNext.disabled = nativeKeys.page >= pages - 1;
+  }
+  async function reviewNativeKey(row, action) {
+    const now = new Date();
+    const review = { action, basis: row.status, until: action === 'snoozed' ? new Date(now.getTime() + 7 * 86400000).toISOString() : null, updatedAt: now.toISOString() };
+    const current = (await chrome.storage.local.get({ humbleKeyReviews: {} })).humbleKeyReviews ?? {};
+    try { await HumbleComicLibrary.storageSet({ humbleKeyReviews: { ...current, [row.ref]: review } }); nativeKeys.reviews = { ...current, [row.ref]: review }; renderNativeKeys(); }
+    catch (error) { nativeKeyStatus.textContent = 'Could not save this reminder review: ' + error.message; }
+  }
+  nativeKeyView?.addEventListener('change', () => { nativeKeys.view = nativeKeyView.value; nativeKeys.page = 0; renderNativeKeys(); });
+  nativeKeyPrevious?.addEventListener('click', () => { nativeKeys.page = Math.max(0, nativeKeys.page - 1); renderNativeKeys(); });
+  nativeKeyNext?.addEventListener('click', () => { nativeKeys.page++; renderNativeKeys(); });
 
   function renderKeyReminders(reminders, scan) {
     if (!scan) {
@@ -1719,7 +1755,7 @@
 
   document.querySelector('#clear-library').addEventListener('click', async () => {
     if (!confirm('Clear all saved accounts and every locally stored title, purchase record, key reminder, import history, historical purchase archive, and custom collection mapping? Your wishlist, display preferences, sharing preference and Galactic Library link will be kept. Turn automatic sharing off first if you do not want Galactic Library to send its saved purchases back.')) return;
-    await HumbleComicLibrary.storageRemove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus']);
+    await HumbleComicLibrary.storageRemove([...Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS), 'hclPurchaseFocus', 'humbleKeyReviews']);
     status.textContent = 'Library, purchase history, key reminders, and custom mappings cleared.';
     await render();
   });
@@ -1759,7 +1795,10 @@
         const signature = globalThis.HumbleLibraryBrowser ? HumbleLibraryBrowser.nativeSignature(next, renderedAccountId) : null;
         if (signature !== knownSignature) { knownSignature = signature; modelDirty = true; data = true; }
         else if (!data) { refreshStats.progressOnly++; renderLibrarySync(next, renderedAccountId); }
+        // Key redemption can change without changing the Library titles; the key list is cheap to redraw.
+        if (nativeKeys.state) { nativeKeys.state = { ...nativeKeys.state, libraryEntitlements: next }; renderNativeKeys(); }
       }
+      if (changes.humbleKeyReviews) { nativeKeys.reviews = changes.humbleKeyReviews.newValue ?? {}; renderNativeKeys(); }
       if (data) scheduleLiveRefresh();
     } catch {}
   });

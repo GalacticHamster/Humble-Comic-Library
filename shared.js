@@ -858,6 +858,14 @@
   }
 
 
+  // A dismissed, snoozed or restored key reminder. basis is the key status it was made for.
+  function validKeyReview(value) {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => ['action', 'basis', 'until', 'updatedAt'].includes(k))
+      && ['active', 'dismissed', 'snoozed'].includes(value.action) && ['unrevealed', 'expired'].includes(value.basis)
+      && typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt))
+      && (value.action === 'snoozed' ? typeof value.until === 'string' && Number.isFinite(Date.parse(value.until)) : value.until === null || value.until === undefined));
+  }
+
   function normalizeSummaryPreferences(value={},strict=false) {
     const positions=['bottom-right','bottom-left','top-right','top-left'];
     if(strict&&(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['minimized','position'].includes(key))||Object.hasOwn(value,'minimized')&&typeof value.minimized!=='boolean'||Object.hasOwn(value,'position')&&!positions.includes(value.position)))throw new Error('Invalid bundle summary preferences.');
@@ -1294,8 +1302,9 @@
         return true;
       }
       if(operation==='patch'){
-        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance','mediaTypeOverrides','rejectedPurchaseItems'];
+        const updates=args[0];const allowed=['customCollectionMappings','showDiagnostics','openDirectPurchaseLinks','galacticLibraryExtensionId','catalogueFilters','showNewItemsOnly','hclPurchaseFocus','bundleSummaryPreferences','galacticHamsterAppearance','mediaTypeOverrides','rejectedPurchaseItems','humbleKeyReviews'];
         if(!updates||Object.keys(updates).some(key=>!allowed.includes(key)))throw new Error('Unsupported state patch.');
+        if(Object.hasOwn(updates,'humbleKeyReviews')){const reviews=updates.humbleKeyReviews,entries=reviews&&typeof reviews==='object'&&!Array.isArray(reviews)?Object.entries(reviews):null;if(!entries||entries.length>50000||entries.some(([ref,value])=>ref.length>600||!validKeyReview(value)))throw new Error('Invalid key reminder review.');}
         if(Object.hasOwn(updates,'galacticHamsterAppearance'))globalThis.GalacticHamsterTheme.validatePreferences(updates.galacticHamsterAppearance);
         if(Object.hasOwn(updates,'bundleSummaryPreferences')){normalizeSummaryPreferences(updates.bundleSummaryPreferences,true);const current=await area.get({bundleSummaryPreferences:{}});updates.bundleSummaryPreferences=normalizeSummaryPreferences({...normalizeSummaryPreferences(current.bundleSummaryPreferences),...updates.bundleSummaryPreferences},true);}
         await area.set(updates);return true;
@@ -1329,7 +1338,7 @@
 
   global.HumbleComicLibrary = {
     CURRENT_IMPORT_VERSION,
-    normalizeSummaryPreferences, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
+    normalizeSummaryPreferences, validKeyReview, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields

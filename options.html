@@ -49,6 +49,11 @@
         <p class="key-reminder-direct-note">Humble's old order links no longer open individual orders. After a Library sync, <strong>Open in Humble Library</strong> goes to the purchase that is most likely the same order, and to the item itself when exactly one matching key is listed. Check the item before revealing a key. When an order can't be linked to a single Library purchase, for example a repeat purchase, <strong>Open Humble Library</strong> opens your Library so you can find the title there.</p>
         <p id="key-reminder-summary" role="status"></p>
         <ol id="key-reminder-list"></ol>
+        <h3>Keys in your Humble Library</h3>
+        <p>From your last Library sync: keys Humble lists as not yet redeemed. Redeeming a key on Humble reveals it; whether it was then activated on Steam or another store is not known. Dismissing or snoozing changes only this list, never your purchases.</p>
+        <label>Show <select id="native-key-view"><option value="unrevealed">Not yet redeemed</option><option value="expired">Past Humble's deadline</option><option value="hidden">Dismissed and snoozed</option></select></label>
+        <ol id="native-key-list"></ol>
+        <div class="wishlist-navigation"><p id="native-key-status" role="status"></p><div class="actions"><button id="native-key-previous" type="button">Previous keys</button><button id="native-key-next" type="button">Next keys</button></div></div>
       </section>
       <section>
         <h2>Additional Galactic Library reminders</h2>
