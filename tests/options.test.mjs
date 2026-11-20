@@ -493,3 +493,11 @@ test('ui.css configures tabular numbers and comfortable disclosure spacing', () 
   assert.match(css, /\.library-provenance-primary\s*\{/);
   assert.match(css, /\.library-provenance-secondary\s*\{/);
 });
+
+test('an imported title with no linked Library item offers Find in Library', async () => {
+  const ui = await optionsHarness({ libraryItems: [item('Imported Only', { purchasedAt: '2026-01-15', sourceBundle: 'Old Bundle', purchaseKey: 'order-1', provenance: [{ title: 'Imported Only', sourceBundle: 'Old Bundle', purchaseKey: 'order-1', purchasedAt: '2026-01-15' }] })] });
+  const details = ui.get('#library-preview').children[0].children[0];
+  const find = details.children.find(child => child.textContent === 'Find in Library');
+  assert(find, 'the fallback is offered');
+  assert.equal(find.listeners.click !== undefined, true);
+});

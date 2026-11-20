@@ -736,7 +736,9 @@
     if(typeof humbleProfileLabel!=='string'||humbleProfileLabel.length>100)throw new Error('Invalid profile label.');
     const profileArchives=backupArray(value.profileArchives??[], 'profileArchives', (entry,path)=>{
       if(typeof entry.profileLabel!=='string'||!entry.profileLabel||entry.profileLabel.length>100||entry.backup?.profileArchives?.length)throw new Error('Invalid archived profile.');
-      return {profileLabel:entry.profileLabel,backup:createLibraryBackup(restoreBackupState({...entry.backup,profileArchives:[]}))};
+      // An archived account keeps the time it was saved; reading a backup never re-stamps it.
+      const saved=typeof entry.backup?.exportedAt==='string'&&Number.isFinite(Date.parse(entry.backup.exportedAt))?entry.backup.exportedAt:undefined;
+      return {profileLabel:entry.profileLabel,backup:createLibraryBackup(restoreBackupState({...entry.backup,profileArchives:[]}),saved)};
     });
     if(profileArchives.length>100)throw new Error('Too many archived profiles.');
     let mediaTypeOverrides = {};
@@ -847,22 +849,24 @@
     const hasData = state => Boolean(state.libraryItems?.length || state.historicalLibraryItems?.length || state.purchaseSummaries?.length || state.keyReminders?.length || ownEntitlements(state));
     const { wishlistItems, humbleKeyReviews, ...active } = current;
     const sources = [{ label: current.humbleProfileLabel, state: snapshot(active) },
-      ...(current.profileArchives ?? []).map(entry => ({ label: entry.profileLabel, state: snapshot({ ...entry.backup, libraryItems: entry.backup.items, purchaseSummaries: entry.backup.purchases, historicalLibraryItems: entry.backup.historicalItems, historicalPurchaseSummaries: entry.backup.historicalPurchases, customCollectionMappings: entry.backup.collectionMappings, humbleAccountId: entry.backup.accountId ?? null, humbleProfileLabel: entry.profileLabel }) }))];
+      ...(current.profileArchives ?? []).map(entry => ({ label: entry.profileLabel, exportedAt: entry.backup.exportedAt, state: snapshot({ ...entry.backup, libraryItems: entry.backup.items, purchaseSummaries: entry.backup.purchases, historicalLibraryItems: entry.backup.historicalItems, historicalPurchaseSummaries: entry.backup.historicalPurchases, customCollectionMappings: entry.backup.collectionMappings, humbleAccountId: entry.backup.accountId ?? null, humbleProfileLabel: entry.profileLabel }) }))];
     let next = { ...restored, profileArchives: [...restored.profileArchives] };
     const labels = () => new Set([next.humbleProfileLabel, ...next.profileArchives.map(entry => entry.profileLabel)]);
-    for (const { label, state } of sources) {
+    // Saved-account snapshots keep their original time, so repeating a restore changes nothing.
+    const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : undefined;
+    for (const { label, state, exportedAt } of sources) {
       const sid = id(state.humbleAccountId);
       if (sid && sid === id(next.humbleAccountId)) { next = { ...mergeAccountState(state, next), profileArchives: next.profileArchives }; continue; }
       const index = sid ? next.profileArchives.findIndex(entry => id(entry.backup.accountId) === sid) : -1;
       if (index >= 0) {
         const entry = next.profileArchives[index], merged = mergeAccountState(state, restoreBackupState({ ...entry.backup, profileArchives: [] }));
-        next.profileArchives[index] = { profileLabel: entry.profileLabel, backup: createLibraryBackup({ ...merged, humbleProfileLabel: entry.profileLabel, profileArchives: [] }) };
+        next.profileArchives[index] = { profileLabel: entry.profileLabel, backup: createLibraryBackup({ ...merged, humbleProfileLabel: entry.profileLabel, profileArchives: [] }, time(entry.backup.exportedAt)) };
         continue;
       }
       if (!hasData(state)) continue;
       const taken = labels(); let name = label || 'Account before restore';
       if (taken.has(name)) { const base = `${name} (before restore)`; name = base; for (let n = 2; taken.has(name); n++) name = `${base} ${n}`; }
-      next.profileArchives.push({ profileLabel: name, backup: createLibraryBackup({ ...state, humbleProfileLabel: name, profileArchives: [] }) });
+      next.profileArchives.push({ profileLabel: name, backup: createLibraryBackup({ ...state, humbleProfileLabel: name, profileArchives: [] }, time(exportedAt)) });
     }
     if (next.profileArchives.length > 100) throw new Error('Too many saved accounts. Export a backup first.');
     // Library sync observations are saved per Humble account; keep every account's newer observations.

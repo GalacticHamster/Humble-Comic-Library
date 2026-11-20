@@ -79,7 +79,7 @@ async function installedEntitlementChecks(disabled=false,phase) {
     // An account not yet bound to a Humble Library: the first sync asks for confirmation once.
     await store('replace',{...state,libraryEntitlements:{version:1,scopes:[]}});
     E.installPanel({fetcher:transport.fetch,settings});const first=document.getElementById('hcl-library-sync'),firstStatus=first.querySelector('[role="status"]');
-    check(first?.querySelector('.library-import-description > strong').textContent==='Humble Library Extension'&&first.classList.contains('hcl-importer'),'installed release shows the Library sync as the Humble Library Extension importer section');
+    check(first?.querySelector('.library-import-description > strong').textContent==='Humble Library'&&first.classList.contains('hcl-importer'),'installed release shows the Library sync as the Humble Library Extension importer section');
     check(/^Loading your saved sync/.test(firstStatus.textContent)&&visibleControls(first)===0,'installed first paint shows no account confirmation or sync controls before the saved state is read');
     await until(()=>/^Not synced in this browser yet/.test(firstStatus.textContent),'installed idle state loads');
     check(!first.querySelector('.hcl-sync-confirm').hidden&&first.querySelector('.hcl-sync-progress').hidden&&!first.querySelector('[data-action="full"]').hidden,'installed unbound idle state: not synced yet, confirmation asked once, no progress row');

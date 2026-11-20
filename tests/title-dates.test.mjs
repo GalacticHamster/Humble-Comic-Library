@@ -72,3 +72,10 @@ test('Bundles & Orders: undated purchases are listed last when sorting by date i
   assert.deepEqual(names('date-desc'), ['New Order', 'Old Order', 'Unordered Book Bundle']);
   assert.deepEqual(names('date-asc'), ['Old Order', 'New Order', 'Unordered Book Bundle']);
 });
+
+test('Bundles & Orders can list only purchases with no known date', () => {
+  const {E, B} = load();
+  const items = [historical('Old', 'K1', 'Old Order', '2018-01-01T12:00:00.000Z')];
+  const model = B.buildGroups({items, libraryEntitlements: entitlements([book(E, 1, 1, 'Loose', 'Unordered')]), humbleAccountId: ACCOUNT}), r = B.reconcile(model.groups);
+  assert.deepEqual(Array.from(B.filterGroups(r.groups, {filter: 'undated'}), x => x.group.name), ['Unordered Book Bundle']);
+});

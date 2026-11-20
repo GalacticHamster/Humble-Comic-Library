@@ -116,3 +116,15 @@ test('a backup without a wishlist leaves the wishlist unchanged, and merged arch
   assert.equal(t.stored.profileArchives.length, 1);
   assert.deepEqual(t.stored.profileArchives[0].backup.items.map(i => i.title).sort(), ['Archive Current', 'Archive Old']);
 });
+
+test('repeating a restore with saved accounts leaves them byte-identical', async () => {
+  const t = load(), archived = t.H.createLibraryBackup({...older(t.E), humbleAccountId: OTHER, humbleProfileLabel: 'Second', libraryEntitlements: {version: 1, scopes: []}}, '2025-05-05T05:05:05.000Z');
+  const backup = t.H.createLibraryBackup({...older(t.E), profileArchives: [{profileLabel: 'Second', backup: archived}]});
+  t.stored = newer(t.E);
+  await t.store.execute('restore', [backup]);
+  const once = copy(t.stored.profileArchives);
+  assert.equal(once[0].backup.exportedAt, '2025-05-05T05:05:05.000Z', 'the archived account keeps its original time');
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await t.store.execute('restore', [backup]);
+  assert.deepEqual(t.stored.profileArchives, once);
+});

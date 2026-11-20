@@ -247,7 +247,7 @@
       + (undated ? ` ${undated.toLocaleString()} ${undated === 1 ? 'title has' : 'titles have'} no known purchase date yet; some older purchases may get dates as Humble restores its order history. Choose “No known purchase date” under Metadata in Titles to list them.` : '');
   }
 
-  // The calendar date in this browser's time zone, as the bundle page shows it: a purchase made late in the
+  // The calendar day shown for a purchase (HumbleComicLibrary.calendarDay): a purchase made late in the
   // evening is shown on that day, not on the next day in UTC.
   function formatPurchaseDate(timestamp) {
     if (!timestamp) return '';
@@ -732,6 +732,17 @@
       }
       list.append(...rest.map(copy => titleCopyRow(copy, title)));
       details.append(list);
+      // An imported title with no linked Library item still has a way to its purchase, as Fanatical Library offers
+      // Find in Order History and HB reminders offer Find in Library.
+      if (!rest.length) {
+        const find = document.createElement('button');
+        find.type = 'button';
+        find.className = 'secondary library-open-humble';
+        find.textContent = 'Find in Library';
+        find.setAttribute('aria-label', `Find ${title} in your Humble Library`);
+        find.addEventListener('click', (event) => { event?.stopPropagation?.(); chrome.tabs.create({ url: 'https://www.humblebundle.com/home/library' }); });
+        details.append(find);
+      }
       // When rows outnumber purchases (or the number is uncertain), one plain sentence says why.
       const shown = purchases.length + rest.length;
       if (!counted.exact || shown > counted.count) {
@@ -1355,6 +1366,8 @@
         if (rejectedActions) rejectedActions.hidden = false;
         if (dismissAllBtn) {
           dismissAllBtn.onclick = async () => {
+            // Confirmed, as in Fanatical Library: Dismiss all clears every listed item at once.
+            if (!confirm('Dismiss all unimported items? A later scan or sync can list them again if needed.')) return;
             try {
               await HumbleComicLibrary.storageRequest('dismissRejectedItem', null);
               await render();
@@ -1453,7 +1466,9 @@
         }
       } catch (_) {}
     }
-    const context = live ? captureBrowserContext() : null;
+    // Every render keeps expanded rows open and the list in place, including after a reminder review or a media
+    // change, as in Fanatical Library. Rows that no longer exist are simply not reopened.
+    const context = captureBrowserContext();
     renderLibraryBrowser(items);
     restoreBrowserContext(context);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
@@ -1475,7 +1490,7 @@
     refreshStats.lastRenderMs = clock() - started;
   }
 
-  // Live refreshes keep expanded rows open and the list where it was, when the same rows remain.
+  // Renders keep expanded rows open and the list where it was, when the same rows remain.
   const rowKeys = row => String(row?.dataset?.rowKeys ?? '').split('\n').filter(Boolean);
   const ownDetails = row => [...(row.children ?? [])].find(child => child.tagName === 'DETAILS');
   function captureBrowserContext() {

@@ -363,7 +363,7 @@
       // Source filters mean "not combined with the other source" in both display modes.
       if (filter === 'both' && g.matchState !== 'matched' || filter === 'historical' && (g.source !== 'historical' || g.matchState === 'matched')
         || filter === 'native' && (g.source !== 'native' || g.matchState === 'matched') || filter === 'ambiguous' && g.matchState !== 'ambiguous' && g.matchState !== 'conflicting'
-        || filter === 'repeat' && g.sameNamePurchases < 2 || filter === 'excluded' && !g.excluded) continue;
+        || filter === 'repeat' && g.sameNamePurchases < 2 || filter === 'excluded' && !g.excluded || filter === 'undated' && g.purchasedAt !== null) continue;
       let nameMatch = false, matches = [];
       if (q) {
         nameMatch = scope !== 'title' && g.nameLower.includes(q);

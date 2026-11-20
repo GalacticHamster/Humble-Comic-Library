@@ -1002,7 +1002,7 @@
     const intro = make('div', { className: 'library-import-description' });
     const help = make('details'), helpText = make('p', { textContent: 'Purchased on Humble means your Humble Library lists the item as bought by this account; it does not mean a Steam or other key was activated. Gifted, revoked and temporary-access items are not counted as purchases. Items Humble shows without enough detail are not saved and can be added by a later full sync. You can pause and continue later, even after closing the browser.' });
     help.append(make('summary', { textContent: 'What the sync saves' }), helpText);
-    intro.append(make('strong', { textContent: 'Humble Library Extension' }), ' ', make('span', { textContent: 'Sync your purchases from this Library page. Nothing is removed: earlier purchases, corrections and history stay as they are.' }), help);
+    intro.append(make('strong', { textContent: 'Humble Library' }), ' ', make('span', { textContent: 'Sync your purchases from this Library page. Nothing is removed: earlier purchases, corrections and history stay as they are.' }), help);
     // First sync for a saved account binds it to the signed-in Humble account; later syncs are checked against that binding.
     const account = make('p', { className: 'hcl-sync-account' });
     const label = make('label', { className: 'hcl-sync-confirm' }), confirm = make('input', { type: 'checkbox' }), accountName = make('span');
