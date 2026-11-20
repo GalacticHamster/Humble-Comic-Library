@@ -763,6 +763,8 @@
     if(global.HumbleLibraryEntitlements)libraryEntitlements=global.HumbleLibraryEntitlements.collection(value.libraryEntitlements);
     else if(value.libraryEntitlements?.scopes?.length)throw Error('Library entitlement validation is unavailable.');
     const reviews = Object.hasOwn(value, 'humbleKeyReviews') ? {humbleKeyReviews: checkedKeyReviews(value.humbleKeyReviews)} : {};
+    // Optional in version 9 backups; older backups have no wishlist. Read by the restore operation only.
+    if (value.wishlistItems !== undefined) normalizeWishlist(value.wishlistItems);
     return { humbleAccountId:value.accountId??null, libraryItems, purchaseSummaries, keyReminders, keyReminderScan, lastImport, mediaImportVersion, customCollectionMappings, historicalLibraryItems, historicalPurchaseSummaries, humbleProfileLabel, profileArchives, mediaTypeOverrides, rejectedPurchaseItems, libraryEntitlements, ...reviews };
   }
 
@@ -775,8 +777,104 @@
       historicalItems: saved.historicalLibraryItems, historicalPurchases: saved.historicalPurchaseSummaries, profileLabel:saved.humbleProfileLabel, profileArchives:saved.profileArchives,
       mediaTypeOverrides: saved.mediaTypeOverrides ?? {}, rejectedPurchaseItems: saved.rejectedPurchaseItems ?? [],
       ...(Object.hasOwn(state, 'humbleKeyReviews') ? {humbleKeyReviews: checkedKeyReviews(state.humbleKeyReviews)} : {}),
+      // Full backups carry the wishlist; saved-account snapshots do not, because the wishlist is not per account.
+      ...(Object.hasOwn(state, 'wishlistItems') ? {wishlistItems: normalizeWishlist(state.wishlistItems ?? [])} : {}),
       libraryEntitlements: global.HumbleLibraryEntitlements ? global.HumbleLibraryEntitlements.collection(saved.libraryEntitlements) : saved.libraryEntitlements
     };
+  }
+
+  // Restore adds a backup to what this browser already saved. Records already saved here win and
+  // the backup fills gaps, so an older backup never removes newer purchases, corrections or reminders.
+  // Accounts match only by saved account identity, never by nickname; a saved account that the backup
+  // does not contain is kept as a saved account rather than replaced.
+  function mergeRecords(current, restored, key, combine = (older, newer) => newer) {
+    const out = new Map();
+    for (const record of restored ?? []) out.set(key(record), record);
+    for (const record of current ?? []) { const k = key(record); out.set(k, out.has(k) ? combine(out.get(k), record) : record); }
+    return [...out.values()];
+  }
+  const withProvenance = (older, newer) => older.provenance || newer.provenance
+    ? { ...older, ...newer, provenance: mergeRecords(newer.provenance, older.provenance, origin => JSON.stringify(origin)) }
+    : { ...older, ...newer };
+  function mergeEntitlementCollections(current, restored) {
+    const E = global.HumbleLibraryEntitlements;
+    if (!E || !current?.scopes?.length) return restored;
+    const key = s => JSON.stringify([s.principalId, s.userId]), scopes = new Map((restored?.scopes ?? []).map(s => [key(s), s]));
+    for (const scope of current.scopes) {
+      const old = scopes.get(key(scope));
+      if (!old) {
+        // A local account the backup binds to another Humble account keeps that binding; the current
+        // account's own observations stay in its saved-account snapshot.
+        if (![...scopes.values()].some(s => s.localAccountId.toLowerCase() === scope.localAccountId.toLowerCase())) scopes.set(key(scope), scope);
+        continue;
+      }
+      const observations = new Map(old.observations.map(o => [E.identity(o), o]));
+      for (const o of scope.observations) {
+        const ref = E.identity(o), prior = observations.get(ref), newer = !prior || o.observedAt >= prior.observedAt ? o : prior;
+        const first = [prior?.firstObservedAt, o.firstObservedAt].filter(Boolean).sort()[0];
+        observations.set(ref, { ...newer, ...(first ? { firstObservedAt: first } : {}) });
+      }
+      const orders = old.orders || scope.orders ? { ...(old.orders ?? {}), ...(scope.orders ?? {}), lines: { ...(old.orders?.lines ?? {}), ...(scope.orders?.lines ?? {}) } } : undefined;
+      scopes.set(key(scope), { ...old, observations: [...observations.values()], lastScan: scope.lastScan ?? old.lastScan, sync: scope.sync ?? old.sync, ...(orders ? { orders } : {}) });
+    }
+    return E.collection({ version: 1, scopes: [...scopes.values()] });
+  }
+  function mergeAccountState(current, restored) {
+    const keys = rows => new Set((rows ?? []).map(catalogItemKey));
+    const currentActive = keys(current.libraryItems), currentHistory = keys(current.historicalLibraryItems);
+    return {
+      ...restored,
+      // The current saved state decides whether a title is current or in the history archive.
+      libraryItems: mergeRecords(current.libraryItems, restored.libraryItems.filter(item => !currentHistory.has(catalogItemKey(item))), catalogItemKey, withProvenance),
+      historicalLibraryItems: mergeRecords(current.historicalLibraryItems, restored.historicalLibraryItems.filter(item => !currentActive.has(catalogItemKey(item))), catalogItemKey, withProvenance),
+      purchaseSummaries: mergeRecords(current.purchaseSummaries, restored.purchaseSummaries, p => p.purchaseKey),
+      historicalPurchaseSummaries: mergeRecords(current.historicalPurchaseSummaries, restored.historicalPurchaseSummaries, p => p.purchaseKey),
+      keyReminders: mergeRecords(current.keyReminders, restored.keyReminders, r => r.id),
+      keyReminderScan: current.keyReminderScan ?? restored.keyReminderScan,
+      lastImport: current.lastImport ?? restored.lastImport,
+      // The lower version keeps older imported titles eligible for the media upgrade.
+      mediaImportVersion: Math.min(current.mediaImportVersion ?? 1, restored.mediaImportVersion ?? 1),
+      customCollectionMappings: mergeRecords(current.customCollectionMappings, restored.customCollectionMappings, m => m.collectionTitle.trim().toLowerCase()),
+      mediaTypeOverrides: { ...(restored.mediaTypeOverrides ?? {}), ...(current.mediaTypeOverrides ?? {}) },
+      rejectedPurchaseItems: mergeRecords(current.rejectedPurchaseItems, restored.rejectedPurchaseItems, r => JSON.stringify([r.purchaseKey, r.providerItemId ?? '', r.title])),
+      libraryEntitlements: mergeEntitlementCollections(current.libraryEntitlements, restored.libraryEntitlements)
+    };
+  }
+  function mergeRestoredLibrary(current, restored) {
+    const id = value => value ? String(value).toLowerCase() : '';
+    // Saved data that no longer passes backup validation is still kept as it is, never dropped.
+    const snapshot = state => { const plain = { ...LIBRARY_STATE_DEFAULTS, ...state, profileArchives: [] }; try { return restoreBackupState(createLibraryBackup(plain)); } catch { return plain; } };
+    const ownEntitlements = state => Boolean(state.humbleAccountId) && (state.libraryEntitlements?.scopes ?? []).some(s => id(s.localAccountId) === id(state.humbleAccountId) && s.observations.length);
+    const hasData = state => Boolean(state.libraryItems?.length || state.historicalLibraryItems?.length || state.purchaseSummaries?.length || state.keyReminders?.length || ownEntitlements(state));
+    const { wishlistItems, humbleKeyReviews, ...active } = current;
+    const sources = [{ label: current.humbleProfileLabel, state: snapshot(active) },
+      ...(current.profileArchives ?? []).map(entry => ({ label: entry.profileLabel, state: snapshot({ ...entry.backup, libraryItems: entry.backup.items, purchaseSummaries: entry.backup.purchases, historicalLibraryItems: entry.backup.historicalItems, historicalPurchaseSummaries: entry.backup.historicalPurchases, customCollectionMappings: entry.backup.collectionMappings, humbleAccountId: entry.backup.accountId ?? null, humbleProfileLabel: entry.profileLabel }) }))];
+    let next = { ...restored, profileArchives: [...restored.profileArchives] };
+    const labels = () => new Set([next.humbleProfileLabel, ...next.profileArchives.map(entry => entry.profileLabel)]);
+    for (const { label, state } of sources) {
+      const sid = id(state.humbleAccountId);
+      if (sid && sid === id(next.humbleAccountId)) { next = { ...mergeAccountState(state, next), profileArchives: next.profileArchives }; continue; }
+      const index = sid ? next.profileArchives.findIndex(entry => id(entry.backup.accountId) === sid) : -1;
+      if (index >= 0) {
+        const entry = next.profileArchives[index], merged = mergeAccountState(state, restoreBackupState({ ...entry.backup, profileArchives: [] }));
+        next.profileArchives[index] = { profileLabel: entry.profileLabel, backup: createLibraryBackup({ ...merged, humbleProfileLabel: entry.profileLabel, profileArchives: [] }) };
+        continue;
+      }
+      if (!hasData(state)) continue;
+      const taken = labels(); let name = label || 'Account before restore';
+      if (taken.has(name)) { const base = `${name} (before restore)`; name = base; for (let n = 2; taken.has(name); n++) name = `${base} ${n}`; }
+      next.profileArchives.push({ profileLabel: name, backup: createLibraryBackup({ ...state, humbleProfileLabel: name, profileArchives: [] }) });
+    }
+    if (next.profileArchives.length > 100) throw new Error('Too many saved accounts. Export a backup first.');
+    // Library sync observations are saved per Humble account; keep every account's newer observations.
+    next.libraryEntitlements = mergeEntitlementCollections(current.libraryEntitlements, next.libraryEntitlements);
+    return next;
+  }
+  // Wishes already saved here win; the backup adds the ones that are missing.
+  function mergeWishlists(current, restored) {
+    const merged = new Map();
+    for (const item of [...normalizeWishlist(restored ?? []), ...normalizeWishlist(current ?? [])]) merged.set(catalogItemKey(item), item);
+    return normalizeWishlist([...merged.values()].slice(0, 5000));
   }
 
   function manualTitleImportState(value) {
@@ -1204,6 +1302,19 @@
           throw error;
         }
       }
+      if(operation==='restore'){
+        // Adds a full backup to the saved library (mergeRestoredLibrary). Replace remains for manual title lists.
+        const [backup]=args,restored=restoreBackupState(backup);
+        const current=await area.get({...LIBRARY_STATE_DEFAULTS,humbleKeyReviews:{},wishlistItems:[]});
+        const merged=mergeRestoredLibrary(current,restored),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',merged):merged;
+        const retirement=await globalThis.GalacticPurchaseSync?.restorationPatch(area,{humble:[replacement.humbleAccountId,...replacement.profileArchives.map(a=>a.backup.accountId)]});
+        // Newer review decisions win, so an older backup cannot undo a later dismissal, snooze or restore.
+        const reviews=new Map(Object.entries(checkedKeyReviews(current.humbleKeyReviews)));
+        for(const [ref,review] of Object.entries(restored.humbleKeyReviews??{})){const existing=reviews.get(ref);if(!existing||Date.parse(review.updatedAt)>Date.parse(existing.updatedAt))reviews.set(ref,review);}
+        const wishlistItems=backup.wishlistItems===undefined?normalizeWishlist(current.wishlistItems):mergeWishlists(current.wishlistItems,backup.wishlistItems);
+        await area.set({galacticPurchaseAccountIds:{},galacticPurchaseSync:{},...retirement?.patch,...replacement,humbleKeyReviews:checkedKeyReviews(Object.fromEntries(reviews)),wishlistItems,hclPurchaseFocus:null,[controlKey]:null,...invalidateEntitlements,[shareScopeKey]:null});Promise.resolve().then(()=>onInvalidated(retirement?.retired??[])).catch(()=>{});
+        return {items:replacement.libraryItems.length,purchases:replacement.purchaseSummaries.length,reminders:replacement.keyReminders.length,wishes:wishlistItems.length,accounts:1+replacement.profileArchives.length};
+      }
       if(operation==='replace'){
         const parsed=restoreBackupState(createLibraryBackup(args[0])),replacement=globalThis.GalacticPurchaseSync?await GalacticPurchaseSync.restoredAccounts('hb',parsed):parsed;const retirement=await globalThis.GalacticPurchaseSync?.restorationPatch(area,{humble:[replacement.humbleAccountId,...replacement.profileArchives.map(a=>a.backup.accountId)]});
         if (Object.hasOwn(replacement, 'humbleKeyReviews')) {
@@ -1367,7 +1478,7 @@
     CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, validKeyReview, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
-    createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
+    createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, mergeRestoredLibrary, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
   };
 }(globalThis));

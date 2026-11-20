@@ -1627,10 +1627,11 @@
     const [file] = backupFileInput.files;
     if (!file) return;
     try {
-      const replacement = HumbleComicLibrary.restoreBackupState(JSON.parse(await file.text()));
-      if (!confirm('Restore this backup and replace all current library items, purchases, reminders, scan history, the history archive, and custom mappings?')) return;
-      await HumbleComicLibrary.storageSet({ ...replacement, hclPurchaseFocus: null });
-      restoreStatus.textContent = `Restored ${replacement.libraryItems.length} items, ${replacement.purchaseSummaries.length} purchases, and ${replacement.keyReminders.length} reminders. Previous library data replaced.`;
+      const backup = JSON.parse(await file.text());
+      HumbleComicLibrary.restoreBackupState(backup);
+      if (!confirm(`Add this backup to your saved library?\n\nPurchases, titles, reminders, corrections and saved accounts already in this browser are kept; the backup adds what is missing. A saved account that is not in the backup stays as a saved account.\n\nWishlist: ${backup.wishlistItems === undefined ? 'this backup has no wishlist, so your wishlist does not change' : 'wishes missing here are added; your current wishes are kept'}.\nReminder reviews: the newer decision is kept for each key.`)) return;
+      const result = await HumbleComicLibrary.storageRequest('restore', backup);
+      restoreStatus.textContent = `Backup restored. The active account now has ${result.items} items, ${result.purchases} purchases and ${result.reminders} reminders; ${result.wishes} wishlist items; ${result.accounts} saved account${result.accounts === 1 ? '' : 's'}. Nothing already saved was removed.`;
       await render();
     } catch (error) {
       restoreStatus.textContent = `Restore failed: ${error.message}`;
@@ -1689,7 +1690,7 @@
   });
 
   document.querySelector('#export-library').addEventListener('click', async () => {
-    const saved = await chrome.storage.local.get({...HumbleComicLibrary.LIBRARY_STATE_DEFAULTS, humbleKeyReviews: {}});
+    const saved = await chrome.storage.local.get({...HumbleComicLibrary.LIBRARY_STATE_DEFAULTS, humbleKeyReviews: {}, wishlistItems: []});
     const contents = JSON.stringify(HumbleComicLibrary.createLibraryBackup(saved), null, 2);
     const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'humble-library-export.json' });

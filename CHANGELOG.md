@@ -4,7 +4,7 @@
 
 - Key and access reminders combine Humble Library observations and earlier imports in one searchable, scrollable list. Cards open the matching item or purchase when available and support dismissal, snoozing and restoration.
 
-- Library backups include dismissed and snoozed key reminders. Restoring an older backup keeps newer reminder decisions.
+- Library backups include dismissed and snoozed key reminders and the wishlist. Restoring a backup adds it to the saved library instead of replacing it, as in Fanatical Library: purchases, Library sync records, titles, corrections, custom mappings, wishes and saved accounts already in the browser are kept and the backup fills in what is missing. A saved account that the backup does not contain stays as a saved account. Each key reminder keeps its newer decision. The backup format stays at version 9; older versions ignore the added wishlist. Manual title-list imports still replace the library after confirmation.
 
 - Titles can be filtered to Bought more than once, using the same purchase count as each title's heading, as in Fanatical Library.
 - Options lists Keys in your Humble Library: keys the Library sync records as not yet redeemed on Humble, with the date Humble lists them as available until, and expired keys separately. Dismiss, snooze and restore change only this list, as in Fanatical Library. Activation on Steam or another store remains unknown. Reminders saved by earlier purchase imports are unchanged, and Galactic Library still receives these keys with an unknown key status.

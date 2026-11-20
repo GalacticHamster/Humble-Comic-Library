@@ -114,7 +114,7 @@ test('wishlist options validate before writing, preserve bibliographic identity 
   assert.equal(target.stored.wishlistItems.length, 1);
 });
 
-test('options export and restore round trip preserves complete library state and replaces unrelated reminders', async () => {
+test('options export and restore round trip preserves complete library state', async () => {
   const expected = libraryState();
   Object.assign(expected.libraryItems[0],{entitlement:'third-party-key',entitlementId:'software:0',keyType:'Publisher',keyStatus:'expired',expiresAt:'2026-09-30T00:00:00.000Z',keyCheckedAt:'2026-10-01T12:00:00.000Z'});
   Object.assign(expected.libraryItems[0].provenance[0],{entitlement:'third-party-key',entitlementId:'software:0',keyStatus:'expired',expiresAt:'2026-09-30T00:00:00.000Z'});
@@ -123,7 +123,6 @@ test('options export and restore round trip preserves complete library state and
   const backup = await source.export();
   assert.equal(backup.version, 9);
   const target = options({
-    ...libraryState(), keyReminders: [{ id: 'unrelated', purchaseKey: 'other', title: 'Other item' }],
     showDiagnostics: true, galacticLibraryExtensionId: 'local-connection', hclPurchaseFocus: { purchaseKey: 'other' }
   });
   await target.load('#restore-file', backup);
@@ -139,7 +138,7 @@ test('options export and restore round trip preserves complete library state and
   assert.deepEqual(reexport, backup);
 });
 
-test('legacy backups clear absent data, preserve available provenance, and reset missing media scan version', async () => {
+test('legacy backups restore available provenance, reset missing media scan version, and keep the unidentified current library as a saved account', async () => {
   const target = options(libraryState());
   const legacy = { version: 5, items: libraryState().libraryItems, purchases: [] };
   await target.load('#restore-file', legacy);
@@ -152,6 +151,8 @@ test('legacy backups clear absent data, preserve available provenance, and reset
   assert.equal(target.stored.mediaImportVersion, 1);
   assert.deepEqual(target.stored.historicalLibraryItems, []);
   assert.deepEqual(target.stored.historicalPurchaseSummaries, []);
+  assert.deepEqual(target.stored.profileArchives.map(entry => entry.profileLabel), ['fixture']);
+  assert.deepEqual(target.stored.profileArchives[0].backup.purchases, libraryState().purchaseSummaries);
 });
 
 test('manual title import is separate, deduplicates kinds, and clears old purchase and reminder state', async () => {
@@ -175,7 +176,7 @@ test('manual title import is separate, deduplicates kinds, and clears old purcha
   assert.deepEqual(target.stored, before);
 });
 
-test('version-6 backups remain restorable and clear any unrelated history archive', async () => {
+test('version-6 backups remain restorable without a history archive', async () => {
   const source = options(libraryState());
   const legacy = await source.export();
   legacy.version = 6;
