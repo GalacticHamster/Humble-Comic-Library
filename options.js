@@ -1500,9 +1500,11 @@
   function renderKeyReminders() {
     const filter = reminderFilter.value || 'active', query = (reminderSearch.value || '').trim().toLowerCase();
     const filtered = reminderState.rows.filter(row => {
+      // Active: a key known not to be redeemed, not dismissed, snoozed or past its deadline (as in Fanatical Library).
       const matchesView = ['dismissed', 'snoozed'].includes(filter) ? row.reviewState === filter
-        : row.reviewState === 'active' && (filter === 'active' || filter === 'expired' && row.expired
-          || filter === 'expiring' && row.expiring || filter === 'unknown' && row.status === 'needs-review');
+        : filter === 'hidden' ? row.reviewState !== 'active'
+        : row.reviewState === 'active' && (filter === 'active' && !row.expired && row.status !== 'needs-review' || filter === 'expired' && row.expired
+          || filter === 'expiring' && row.expiring || filter === 'unknown' && row.status === 'needs-review' && !row.expired);
       return matchesView && [row.title, row.bundle].some(value => value?.toLowerCase().includes(query));
     });
     keyReminderSummary.textContent = filtered.length
@@ -1524,11 +1526,11 @@
     const heading = part('div', 'key-reminder-heading', '');
     const badge = row.reviewState === 'dismissed' ? 'Dismissed' : row.reviewState === 'snoozed' ? 'Snoozed until ' + reminderDate(row.review.until)
       : row.status === 'expired' ? 'Expired' : row.expired ? 'Past reported deadline' : row.expiring ? 'Expiring soon'
-      : row.status === 'needs-review' ? 'Needs review' : row.native ? 'Not yet redeemed' : 'Reported unrevealed';
+      : row.status === 'needs-review' ? 'Key status unknown' : row.native ? 'Not yet redeemed' : 'Reported unrevealed';
     heading.append(part('span', '', row.title), part('span', 'key-reminder-status', badge));
     const purchaseDate = Number.isFinite(Date.parse(row.purchasedAt)) ? formatPurchaseDate(Date.parse(row.purchasedAt)) : '';
-    const context = [row.bundle || 'Humble purchase', purchaseDate ? 'Purchased ' + purchaseDate : ''].filter(Boolean).join(' \u00b7 ');
-    const evidence = row.status === 'needs-review' ? 'Redemption status unknown.'
+    const context = [row.bundle || 'Humble purchase', purchaseDate ? 'Purchased ' + purchaseDate : 'Purchase date unknown'].join(' \u00b7 ');
+    const evidence = row.status === 'needs-review' ? (row.native ? 'Humble does not report whether this key was redeemed.' : 'Redemption status unknown.')
       : row.status === 'expired' ? 'Humble reported this key expired.'
       : row.native ? 'Humble reports this key as not yet redeemed.' : 'Earlier import reported this key unrevealed.';
     const details = [evidence, row.keyType ? 'Key type: ' + row.keyType + '.' : '', row.directRedeem ? 'Direct redemption reported.' : '',

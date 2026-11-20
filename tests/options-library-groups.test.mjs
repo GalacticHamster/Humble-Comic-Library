@@ -480,3 +480,25 @@ test('Titles: Bought more than once uses the same purchase count as each title h
   assert.deepEqual(ui.rows().map(heading), ['Bought Twice — 2 purchases'], 'two Library purchases count twice; an order combined with its Library purchase, or one that may be, counts once');
   assert.equal(ui.writes.length, 0);
 });
+
+test('Active lists actionable keys only; unknown status, expired keys and reviewed reminders have their own views', async () => {
+  const reminder = (id, title, extra = {}) => ({ id, purchaseKey: id, title, sourceBundle: 'Synthetic Bundle', keyType: 'Steam', status: 'unrevealed', directRedeem: false, isExpired: false, checkedAt: '2026-01-01T00:00:00.000Z', ...extra });
+  const ui = await harness({ libraryItems: [], keyReminders: [reminder('K1', 'Actionable'), reminder('K2', 'Unknown status', { status: 'needs-review' }), reminder('K3', 'Expired key', { isExpired: true }),
+    reminder('K4', 'Past deadline', { expiresAt: '2020-01-01T00:00:00.000Z' }), reminder('K5', 'Dated', { purchasedAt: '2025-03-01T12:00:00.000Z' })], keyReminderScan: { complete: true, checkedAt: '2026-01-01T00:00:00.000Z' } });
+  const titles = () => ui.get('#key-reminder-list').children.map(card => card.children[0].children[0].textContent).sort();
+  assert.deepEqual(titles(), ['Actionable', 'Dated']);
+  await ui.change('#key-reminder-filter', 'unknown');
+  assert.deepEqual(titles(), ['Unknown status']);
+  assert.equal(ui.get('#key-reminder-list').children[0].children[0].children[1].textContent, 'Key status unknown');
+  await ui.change('#key-reminder-filter', 'expired');
+  assert.deepEqual(titles(), ['Expired key', 'Past deadline']);
+  await ui.change('#key-reminder-filter', 'active');
+  const sources = ui.get('#key-reminder-list').children.map(card => card.children[1].textContent).sort();
+  assert.deepEqual(sources, ['Synthetic Bundle · Purchase date unknown', 'Synthetic Bundle · Purchased 2025-03-01']);
+  const card = ui.get('#key-reminder-list').children.find(c => c.children[0].children[0].textContent === 'Actionable');
+  await card.children.at(-1).children.find(b => b.textContent === 'Dismiss reminder').listeners.click();
+  const other = ui.get('#key-reminder-list').children.find(c => c.children[0].children[0].textContent === 'Dated');
+  await other.children.at(-1).children.find(b => b.textContent === 'Snooze 7 days').listeners.click();
+  await ui.change('#key-reminder-filter', 'hidden');
+  assert.deepEqual(titles(), ['Actionable', 'Dated']);
+});

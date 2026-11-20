@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Key reminders follow the same rules as Fanatical Library. Active lists keys known not to be redeemed that are not dismissed, snoozed or past their deadline. Library keys whose redemption Humble does not report are now listed under Unknown key status instead of being left out, and earlier-import keys that need review move there from Active; expired keys stay under Expired. A Dismissed and snoozed view lists both. Library key cards show the purchase date matched from Order History, or say the date is unknown. A Library key and an earlier-import reminder are combined only when they point to the same Library item.
 - Key and access reminders combine Humble Library observations and earlier imports in one searchable, scrollable list. Cards open the matching item or purchase when available and support dismissal, snoozing and restoration.
 
 - Library backups include dismissed and snoozed key reminders and the wishlist. Restoring a backup adds it to the saved library instead of replacing it, as in Fanatical Library: purchases, Library sync records, titles, corrections, custom mappings, wishes and saved accounts already in the browser are kept and the backup fills in what is missing. A saved account that the backup does not contain stays as a saved account. Each key reminder keeps its newer decision. The backup format stays at version 9; older versions ignore the added wishlist. Manual title-list imports still replace the library after confirmation.

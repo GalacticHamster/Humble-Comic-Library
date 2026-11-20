@@ -421,11 +421,16 @@
     const rows = [];
     for (const s of E.collection(state?.libraryEntitlements ?? undefined).scopes) {
       if (s.localAccountId !== (state.humbleAccountId ?? null) || s.localAccountId === null && (s.profileLabel !== (state.humbleProfileLabel ?? '') || state.libraryItems?.length)) continue;
+      // Purchase dates matched from Order History, as Bundles & Orders shows them; otherwise unknown.
+      const dated = E.orderDates ? E.orderDates(s) : new Map();
       for (const r of s.observations) {
-        if (r.namespace === 'download_drm_free' || r.purchaseStatus !== 'purchased' || r.eligibility?.redeemedAt?.state !== 'none') continue;
-        const status = r.eligibility.expired === true ? 'expired' : 'unrevealed', ref = E.identity(r), review = validKeyReview(reviews?.[ref]) ? reviews[ref] : null;
+        // A key Humble lists as not redeemed is actionable. One whose redemption Humble does not report
+        // is listed under Unknown key status (basis needs-review), never as Active and never dropped.
+        const redeemed = r.eligibility?.redeemedAt?.state;
+        if (r.namespace === 'download_drm_free' || r.purchaseStatus !== 'purchased' || !['none', 'unknown'].includes(redeemed)) continue;
+        const status = r.eligibility.expired === true ? 'expired' : redeemed === 'unknown' ? 'needs-review' : 'unrevealed', ref = E.identity(r), review = validKeyReview(reviews?.[ref]) ? reviews[ref] : null;
         const hidden = Boolean(review && review.basis === status && (review.action === 'dismissed' || review.action === 'snoozed' && Date.parse(review.until) > now));
-        rows.push({ ref, title: r.title, bundle: r.parentTitle ?? '', status, hidden, review,
+        rows.push({ ref, title: r.title, bundle: r.parentTitle ?? '', status, hidden, review, purchasedAt: dated.get(r.parentId)?.purchasedAt ?? null,
           itemUrl: entitlementRoute(r.nativeId), purchaseUrl: purchaseRoute(r.parentId),
           availableUntil: r.eligibility.unavailableAfter?.state === 'date' ? r.eligibility.unavailableAfter.value : null, checkedAt: r.observedAt });
       }
@@ -469,7 +474,7 @@
       row.targets.push(...older.targets);
       row.combined = true;
       row.destination = older.destination;
-      row.purchasedAt = older.purchasedAt;
+      row.purchasedAt ??= older.purchasedAt;
       row.keyType = older.keyType;
       row.directRedeem = older.directRedeem;
       row.bundle ||= older.bundle;

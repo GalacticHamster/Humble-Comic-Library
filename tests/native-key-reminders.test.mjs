@@ -8,7 +8,7 @@ const key=(E,n,{title='Synthetic Game '+n,namespace='steam',redeemedAt={state:'n
 const state=observations=>({libraryEntitlements:entitlements(observations),humbleAccountId:ACCOUNT,humbleProfileLabel:'Main',libraryItems:[]});
 const plain=value=>JSON.parse(JSON.stringify(value));
 
-test('only keys Humble lists as not redeemed are reminders, with Humble\'s deadline kept separate from activation',()=>{
+test('keys Humble lists as not redeemed are reminders, unknown redemption is listed for review, and Humble\'s deadline stays separate from activation',()=>{
  const {E,B}=load();
  const rows=plain(B.keyReminders(state([
   key(E,1,{unavailableAfter:{state:'date',value:'2027-01-31T00:00:00.000Z'}}),
@@ -20,7 +20,8 @@ test('only keys Humble lists as not redeemed are reminders, with Humble\'s deadl
  ]),{},Date.parse('2026-11-19T00:00:00Z')));
  assert.deepEqual(rows.map(r=>[r.title,r.status,r.availableUntil,r.hidden]),[
   ['Synthetic Game 1','unrevealed','2027-01-31T00:00:00.000Z',false],
-  ['Synthetic Game 2','expired',null,false]]);
+  ['Synthetic Game 2','expired',null,false],
+  ['Synthetic Game 4','needs-review',null,false]]);
  assert.equal(rows[0].bundle,'Synthetic Bundle 1');assert.equal(rows[0].checkedAt,'2026-11-13T03:16:00.000Z');
  assert(!JSON.stringify(rows).match(/activat/i),'no activation state is invented');
 });
@@ -93,4 +94,11 @@ test('reviews are validated before they are saved',async()=>{
  await restore(backup);
  assert.deepEqual(area.values.humbleKeyReviews[ref],newer,'a later explicit Restore wins over an old dismissal');
  assert.throws(()=>H.restoreBackupState({...backup,humbleKeyReviews:{[ref]:{...good,extra:'unexpected'}}}),/key reminder review/);
+});
+
+test('Library key reminders carry the purchase date Order History matched, and stay undated without one',()=>{
+ const {E,B}=load(),s=state([key(E,1),key(E,2)]);
+ s.libraryEntitlements.scopes[0].orders={lines:{a:{name:'Synthetic Bundle 1',at:'2024-01-10T00:00:00.000Z'}},newest:null,checkedAt:null,resume:null};
+ const rows=plain(B.keyReminders(s,{},Date.parse('2026-11-19T00:00:00Z')));
+ assert.deepEqual(rows.map(r=>[r.title,r.purchasedAt]),[['Synthetic Game 1','2024-01-10T00:00:00.000Z'],['Synthetic Game 2',null]]);
 });
