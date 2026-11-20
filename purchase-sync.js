@@ -131,7 +131,7 @@
      if(!applied){state=await update(provider,s=>s?.id===state.id?{...s,inFlight:{direction:'outgoing',source:local.fingerprint,target:other.fingerprint}}:s);applied=await service.request(state.peerId,{type:PREFIX+'APPLY',provider,id:state.id,sourceFingerprint:local.fingerprint});}skipped+=Number(applied.skipped??0);
      await guard(provider,state);const after=await getMapped(provider,state),end=await remote(provider,state),endOther=end.accounts.find(a=>a.stableId===state.remoteId);
      if(!endOther)throw Error('Mapped account is unavailable.');
-     if(after.fingerprint!==applied.sourceFingerprint||applied.beforeFingerprint!==other.fingerprint||endOther.fingerprint!==applied.afterFingerprint||endOther.fingerprint!==other.fingerprint)continue;
+     if(after.fingerprint!==applied.sourceFingerprint||applied.beforeFingerprint!==other.fingerprint||endOther.fingerprint!==applied.afterFingerprint)continue;
      local=after;other=endOther;
     }
     if(skipped&&(!local.count&&other.count||!other.count&&local.count))throw Error('No purchases could be synchronized into the empty library. Some saved purchase information is unsupported or incomplete; review Advanced.');
