@@ -100,7 +100,7 @@ async function installedRuntimeChecks(phase){
   const sagaBox=sagaItems[0].getBoundingClientRect(),buttonBox=saga.getBoundingClientRect();
   check(saga.textContent==='Open on Humble'&&buttonBox.right>sagaBox.right-4&&buttonBox.top<sagaBox.bottom&&buttonBox.bottom>sagaBox.top,'the verified link sits at the right of its purchase row, as in Bundles & Orders');
   saga.click();check(opened.at(-1)===content(1),'Open on Humble opens Saga #1’s own Library item page');
-  await search('old comic');check(rowFor('Old Comic')&&!rowFor('Old Comic').querySelector('.library-open-humble'),'a historical-only title has no link');
+  await search('old comic');check(rowFor('Old Comic')&&[...rowFor('Old Comic').querySelectorAll('.library-open-humble')].map(b=>b.textContent).join('|')==='Find in Library','a historical-only title has no item link, only Find in Library');
   await search('gift');check(!rows().some(r=>/Gift Comic/.test(r.textContent)),'a gifted copy is not offered as an owned title');
   await search('new comic');check(rowFor('New Comic')?.querySelector('.library-title-purchases .library-open-humble')&&(rowFor('New Comic').querySelector('.library-title-purchases .library-open-humble').click(),opened.at(-1)===content(3)),'a title only in the Humble Library links to its item');
 

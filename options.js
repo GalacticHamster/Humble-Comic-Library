@@ -1033,7 +1033,7 @@
       if (newKind === kind) return;
       try {
         await change(newKind);
-        await render();
+        await render({ preserve: true });
       } catch (err) {
         alert(`Failed to change media type: ${err.message}`);
       }
@@ -1048,7 +1048,7 @@
         e.stopPropagation();
         try {
           await reset();
-          await render();
+          await render({ preserve: true });
         } catch (err) {
           alert(`Failed to reset media type: ${err.message}`);
         }
@@ -1252,7 +1252,7 @@
 
   // A live refresh (storage changed elsewhere) updates data only: form fields, unsent choices and
   // connection results on this page are left as the user has them.
-  async function renderNow({ live = false } = {}) {
+  async function renderNow({ live = false, preserve = false } = {}) {
     const started = clock();
     const rebuild = !live || modelDirty;
     modelDirty = false;
@@ -1466,9 +1466,9 @@
         }
       } catch (_) {}
     }
-    // Every render keeps expanded rows open and the list in place, including after a reminder review or a media
-    // change, as in Fanatical Library. Rows that no longer exist are simply not reopened.
-    const context = captureBrowserContext();
+    // Background refreshes, reminder reviews and media changes keep expanded rows open and the list in place,
+    // as in Fanatical Library. Rows that no longer exist are simply not reopened.
+    const context = live || preserve ? captureBrowserContext() : null;
     renderLibraryBrowser(items);
     restoreBrowserContext(context);
     mappingCount.textContent = `${HumbleCollectionMappings.builtIn.length} built-in verified collection mapping${HumbleCollectionMappings.builtIn.length === 1 ? '' : 's'} and ${customCollectionMappings.length} custom mapping${customCollectionMappings.length === 1 ? '' : 's'} stored locally.`;
@@ -1619,7 +1619,7 @@
         until: action === 'snoozed' ? new Date(now + 7 * 86400000).toISOString() : null}]));
       try {
         await HumbleComicLibrary.storageRequest('patch', {humbleKeyReviews: updates}, scope);
-        await render();
+        await render({ preserve: true });
         reminderActionStatus.textContent = 'Reminder review saved.';
       } catch (error) {
         if (control) control.disabled = false;
