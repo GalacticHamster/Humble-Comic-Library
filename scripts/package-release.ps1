@@ -74,6 +74,20 @@ if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force 
 
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+# Package text with LF line endings regardless of the checkout's line-ending conversion, so the same commit
+# always produces the same archive. Only CR LF pairs change; binary files are copied unchanged.
+$textExtensions = @('.js', '.mjs', '.css', '.html', '.json', '.txt', '.md', '.svg')
+function Get-PackageBytes([byte[]]$bytes, [string]$relativePath) {
+  $name = [System.IO.Path]::GetFileName($relativePath)
+  if (-not ($textExtensions -contains [System.IO.Path]::GetExtension($name).ToLowerInvariant() -or $name -in @('LICENSE', 'NOTICE'))) { return ,$bytes }
+  $normalized = [System.IO.MemoryStream]::new($bytes.Length)
+  for ($index = 0; $index -lt $bytes.Length; $index++) {
+    if ($bytes[$index] -eq 13 -and $index + 1 -lt $bytes.Length -and $bytes[$index + 1] -eq 10) { continue }
+    $normalized.WriteByte($bytes[$index])
+  }
+  return ,$normalized.ToArray()
+}
 $fileStream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
 $archive = $null
 try {
@@ -85,11 +99,11 @@ try {
     $output = $entry.Open()
     try {
       if ($relativePath -eq 'manifest.json' -and $Target -eq 'Firefox') {
-        $manifestBytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($manifest | ConvertTo-Json -Depth 20))
+        $manifestBytes = Get-PackageBytes ([System.Text.UTF8Encoding]::new($false).GetBytes(($manifest | ConvertTo-Json -Depth 20))) 'manifest.json'
         $output.Write($manifestBytes, 0, $manifestBytes.Length)
       } else {
-        $input = [System.IO.File]::OpenRead((Join-Path $projectRoot $relativePath))
-        try { $input.CopyTo($output) } finally { $input.Dispose() }
+        $fileBytes = Get-PackageBytes ([System.IO.File]::ReadAllBytes((Join-Path $projectRoot $relativePath))) $relativePath
+        $output.Write($fileBytes, 0, $fileBytes.Length)
       }
     } finally { $output.Dispose() }
   }
