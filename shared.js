@@ -947,6 +947,34 @@
     return {appVersion:typeof ping.appVersion==='string'?ping.appVersion.slice(0,40):'',advertised:Array.isArray(mediaTypes),mediaTypes:mediaTypes??[]};
   }
 
+  // Galactic Library's reminder list (GET_REMINDERS), validated as in Fanatical Library. Read-only: nothing is stored.
+  async function reminderCall(send,message){
+    let timer;
+    try{
+      const response=await Promise.race([send(message),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Connection timed out.')),30000);})]);
+      if(response?.ok!==true)throw Error('Galactic Library rejected the request. Check pairing permission.');
+      if(response.apiVersion!==1)throw Error('Incompatible Galactic Library API version.');
+      return response;
+    }catch(error){if(/^(Connection timed out|Incompatible Galactic|Galactic Library rejected)/u.test(error.message))throw error;throw Error('Galactic Library is unavailable. Check the link in Advanced settings.');}
+    finally{clearTimeout(timer);}
+  }
+  async function loadCentralReminders(send,{provider='humble',offset=0,limit=50}={}){
+    const providers=['steam','gog','epic','amazon-games','audible','kindle','amazon-video','fandango-at-home','kobo','fanatical','humble'];
+    if(provider!==undefined&&provider!==''&&!providers.includes(provider)||!Number.isSafeInteger(offset)||offset<0||offset>1000000||!Number.isSafeInteger(limit)||limit<1||limit>200)throw Error('Invalid reminder page or provider.');
+    const caps=(await reminderCall(send,{type:'GET_STATUS'})).capabilities;if(caps?.entitlementReminders!==true)throw Error('This Galactic Library version does not advertise entitlement reminders.');
+    const response=await reminderCall(send,{type:'GET_REMINDERS',apiVersion:1,offset,limit,...(provider?{provider}:{})});
+    const invalid=()=>{throw Error('Galactic Library returned an invalid reminder page.');};
+    if(!Number.isSafeInteger(response.total)||response.total<0||response.total>10000000||!Array.isArray(response.reminders)||response.reminders.length!==Math.max(0,Math.min(limit,response.total-offset))||response.nextOffset!==(offset+limit<response.total?offset+limit:null)||response.nextOffset!==null&&response.nextOffset>1000000)invalid();
+    const seen=new Set(),safeText=(value,max)=>typeof value==='string'&&value.trim()&&value.length<=max;
+    const reminders=response.reminders.map(row=>{
+      if(!row||!safeText(row.reminderRef,256)||!safeText(row.itemRef,256)||!safeText(row.title,500)||seen.has(row.reminderRef)||!providers.includes(row.provider)||provider&&row.provider!==provider||!['game','game-addon','software','audiobook','book','movie','tv','unknown'].includes(row.mediaType)||!['activation','key-expiry','key-unavailable','access-expiry','temporary-access'].includes(row.kind)||!['information','due-soon','attention'].includes(row.severity))invalid();
+      if(row.dueAt!==null&&(typeof row.dueAt!=='string'||!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/.test(row.dueAt)||!Number.isFinite(Date.parse(row.dueAt))||new Date(row.dueAt).toISOString().slice(0,10)!==row.dueAt.slice(0,10)))invalid();
+      if(['key-expiry','access-expiry'].includes(row.kind)&&row.dueAt===null)invalid();
+      if(row.keyStatus!==undefined||row.keyCheckedAt!==undefined){if(!['unknown','unrevealed'].includes(row.keyStatus)||typeof row.keyCheckedAt!=='string'||!Number.isFinite(Date.parse(row.keyCheckedAt)))invalid();}
+      seen.add(row.reminderRef);return {reminderRef:row.reminderRef,itemRef:row.itemRef,title:row.title,provider:row.provider,mediaType:row.mediaType,kind:row.kind,dueAt:row.dueAt,severity:row.severity,...(row.keyStatus!==undefined?{keyStatus:row.keyStatus,keyCheckedAt:row.keyCheckedAt}:{}),...(row.source==='humble-companion'?{source:'humble-companion',reviewAvailable:false}:{})};
+    });return {total:response.total,nextOffset:response.nextOffset,reminders};
+  }
+
   function isExtensionId(value) {
     const id = String(value ?? '').trim();
     const chromeId = /^[a-p]{32}$/u;
@@ -1506,7 +1534,7 @@
     calendarDay,
     CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, validKeyReview, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
-    COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
+    COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, loadCentralReminders, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,
     createTitleCatalog, createTitleCatalogCsv, LIBRARY_STATE_DEFAULTS, createLibraryBackup, restoreBackupState, mergeRestoredLibrary, manualTitleImportState, mediaOverrideKey, LIBRARY_ITEM_KINDS, isComicItem,
     text, names, validIsbn, bibliographicFields
   };

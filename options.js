@@ -108,6 +108,52 @@
     return HumbleComicLibrary.isExtensionId(value);
   }
 
+  // Galactic Library's own reminder list, paged as in Fanatical Library. Read-only.
+  const centralReminders = { generation: 0, next: null, history: [] };
+  const centralEl = selector => document.querySelector(selector);
+  function resetCentralReminders() {
+    centralReminders.generation++; centralReminders.next = null; centralReminders.history = [];
+    centralEl('#central-reminder-list')?.replaceChildren();
+    const status = centralEl('#central-reminder-status'); if (status) status.textContent = 'Reminders have not been checked.';
+    for (const selector of ['#central-reminder-previous', '#central-reminder-next']) { const b = centralEl(selector); if (b) b.disabled = true; }
+    const load = centralEl('#load-central-reminders'); if (load) load.disabled = false;
+  }
+  async function loadCentralReminderPage(offset = 0, history = []) {
+    const generation = ++centralReminders.generation, provider = centralEl('#central-reminder-provider').value, status = centralEl('#central-reminder-status');
+    for (const selector of ['#load-central-reminders', '#central-reminder-previous', '#central-reminder-next']) centralEl(selector).disabled = true;
+    status.textContent = 'Loading Galactic Library reminders...'; centralEl('#central-reminder-list').replaceChildren();
+    try {
+      const stored = await chrome.storage.local.get({ galacticLibraryExtensionId: '' }), id = HumbleComicLibrary.resolveGalacticId(stored.galacticLibraryExtensionId, chrome.runtime);
+      if (!HumbleComicLibrary.isExtensionId(id)) throw Error('Save a Galactic Library link first.');
+      const page = await HumbleComicLibrary.loadCentralReminders(message => chrome.runtime.sendMessage(id, message), { provider, offset, limit: 50 });
+      const current = await chrome.storage.local.get({ galacticLibraryExtensionId: '' });
+      if (generation !== centralReminders.generation || HumbleComicLibrary.resolveGalacticId(current.galacticLibraryExtensionId, chrome.runtime) !== id) return;
+      centralReminders.next = page.nextOffset; centralReminders.history = history;
+      status.textContent = page.total && page.reminders.length ? `${page.total} reported reminders; showing ${offset + 1}-${offset + page.reminders.length}.` : 'No current reminders reported by Galactic Library. This is not proof of activation or permanent ownership.';
+      const labels = { activation: 'Activation needs confirmation', 'key-expiry': 'Key expiry', 'key-unavailable': 'Key unavailable', 'access-expiry': 'Access expiry', 'temporary-access': 'Temporary access; expiry unknown' };
+      centralEl('#central-reminder-list').replaceChildren(...page.reminders.map(row => {
+        const li = document.createElement('li');
+        li.textContent = `${row.title} (${row.provider}): ${labels[row.kind]}; ${row.dueAt ? HumbleComicLibrary.calendarDay(row.dueAt) : 'deadline not reported'}; ${row.severity}.`;
+        if (row.keyStatus) li.textContent += ` ${row.keyStatus === 'unrevealed' ? 'Key reported unrevealed' : 'Key status unknown'}; checked ${HumbleComicLibrary.calendarDay(row.keyCheckedAt)}. Activation is unknown.`;
+        if (row.source === 'humble-companion') li.textContent += ' Shared by Humble Library; review it in Humble Library or Galactic Library.';
+        return li;
+      }));
+      centralEl('#central-reminder-previous').disabled = !history.length; centralEl('#central-reminder-next').disabled = centralReminders.next === null;
+    } catch (error) {
+      if (generation !== centralReminders.generation) return;
+      centralReminders.next = null; centralReminders.history = []; status.textContent = 'Reminders not checked: ' + error.message;
+    } finally { if (generation === centralReminders.generation) centralEl('#load-central-reminders').disabled = false; }
+  }
+  centralEl('#load-central-reminders')?.addEventListener('click', () => loadCentralReminderPage());
+  centralEl('#central-reminder-provider')?.addEventListener('change', resetCentralReminders);
+  centralEl('#central-reminder-next')?.addEventListener('click', () => loadCentralReminderPage(centralReminders.next, [...centralReminders.history, centralReminders.next - 50]));
+  centralEl('#central-reminder-previous')?.addEventListener('click', () => loadCentralReminderPage(centralReminders.history.at(-1), centralReminders.history.slice(0, -1)));
+  centralEl('#review-central-reminders')?.addEventListener('click', async () => {
+    try { const response = await chrome.runtime.sendMessage({ type: 'HCL_OPEN_GALACTIC_REVIEW' }); if (!response?.ok) throw Error('unavailable'); }
+    catch { centralEl('#central-reminder-status').textContent = 'Could not open Galactic Library. Save and check the link first.'; }
+  });
+  chrome.storage.onChanged?.addListener((changes, area) => { if (area === 'local' && (changes.galacticLibraryExtensionId || changes.humbleProfileLabel || changes.humbleAccountId)) resetCentralReminders(); });
+
   async function testGalacticLibraryLink(id = HumbleComicLibrary.resolveGalacticId(galacticLibraryExtensionId.value,chrome.runtime)) {
     if (!isExtensionId(id)) throw new Error('Enter a valid Chrome extension ID or Firefox add-on ID for Galactic Library.');
     const problem=HumbleComicLibrary.companionTargetProblem(id,chrome.runtime);if(problem)throw Error(problem);

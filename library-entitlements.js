@@ -954,6 +954,23 @@
       cancel() { if (running) { stop = 'cancelled'; emit({ phase: 'cancelling' }); wake(); } return running; }
     };
   }
+  // An exportable Library sync report, like Fanatical Library's scan report: an allowlist of counts, statuses,
+  // coverage and times. It never contains titles, Library or purchase IDs, page signatures, the sync ID,
+  // account names or Humble account identifiers.
+  function syncReport({ checkpoint: cp = null, stored = {}, view = {}, extensionVersion = '', browserFamily = 'unknown', now = new Date() } = {}) {
+    const n = v => Number.isSafeInteger(v) && v >= 0 ? v : 0, when = v => typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null;
+    const media = {};
+    for (const [k, v] of Object.entries(stored.media ?? {})) if (/^[a-z]{1,20}$/u.test(k) && n(v)) media[k] = n(v);
+    return { format: 'humble-library-sync-report', version: 1, generatedAt: now.toISOString(), extensionVersion: String(extensionVersion).slice(0, 20),
+      browserFamily: ['chromium', 'firefox'].includes(browserFamily) ? browserFamily : 'unknown',
+      sync: cp ? { mode: cp.mode, status: cp.status, reason: cp.reason, coverage: cp.coverage, startedAt: when(cp.startedAt), updatedAt: when(cp.updatedAt), lastProgressAt: when(cp.lastProgressAt),
+        ...Object.fromEntries(['revision', 'nextPage', 'targetPages', 'reportedPages', 'reportedTotal', 'initialTotal', 'pagesRead', 'batches', 'added', 'refreshed', 'unresolved', 'conflicts', 'duplicates', 'pageSize'].map(k => [k, n(cp[k])])),
+        baselineTotal: cp.baselineTotal === null ? null : n(cp.baselineTotal), uncertainty: [...(cp.uncertainty ?? [])].filter(v => UNCERTAINTY.includes(v)),
+        lastFull: cp.lastFull ? { completedAt: when(cp.lastFull.completedAt), coverage: cp.lastFull.coverage, reportedTotal: n(cp.lastFull.reportedTotal) } : null } : null,
+      library: { savedItems: n(stored.saved), observedThisSync: n(stored.found), excludedItems: n(stored.excluded), mediaNotIdentified: n(stored.undetailed), media },
+      purchaseDates: stored.orders ? { libraryPurchasesDated: n(stored.orders.dated), refreshUnfinished: stored.orders.resumable === true } : null,
+      session: { requests: n(view.requests), retrying: Boolean(view.retry), waitRequestedMinutes: view.retryAfter ? Math.max(1, Math.ceil(view.retryAfter / 60000)) : 0, purchaseDateCheckStopped: Boolean(view.orderDates?.detail) } };
+  }
   function syncView(state) {
     const s = collection(state.libraryEntitlements).scopes.find(v => v.localAccountId !== null && v.localAccountId === state.humbleAccountId);
     if (!s) return { checkpoint: null, saved: 0, found: 0, undetailed: 0 };
@@ -1002,9 +1019,20 @@
     browse.addEventListener('click', () => { global.chrome.runtime.sendMessage({ type: 'HCL_OPEN_OPTIONS' }).catch(() => {}); });
     footer.append(status, actions);
     const details = make('details', { className: 'hcl-sync-details' }), facts = make('ul', { className: 'hcl-sync-facts' }), note = make('p', { className: 'hcl-sync-note' });
-    details.append(make('summary', { textContent: 'Scan details' }), facts, note);
+    const exportReport = make('button', { type: 'button', textContent: 'Export scan report', className: 'secondary' }), reportNote = make('p', { className: 'hcl-sync-note' });
+    reportNote.textContent = 'The report contains counts, statuses and dates only: no titles, Library or purchase IDs, account names or keys. Attach it when reporting a sync problem.';
+    details.append(make('summary', { textContent: 'Scan details' }), facts, note, exportReport, reportNote);
     const store = (operation, ...args) => global.HumbleComicLibrary.storageRequest(operation, ...args);
     sharedSync ??= createSync({ fetcher, settings, store });
+    exportReport.addEventListener('click', () => {
+      try {
+        const runtime = global.chrome?.runtime, report = syncReport({ checkpoint: stored.checkpoint, stored, view: sharedSync.view, extensionVersion: runtime?.getManifest?.().version ?? '',
+          browserFamily: String(runtime?.getURL?.('') ?? '').startsWith('moz-extension://') ? 'firefox' : 'chromium' });
+        const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+        const link = make('a', { href: url }); link.download = 'humble-library-sync-report.json'; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      } catch { exportReport.textContent = 'Export unavailable; retry'; }
+    });
     // Nothing actionable is shown until the saved account and sync state are read, so a synced account
     // never briefly appears unsynced (with the first-sync confirmation) while storage loads.
     let context, stored = { checkpoint: null, saved: 0, found: 0, bound: false }, message = '', loaded = false, showCompleted = false;
@@ -1191,6 +1219,6 @@
     panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
-    matchingItems, companionRecords, sharedRecord, resolvedMedia, nativeMediaKey, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel,
+    matchingItems, companionRecords, sharedRecord, resolvedMedia, nativeMediaKey, historicalKinds, syncReport, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel,
     orderHistory, orderDates, readOrderHistory, ORDER_PAGES_PER_SYNC });
 })(globalThis);
