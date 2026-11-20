@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Purchase dates use the same calendar day as Fanatical Library in Titles, Bundles & Orders, reminders and CSV catalogs: a timestamp shows its day in this browser's time zone, and a date saved without a time of day (exactly midnight UTC) shows that date instead of the day before in western time zones. Sorting by date lists titles and purchases without a known date last in both directions, so an unknown date is never shown as the oldest purchase. Saved dates are unchanged.
+
 - Key reminders follow the same rules as Fanatical Library. Active lists keys known not to be redeemed that are not dismissed, snoozed or past their deadline. Library keys whose redemption Humble does not report are now listed under Unknown key status instead of being left out, and earlier-import keys that need review move there from Active; expired keys stay under Expired. A Dismissed and snoozed view lists both. Library key cards show the purchase date matched from Order History, or say the date is unknown. A Library key and an earlier-import reminder are combined only when they point to the same Library item.
 - Key and access reminders combine Humble Library observations and earlier imports in one searchable, scrollable list. Cards open the matching item or purchase when available and support dismissal, snoozing and restoration.
 

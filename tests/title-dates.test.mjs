@@ -64,11 +64,11 @@ test('dates never change purchase counts', () => {
   }
 });
 
-test('Bundles & Orders: newest first lists undated purchases last, oldest first lists them first', () => {
+test('Bundles & Orders: undated purchases are listed last when sorting by date in either direction', () => {
   const {E, B} = load();
   const items = [historical('Old', 'K1', 'Old Order', '2018-01-01T12:00:00.000Z'), historical('New', 'K2', 'New Order', '2025-01-01T12:00:00.000Z')];
   const model = B.buildGroups({items, libraryEntitlements: entitlements([book(E, 1, 1, 'Loose', 'Unordered')]), humbleAccountId: ACCOUNT}), r = B.reconcile(model.groups);
   const names = sort => Array.from(B.filterGroups(r.groups, {sort}), x => x.group.name);
   assert.deepEqual(names('date-desc'), ['New Order', 'Old Order', 'Unordered Book Bundle']);
-  assert.deepEqual(names('date-asc'), ['Unordered Book Bundle', 'Old Order', 'New Order']);
+  assert.deepEqual(names('date-asc'), ['Old Order', 'New Order', 'Unordered Book Bundle']);
 });

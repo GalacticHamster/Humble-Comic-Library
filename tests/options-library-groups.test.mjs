@@ -461,7 +461,7 @@ test('Titles: dates reach Library-only titles of combined purchases; date covera
   await ui.change('#library-sort', 'date-desc');
   assert.deepEqual(ui.rows().map(titleText), ['Library Extra', 'Shared One', 'Shared Two', 'Mixed Title', 'Another Undated', 'Undated Only']);
   await ui.change('#library-sort', 'date-asc');
-  assert.deepEqual(ui.rows().map(titleText), ['Another Undated', 'Undated Only', 'Mixed Title', 'Library Extra', 'Shared One', 'Shared Two']);
+  assert.deepEqual(ui.rows().map(titleText), ['Mixed Title', 'Library Extra', 'Shared One', 'Shared Two', 'Another Undated', 'Undated Only']);
   await ui.change('#library-filter-metadata', 'undated');
   assert.deepEqual(ui.rows().map(titleText), ['Another Undated', 'Undated Only'], 'a title with one dated purchase is not undated');
   await ui.input('#library-search', 'another');

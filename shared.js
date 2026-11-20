@@ -539,9 +539,8 @@
     };
     // A purchase recorded by an import or the Humble Library is Purchased. Whether a key was redeemed on its
     // store is not known from Humble records and is left out rather than repeated on every row.
-    // Dates are calendar days (YYYY-MM-DD) in this browser's time zone, as Options shows them; never inferred.
-    const day=value=>{const time=typeof value==='number'?value:typeof value==='string'?Date.parse(value):NaN;if(!Number.isFinite(time))return '';const d=new Date(time);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+    // Dates are calendar days (YYYY-MM-DD) as Options shows them (calendarDay); never inferred.
+    const day=calendarDay;
     const rows=[['Title','Media type','Purchase status','First purchased','Last purchased','Purchase count','Purchase count confidence','Source','Bundle / purchase name','Purchase dates']];
     catalog.items.forEach((item,index)=>{
       const original=items[index];
@@ -1491,7 +1490,20 @@
   const storageSet=updates=>storageRequest(Object.hasOwn(updates,'libraryItems')?'replace':'patch',updates);
   const storageRemove=keys=>storageRequest('remove',Array.isArray(keys)?keys:[keys]);
 
+  // The calendar day (YYYY-MM-DD) shown for a purchase date, the same in Humble Library and Fanatical Library.
+  // A date-only value is that day. A value saved as exactly midnight UTC carries no time of day (a date-only
+  // source normalised when saved), so it is that UTC date. Any other timestamp is its day in this browser's
+  // time zone. Saved values are never changed.
+  function calendarDay(value) {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(value)) return value;
+    const time = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
+    if (!Number.isFinite(time)) return '';
+    const d = new Date(time);
+    if (time % 86400000 === 0) return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
   global.HumbleComicLibrary = {
+    calendarDay,
     CURRENT_IMPORT_VERSION,
     normalizeSummaryPreferences, validKeyReview, createSyncStore, storageRequest, storageSet, storageRemove, nativeHumbleProductId, enrichMissingProductIds, contentPlaceholder,
     COMPANION_IDENTITIES, companionBrowser, builtinGalacticId, resolveGalacticId, galacticAvailability, galacticPermissionDenied, trustedGalacticSender, companionTargetProblem, testGalacticLink, normalizeTitle, presentationTitle, possibleTitleRelation, candidateTitleKeys, titleKey, normalizeLibraryImportItem, uniqueStrings, isExtensionId, catalogItemKey, normalizeWishlist, entitlementFields,

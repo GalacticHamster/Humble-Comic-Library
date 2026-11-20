@@ -197,10 +197,24 @@ test('bundle pages and catalogue markers carry the recovered date; Owned counts 
 test('Options shows a late-evening purchase on its local calendar day', () => {
   const zone = process.env.TZ;process.env.TZ = 'America/New_York';
   try {
+    // HumbleComicLibrary.calendarDay: the rule both extensions share for displayed purchase dates.
+    const shared = vm.createContext({console, Date, Intl, URL, TextEncoder, TextDecoder, crypto: webcrypto, setTimeout, clearTimeout, structuredClone});
+    shared.globalThis = shared;
+    vm.runInContext(fs.readFileSync(new URL('../shared.js', import.meta.url), 'utf8'), shared, {filename: 'shared.js'});
+    const day = shared.HumbleComicLibrary.calendarDay;
+    assert.equal(day('2026-11-17T03:45:00.000Z'), '2026-11-16', 'a timestamp is its local day');
+    assert.equal(day('2024-01-10T00:00:00.000Z'), '2024-01-10', 'exactly midnight UTC carries no time of day');
+    assert.equal(day('2024-01-10'), '2024-01-10', 'a date-only value is that day');
+    assert.equal(day('2026-03-08T07:30:00.000Z'), '2026-03-08', 'after the spring daylight-saving change');
+    assert.equal(day('2026-11-01T05:30:00.000Z'), '2026-11-01', 'after the autumn daylight-saving change');
+    assert.equal(day('2026-11-01T04:30:00.000Z'), '2026-11-01', 'the repeated hour stays on the same day');
+    assert.equal(day(Date.parse('2026-11-17T03:45:00.000Z')), '2026-11-16', 'numbers too');
+    assert.equal(day(null), '');assert.equal(day('not a date'), '');
     const context = vm.createContext({console, Date, Intl, URL, setTimeout, clearTimeout, sessionStorage: {getItem: () => null, setItem() {}}, document: {querySelector: () => ({addEventListener() {}, append() {}, replaceChildren() {}, dataset: {}, style: {}, classList: {add() {}, remove() {}, toggle() {}}}), querySelectorAll: () => [], createElement: () => ({})},
       chrome: {runtime: {id: 'x'}, storage: {local: {get: async () => ({}), set: async () => {}}, onChanged: {addListener() {}}}}});
     context.globalThis = context;
     const source = fs.readFileSync(new URL('../options.js', import.meta.url), 'utf8'), start = source.indexOf('  function formatPurchaseDate('), end = source.indexOf('\n  }', start) + 4;
+    context.HumbleComicLibrary = {calendarDay: day};
     vm.runInContext(source.slice(start, end) + '\nglobalThis.format = formatPurchaseDate;', context);
     assert.equal(context.format('2026-11-17T03:45:00.000Z'), '2026-11-16');
     assert.equal(context.format(null), '');assert.equal(context.format('not a date'), '');

@@ -375,8 +375,8 @@
     const name = r => r.group.name ?? '', date = r => r.group.purchasedAt, size = r => r.group.items.length, added = r => recentlyAdded(r.group);
     // Unnamed groups sort after named ones in either direction.
     const byName = (a, b, dir = 1) => (a.group.name ? 0 : 1) - (b.group.name ? 0 : 1) || dir * collator.compare(name(a), name(b)) || collator.compare(a.group.key, b.group.key);
-    // Undated purchases come last when newest first and first when oldest first, never mixed in as old dates.
-    const byDate = dir => (a, b) => date(a) === null ? (date(b) === null ? byName(a, b) : -dir) : date(b) === null ? dir : dir * (date(a) - date(b)) || byName(a, b);
+    // Undated purchases come last in both directions, never mixed in as old dates, as in Fanatical Library.
+    const byDate = dir => (a, b) => date(a) === null ? (date(b) === null ? byName(a, b) : 1) : date(b) === null ? -1 : dir * (date(a) - date(b)) || byName(a, b);
     // Recently added first; everything else follows newest purchase first.
     const byAdded = (a, b) => added(a) === null ? (added(b) === null ? byDate(-1)(a, b) : 1) : added(b) === null ? -1 : added(b) - added(a) || byName(a, b);
     out.sort(sort === 'name-desc' ? (a, b) => byName(a, b, -1) : sort === 'date-desc' ? byDate(-1) : sort === 'date-asc' ? byDate(1) : sort === 'added-desc' ? byAdded

@@ -205,9 +205,7 @@
   // evening is shown on that day, not on the next day in UTC.
   function formatPurchaseDate(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.valueOf())) return '';
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return HumbleComicLibrary.calendarDay(timestamp);
   }
 
   function itemsMatchExactly(a, b) {
@@ -509,8 +507,8 @@
         if (dateB !== null) return 1;
         return collator.compare(titleA, titleB);
       }
-      // Oldest first: by each title's first known purchase; titles without a known date lead, so they are not
-      // mistaken for the oldest purchases. Newest first (above) uses the latest purchase and lists them last.
+      // Oldest first: by each title's first known purchase. Titles without a known date are listed last in both
+      // directions, as in Fanatical Library, so an unknown date never reads as an old purchase.
       if (sort === 'date-asc') {
         const dateA = getItemEarliestPurchaseDate(a);
         const dateB = getItemEarliestPurchaseDate(b);
@@ -518,8 +516,8 @@
           if (dateA !== dateB) return dateA - dateB;
           return collator.compare(titleA, titleB);
         }
-        if (dateA !== null) return 1;
-        if (dateB !== null) return -1;
+        if (dateA !== null) return -1;
+        if (dateB !== null) return 1;
         return collator.compare(titleA, titleB);
       }
       return collator.compare(titleA, titleB);
@@ -1098,7 +1096,7 @@
         const filterInfo = processed.length !== uniqueItems.length ? ` (filtered from ${uniqueItems.length})` : '';
         const sortLabel = libraryBrowserState.sort === 'added-desc' ? 'recently added first'
           : libraryBrowserState.sort === 'date-desc' ? 'by latest purchase date (newest), titles without a known date last'
-          : libraryBrowserState.sort === 'date-asc' ? 'by first purchase date (oldest), titles without a known date first'
+          : libraryBrowserState.sort === 'date-asc' ? 'by first purchase date (oldest), titles without a known date last'
           : libraryBrowserState.sort === 'title-desc' ? 'reverse alphabetically'
           : 'alphabetically';
         const nativeShown = processed.filter(item => item.nativeOnly).length;
