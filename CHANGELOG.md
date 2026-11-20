@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.3
 
 - A purchase change saved while Galactic Library is sending purchases to Humble Library is now always sent to Galactic Library in the same sync, including with Galactic Library 1.0.4. Previously both extensions could show Synced until the next change.
 - Smaller consistency fixes with Fanatical Library: Bundles & Orders can show only purchases with no known purchase date; an imported title with no linked Library item offers Find in Library; expanded Library rows stay open after a reminder review or a media change; Dismiss all for unimported items asks for confirmation; the Library page panel is headed "Humble Library"; and restoring a backup no longer re-stamps the saved time of archived accounts, so repeating a restore changes nothing.
