@@ -120,7 +120,9 @@ test('Chrome and Firefox packages have deterministic, target-specific manifests 
     for(const artifact of [chrome,firefox]){for(const id of ['bjjpfofmcmiipeghcbhdfjedpldmkcii','pdknncacndkicpogbebdfanniibnnpic','ieoobffekgbfjfoiheejkfihneooiadb'])assert(artifact.shared.includes(id));const manifest=JSON.parse(artifact.manifest);assert.equal(manifest.externally_connectable,undefined);assert.equal(manifest.key,undefined);assert.deepEqual(manifest.permissions,['storage','unlimitedStorage','alarms']);}
     assert.deepEqual(chrome.entries, runtimeFiles);
     assert.deepEqual(firefox.entries, runtimeFiles);
-    assert.equal(chrome.manifest, chromeManifestText);
+    // Packages carry the repository manifest with LF line endings, whatever the checkout's conversion.
+    assert.equal(chrome.manifest, chromeManifestText.replace(/\r\n/g, '\n'));
+    for (const artifact of [chrome, firefox]) assert(!artifact.manifest.includes('\r'), 'packaged text uses LF line endings');
     assert.deepEqual(fs.readFileSync(chromePath), firstChromeBytes, 'Chrome packaging must remain deterministic across runs');
     assert.equal(JSON.parse(chrome.manifest).browser_specific_settings, undefined);
 
