@@ -94,17 +94,23 @@
   if(!['hb','gl'].includes(role)||observations.length>S.MAX_RECORDS)throw Error('Unsupported or oversized Humble inventory.');
   const hashes=new Map(),records=[];const opaque=async value=>{if(!value)return null;if(!hashes.has(value))hashes.set(value,S.hash(value));return hashes.get(value);};
   for(const o of observations){const purchase=o.purchaseId??null,id=o.providerItemId??(o.entitlementId&&purchase?purchase+':entitlement:'+o.entitlementId:null);
-   records.push({rowRef:o.rowRef,status:o.status,title:o.title,mediaType:o.mediaType,account:accountLabel,purchaseRef:await opaque(purchase),recordRef:await opaque(id),nativeProductId:productToken(id,purchase),entitlement:o.entitlement??(purchase?'direct-download':''),bundle:o.bundle??'',purchasedAt:o.purchasedAt??null});}
+   const row={rowRef:o.rowRef,status:o.status,title:o.title,mediaType:o.mediaType,account:accountLabel,purchaseRef:await opaque(purchase),recordRef:await opaque(id),nativeProductId:productToken(id,purchase),entitlement:o.entitlement??(purchase?'direct-download':''),bundle:o.bundle??'',purchasedAt:o.purchasedAt??null};
+   // Source-only projection, as for snapshots: a saved record the inventory format cannot carry is left out
+   // of this diagnostic comparison instead of failing it. Received inventories are still validated strictly.
+   try{inventoryRow(row);records.push(row);}catch{}}
   return validateInventory({kind:'humble-inventory',role,accountRef,accountLabel,currentCount,historicalCount,records});
  }
  function validateInventory(value){
   const keys=['kind','role','accountRef','accountLabel','currentCount','historicalCount','records'],fields=['rowRef','status','title','mediaType','account','purchaseRef','recordRef','nativeProductId','entitlement','bundle','purchasedAt'];
   if(!value||Object.getPrototypeOf(value)!==Object.prototype||Object.keys(value).some(k=>!keys.includes(k))||value.kind!=='humble-inventory'||!['hb','gl'].includes(value.role)||typeof value.accountRef!=='string'||value.accountRef.length>128||typeof value.accountLabel!=='string'||value.accountLabel.length>100||![value.currentCount,value.historicalCount].every(n=>Number.isInteger(n)&&n>=0&&n<=S.MAX_RECORDS)||!Array.isArray(value.records)||value.records.length>S.MAX_RECORDS||S.size(value)>S.MAX_BYTES)throw Error('Invalid Humble diagnostic inventory.');
-  for(const row of value.records){if(!row||Object.getPrototypeOf(row)!==Object.prototype||Object.keys(row).length!==fields.length||Object.keys(row).some(k=>!fields.includes(k))||!['current','history','archived-current','archived-history'].includes(row.status))throw Error('Invalid inventory observation.');
+  for(const row of value.records)inventoryRow(row);return value;
+ }
+ function inventoryRow(row){
+  const fields=['rowRef','status','title','mediaType','account','purchaseRef','recordRef','nativeProductId','entitlement','bundle','purchasedAt'];
+  if(!row||Object.getPrototypeOf(row)!==Object.prototype||Object.keys(row).length!==fields.length||Object.keys(row).some(k=>!fields.includes(k))||!['current','history','archived-current','archived-history'].includes(row.status))throw Error('Invalid inventory observation.');
    for(const key of fields)if(!['purchaseRef','recordRef','nativeProductId','purchasedAt'].includes(key)&&(typeof row[key]!=='string'||row[key].length>500))throw Error('Invalid inventory field.');
    for(const key of ['purchaseRef','recordRef'])if(row[key]!==null&&!/^[a-f0-9]{64}$/u.test(row[key]))throw Error('Invalid opaque inventory identity.');
    if(row.nativeProductId!==null&&(typeof row.nativeProductId!=='string'||!row.nativeProductId.trim()||row.nativeProductId.length>500)||row.purchasedAt!==null&&(typeof row.purchasedAt!=='string'||!Number.isFinite(Date.parse(row.purchasedAt))))throw Error('Invalid inventory evidence.');
-  }return value;
  }
  async function hbInventory(state,ref){const scope=await selected('hb',state,ref),archived=scope!==hbScopes(state)[0]&&scope.label!==state.humbleProfileLabel,observations=[];
   for(const [status,items]of [[archived?'archived-current':'current',scope.items],[archived?'archived-history':'history',scope.state.historicalLibraryItems??[]]])items.forEach((item,index)=>{for(const p of item.provenance?.length?item.provenance:[item])observations.push({rowRef:status+':'+index,status,title:p.title||item.title,mediaType:item.kind??'book',purchaseId:p.purchaseKey,providerItemId:p.providerItemId??item.providerItemId,entitlementId:p.entitlementId,entitlement:p.entitlement,bundle:p.sourceBundle??item.sourceBundle,purchasedAt:p.purchasedAt??item.purchasedAt});});
