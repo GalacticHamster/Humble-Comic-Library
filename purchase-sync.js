@@ -56,6 +56,9 @@
   // stable account mapping. Retry with fresh descriptors; normal identity and
   // consent guards still reject deleted/replaced accounts on the next attempt.
   if(text==='Saved account data changed. Refresh the account choices and confirm again.')return 'source-busy';
+  // Saved purchases that change while two extensions are connecting are ordinary library activity, not a different
+  // account: connect again with current data. A change in which accounts exist still needs a decision.
+  if(/^Saved accounts changed during setup\./u.test(text))return 'source-busy';
   if(/Saved (?:source|destination) account changed|Saved source purchases|purchases changed/i.test(text))return 'source-busy';
   if(/destination account changed|source account changed/i.test(text))return 'identity-changed';
   if(/Response (?:lost|interrupted)|timed out|worker restarted/i.test(text))return 'transport';
@@ -86,7 +89,7 @@
   return {patch:{[KEY]:next},retired};
  }
  function mapping(raw){if(!raw||Object.keys(raw).some(k=>!['id','localId','remoteId'].includes(k))||![raw.id,raw.localId,raw.remoteId].every(validId))throw Error('Invalid account relationship.');return raw;}
- function createCoordinator({runtime,area,alarms,service,role,catalog,ensureAccount=async()=>{},busy=async()=>false,now=()=>Date.now(),coalesceMs=750,onActive=async()=>{},onSynced=async()=>{}}){
+ function createCoordinator({runtime,area,alarms,service,role,catalog,ensureAccount=async()=>{},busy=async()=>false,revision=null,now=()=>Date.now(),coalesceMs=750,onActive=async()=>{},onSynced=async()=>{}}){
   const central=role==='gl',supported=central?providers:[role==='hb'?'humble':'fanatical'];let tail=Promise.resolve(),cycleTail=Promise.resolve(),timer,disposed=false;const jobs=new Map(),discoveryJobs=new Map(),availability=new Map(),discoveryErrors=new Map(),wakeTimers=new Map(),pendingDiscovery=new Map();
   const allowed=p=>sharingAllowed(area,p);
   async function read(){return (await area.get({[KEY]:{}}))[KEY];}
@@ -181,7 +184,12 @@
    if(message.type===PREFIX+'DIRTY'&&needsRepair(s))return {repairRequired:true,errorCode:s.errorCode??failureKind(s.error)};
    if(message.type===PREFIX+'DIRTY'){if(!central)throw Error('Only Galactic Library coordinates synchronization.');await update(p,current=>current?.id===s.id?{...current,pending:true,status:'pending',errorCode:null,error:null,attempts:0,epoch:(current.epoch??0)+1}:current);await schedule(p,s);return {};}
    if(message.type===PREFIX+'STATUS'){if(central||!['waiting','attention'].includes(message.status)||typeof message.error!=='string')throw Error('Invalid synchronization status.');await update(p,current=>current?.id===s.id&&current.confirmed?{...current,pending:true,status:message.status,error:message.error.slice(0,500),errorCode:failureKind({code:message.errorCode,message:message.error}),peerVerified:false,...(!retryable(failureKind({code:message.errorCode,message:message.error}))?{remoteConfirmed:false}:{})}:current);return {};}
-   if(message.type===PREFIX+'APPLY'){if(central)throw Error('Wrong synchronization direction.');const target=await getMapped(p,s),r=await remote(p,s),source=r.accounts.find(a=>a.stableId===s.remoteId);if(!source||source.fingerprint!==message.sourceFingerprint)throw Error('Saved source purchases changed.');const result=await importFrom(p,s,source,target),after=await getMapped(p,s);return {...result,beforeFingerprint:target.fingerprint,afterFingerprint:after.fingerprint,sourceFingerprint:source.fingerprint};}
+   if(message.type===PREFIX+'APPLY'){if(central)throw Error('Wrong synchronization direction.');const started=revision?.(),target=await getMapped(p,s),r=await remote(p,s),source=r.accounts.find(a=>a.stableId===s.remoteId);if(!source||source.fingerprint!==message.sourceFingerprint)throw Error('Saved source purchases changed.');const {revisionBefore,revision:committed,...result}=await importFrom(p,s,source,target),after=await getMapped(p,s),ended=revision?.();
+    // The post-apply fingerprint tells GL which companion state its records produced. If any other saved change
+    // landed between reading the target and reading the result, that state is not GL's records alone: report it
+    // as unknown so GL reads this library again instead of recording a change it never received as synced.
+    const attributable=typeof started!=='number'||(typeof committed==='number'?started===revisionBefore&&ended===committed:started===ended);
+    return {...result,beforeFingerprint:target.fingerprint,afterFingerprint:attributable?after.fingerprint:null,sourceFingerprint:source.fingerprint};}
    if(message.type===PREFIX+'COMPLETE'){if(central||!message.pair||!['local','remote'].every(k=>/^[a-f0-9]{64}$/.test(message.pair[k])))throw Error('Invalid synchronization completion.');const local=await getMapped(p,s);await update(p,current=>current?.id===s.id&&current.confirmed?{...current,pair:message.pair,pending:local.fingerprint!==message.pair.local,status:local.fingerprint!==message.pair.local?'pending':'synced',lastSuccess:message.lastSuccess,review:{excludedHere:Number(message.review?.excludedThere??0),excludedThere:Number(message.review?.excludedHere??0),limitations:Array.isArray(message.review?.limitations)?message.review.limitations.filter(v=>typeof v==='string').slice(0,20).map(v=>v.slice(0,500)):[]},skipped:Number(message.skipped??0),attempts:0,error:null}:current);if((await read())[p]?.pending)await mark(p);else {await alarms?.clear(ALARM+p);await syncedExtras(p);}return {};}
    throw Error('Unsupported synchronization operation.');
   }
@@ -230,7 +238,7 @@
     state=await update(p,v=>{if(!v?.confirmed||v.id!==state.id||v.setup?.ticket!==setup.ticket)throw Error('Setup was cancelled or replaced.');return {...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null};});
     await onActive(p);await schedule(p,state);return {state};
    }
-   if(message.action==='syncNow'){if(!await allowed(p))throw Error('Automatic sharing is disabled.');try{await reconnect(p);}catch(error){const state=(await read())[p];if(state?.confirmed)await retry(p,state,error);throw error;}await mark(p);if(central)return run(p);return {state:(await read())[p]};}
+   if(message.action==='syncNow'){if(!await allowed(p))throw Error('Automatic sharing is disabled.');const startedId=(await read())[p]?.id;try{await reconnect(p);}catch(error){const state=(await read())[p];if(state?.confirmed&&state.id===startedId)await retry(p,state,error);throw error;}await mark(p);if(central)return run(p);return {state:(await read())[p]};}
    throw Error('Unsupported synchronization action.');
   }
   async function reconnect(p){
@@ -239,8 +247,15 @@
    const r=await remote(p,s);
    if(!(await accounts(p)).some(a=>a.stableId===s.localId)||!r.accounts.some(a=>a.stableId===s.remoteId))throw Error('Mapped account is unavailable or replaced. Repair the connection.');
    if(r.mapping?.id===s.id&&r.mapping.confirmed&&r.mapping.localId===s.remoteId&&r.mapping.remoteId===s.localId){
-    s=await update(p,v=>v?.id===s.id?{...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null}:v);
+    // Both sides hold this verified relationship: an earlier setup interruption no longer needs attention.
+    s=await update(p,v=>v?.id===s.id?{...v,remoteConfirmed:true,peerVerified:true,previouslyConfirmed:true,setup:null,...(v.status==='attention'?{status:'pending',error:null,errorCode:null,attempts:0}:{})}:v);
     await service.request(s.peerId,{type:PREFIX+'CONFIRM',provider:p,id:s.id});
+   }else if(!r.mapping&&s.setup?.automatic&&s.setup.singleAccount&&!s.previouslyConfirmed){
+    // An automatic single-account setup the other extension never accepted: start it again with current data,
+    // for the same two accounts, instead of resending a proposal whose saved purchases have since changed.
+    // Discovery performs that repair and is serialized per provider, so it cannot race another setup attempt.
+    await discover(p,undefined,true);const current=(await read())[p];
+    if(!current?.confirmed||!current.remoteConfirmed)throw Error(discoveryErrors.get(p)?.message??'Connection setup did not complete. It will be retried.');
    }else if(!r.mapping&&s.setup){await service.request(s.peerId,{type:PREFIX+'ACCEPT',provider:p,mapping:{id:s.id,localId:s.remoteId,remoteId:s.localId},ticket:s.setup.ticket});await update(p,v=>v?.id===s.id?{...v,remoteConfirmed:true,peerVerified:true,setup:null}:v);}
    else if(!r.mapping||!r.mapping.confirmed)throw Error('Purchase-sync consent is missing in the other extension. Repair the connection.');
    else throw Error('The purchase-sync account relationship changed. Repair the connection.');

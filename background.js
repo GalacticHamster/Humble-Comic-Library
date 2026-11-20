@@ -103,7 +103,7 @@ async function shareMappedReminders({state,account,verify}){
  await HumbleEntitlements.send(chrome.runtime,state.peerId,target.label,feed,check,{id:state.id,sourceAccountId:state.localId});
  return {fingerprint};
 }
-const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl),onSynced:shareMappedReminders});
+const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),revision:()=>libraryStore.revision(),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl),onSynced:shareMappedReminders});
 purchaseSync.register();
 GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives','keyReminders','mediaTypeOverrides'], 'hclSyncControl');
 // Library sync batches commit every few seconds. Share them once the sync releases its lease

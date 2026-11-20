@@ -1108,6 +1108,9 @@
   }
   function createSyncStore(area,{onInvalidated=()=>{}}={}) {
     let tail=Promise.resolve();
+    // Purchase sync compares revisions to tell whether a saved change landed while it applied another extension's
+    // records. Every write made through this store counts.
+    let revision=0;const storage=area;area={get:(...a)=>storage.get(...a),set:async(...a)=>{try{return await storage.set(...a);}finally{revision++;}},remove:async(...a)=>{try{return await storage.remove(...a);}finally{revision++;}}};
     const controlKey='hclSyncControl',shareScopeKey='hclEntitlementShareScope';
     const scanFields=['libraryItems','purchaseSummaries','historicalLibraryItems','historicalPurchaseSummaries','lastImport','keyReminders','keyReminderScan','mediaImportVersion','mediaTypeOverrides','rejectedPurchaseItems','mediaImportVersion'];
     async function operate(operation,args){
@@ -1509,7 +1512,7 @@
       }
       throw new Error('Unsupported library operation.');
     }
-    return {execute(operation,args=[]){const copied=JSON.parse(JSON.stringify(args));const task=tail.then(()=>operate(operation,copied));tail=task.catch(()=>{});return task;}};
+    return {execute(operation,args=[]){const copied=JSON.parse(JSON.stringify(args));const task=tail.then(async()=>{const before=revision,value=await operate(operation,copied);return operation==='handoffImport'&&value&&typeof value==='object'&&!Array.isArray(value)?{...value,revisionBefore:before,revision}:value;});tail=task.catch(()=>{});return task;},revision:()=>revision};
   }
   async function storageRequest(operation,...args){
     // Humble navigates client-side, and browsers report a content script's sender URL as the address the
