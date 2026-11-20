@@ -790,13 +790,29 @@
   // does not contain is kept as a saved account rather than replaced.
   function mergeRecords(current, restored, key, combine = (older, newer) => newer) {
     const out = new Map();
-    for (const record of restored ?? []) out.set(key(record), record);
+    // Records sharing a key in the same list are combined too, never overwritten.
+    for (const record of restored ?? []) { const k = key(record); out.set(k, out.has(k) ? combine(out.get(k), record) : record); }
     for (const record of current ?? []) { const k = key(record); out.set(k, out.has(k) ? combine(out.get(k), record) : record); }
     return [...out.values()];
   }
-  const withProvenance = (older, newer) => older.provenance || newer.provenance
-    ? { ...older, ...newer, provenance: mergeRecords(newer.provenance, older.provenance, origin => JSON.stringify(origin)) }
-    : { ...older, ...newer };
+  // Combining two rows of the same title keeps every purchase. A row without provenance describes one purchase
+  // with its own fields; when the two rows are different purchases, both become provenance entries instead of
+  // the newer row replacing the older one.
+  const originFields = ['title', 'sourceBundle', 'purchaseKey', 'purchasedAt', 'providerItemId', 'entitlementId', 'entitlement', 'delivery', 'streaming', 'formats', 'keyStatus', 'keyCheckedAt'];
+  const purchaseIdentity = record => JSON.stringify([record.purchaseKey ?? '', record.providerItemId ?? '']);
+  const hasPurchase = record => Boolean(record.purchaseKey || record.providerItemId);
+  const ownOrigin = record => Object.fromEntries(originFields.filter(field => record[field] !== undefined).map(field => [field, record[field]]));
+  // One purchase is one provenance entry, even when a backup saved it with older details.
+  const originKey = origin => hasPurchase(origin) ? purchaseIdentity(origin) : JSON.stringify(origin);
+  const withProvenance = (older, newer) => {
+    const listed = record => record.provenance?.length ? record.provenance : null;
+    if (!listed(older) && !listed(newer) && (purchaseIdentity(older) === purchaseIdentity(newer) || !hasPurchase(older) && !hasPurchase(newer))) {
+      return older.provenance || newer.provenance ? { ...older, ...newer, provenance: mergeRecords(newer.provenance, older.provenance, originKey) } : { ...older, ...newer };
+    }
+    const known = new Set([...(listed(newer) ?? []), ...(listed(older) ?? [])].map(purchaseIdentity));
+    const origins = record => listed(record) ?? (hasPurchase(record) && !known.has(purchaseIdentity(record)) ? [ownOrigin(record)] : []);
+    return { ...older, ...newer, provenance: mergeRecords(origins(newer), origins(older), originKey) };
+  };
   function mergeEntitlementCollections(current, restored) {
     const E = global.HumbleLibraryEntitlements;
     if (!E || !current?.scopes?.length) return restored;

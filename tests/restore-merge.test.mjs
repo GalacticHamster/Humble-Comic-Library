@@ -128,3 +128,44 @@ test('repeating a restore with saved accounts leaves them byte-identical', async
   await t.store.execute('restore', [backup]);
   assert.deepEqual(t.stored.profileArchives, once);
 });
+
+// Separate rows of one title are separate purchases unless they share a purchase identity: merging keeps each one.
+// These checks also read what Galactic Library would be sent, so they load the shared purchase modules.
+function loadWithSharing() {
+  let stored = {};
+  const area = {get: async defaults => ({...copy(defaults), ...copy(stored)}), set: async patch => { stored = {...stored, ...copy(patch)}; }, remove: async keys => { for (const key of [keys].flat()) delete stored[key]; }};
+  const context = vm.createContext({console, URL, TextEncoder, TextDecoder, Date, crypto: webcrypto, setTimeout, clearTimeout, structuredClone});
+  context.globalThis = context;
+  for (const file of ['purchase-snapshot.js', 'purchase-adapters.js', 'purchase-sync.js', 'library-entitlements.js', 'shared.js', 'collection-mappings.js']) vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), context, {filename: file});
+  const H = context.HumbleComicLibrary;
+  return {H, store: H.createSyncStore(area), get stored() { return stored; }, set stored(value) { stored = copy(value); }};
+}
+const purchaseRow = (n, extra = {}) => ({title: 'Synthetic Twin', kind: 'book', source: 'humble', sourceBundle: 'Synthetic bundle ' + n, purchaseKey: 'twin-order-' + n,
+  providerItemId: `twin-order-${n}:product:twin-${n}`, purchasedAt: '2025-0' + n + '-01', entitlement: 'direct-download', ...extra});
+const purchases = items => items.flatMap(item => item.provenance?.length ? item.provenance : [item]).map(origin => origin.purchaseKey).sort();
+for (const [label, rows] of [
+  ['two rows without provenance', [purchaseRow(1), purchaseRow(2)]],
+  ['a row with provenance and a row without', [{...purchaseRow(1), provenance: [{title: 'Synthetic Twin', sourceBundle: 'Synthetic bundle 1', purchaseKey: 'twin-order-1', providerItemId: 'twin-order-1:product:twin-1', purchasedAt: '2025-01-01'}]}, purchaseRow(2)]]
+]) test(`restoring a backup of the same library keeps every same-title purchase: ${label}`, async () => {
+  const t = loadWithSharing();
+  t.stored = {humbleAccountId: ACCOUNT, humbleProfileLabel: 'Main', profileArchives: [], libraryItems: copy(rows)};
+  const backup = t.H.createLibraryBackup(t.stored);
+  for (let n = 0; n < 2; n++) {
+    await t.store.execute('restore', [backup]);
+    assert.deepEqual(purchases(t.stored.libraryItems), ['twin-order-1', 'twin-order-2'], 'no purchase is lost or duplicated, also when restored again');
+  }
+  const [account] = await t.store.execute('handoffAccounts');
+  const shared = await t.store.execute('handoffSnapshot', [account.accountRef]);
+  assert.deepEqual(copy(shared.records.map(r => r.metadata.purchaseId)).sort(), ['twin-order-1', 'twin-order-2'], 'both purchases are still shared');
+});
+
+test('rows of one purchase, or without any purchase identity, still merge into one row', async () => {
+  const t = loadWithSharing();
+  const manual = {title: 'Manual legacy book', sourceBundle: ''};
+  t.stored = {humbleAccountId: ACCOUNT, humbleProfileLabel: 'Main', profileArchives: [], libraryItems: [purchaseRow(1), manual]};
+  const backup = t.H.createLibraryBackup({...t.stored, libraryItems: [purchaseRow(1, {sourceBundle: 'Renamed bundle'}), manual]});
+  await t.store.execute('restore', [backup]);
+  assert.equal(t.stored.libraryItems.length, 2);
+  assert.deepEqual(purchases(t.stored.libraryItems).filter(Boolean), ['twin-order-1'], 'the same purchase is not counted twice');
+  assert.equal(t.stored.libraryItems.find(i => i.purchaseKey === 'twin-order-1').provenance, undefined, 'a single purchase keeps its row shape');
+});
