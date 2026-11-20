@@ -113,7 +113,12 @@
   }
   // Older observations have no delivery evidence. Then the same title's imported media, or an
   // explicit Book, Comics, Manga, Software or Audiobook Bundle purchase name, may supply it.
-  function resolvedMedia(r, kinds) {
+  // A media correction for one Library entitlement, keyed by its own identity. It is a local preference,
+  // never provider evidence, and the observation itself keeps the provider's media type.
+  const nativeMediaKey = r => 'native:' + r.namespace + ':' + r.nativeId;
+  function resolvedMedia(r, kinds, overrides = null) {
+    const manual = overrides && Object.hasOwn(overrides, nativeMediaKey(r)) ? overrides[nativeMediaKey(r)] : null;
+    if (manual) return manual === 'unclassified' ? 'unknown' : manual;
     if (r.mediaType !== 'unknown') return r.mediaType;
     if (r.namespace !== 'download_drm_free') return 'unknown';
     const imported = kinds?.get(titleKey(r.title));
@@ -395,7 +400,7 @@
     for (const s of collection(state.libraryEntitlements).scopes) {
       if (s.localAccountId !== (state.humbleAccountId ?? null) || s.localAccountId === null && (s.profileLabel !== (state.humbleProfileLabel ?? '') || state.libraryItems?.length)) continue;
       for (const r of s.observations) {
-        const kind = resolvedMedia(r, kinds);
+        const kind = resolvedMedia(r, kinds, state.mediaTypeOverrides);
         if (r.admission === 'observation-only' || kind === 'unknown' || imported.has(JSON.stringify([titleKey(r.title), family(kind)]))) continue;
         // Presentation-only grouping. Native observations/copies are never merged in storage.
         const key = JSON.stringify([kind, r.title, r.namespace]);
@@ -416,7 +421,7 @@
   // A title the account's imported purchases already share is sent only for copies beyond
   // the imported purchase count: repeat purchases stay distinct and overlap is not doubled.
   // No historical/native identity is inferred or stored.
-  function companionRecords({ libraryEntitlements, accountId, items = [], historicalItems = [] }) {
+  function companionRecords({ libraryEntitlements, accountId, items = [], historicalItems = [], mediaTypeOverrides = null }) {
     const empty = { records: [], unknown: 0, represented: 0, video: 0 };
     if (!ENABLED || typeof accountId !== 'string' || !accountId) return empty;
     const scope = collection(libraryEntitlements ?? undefined).scopes.find(s => s.localAccountId === accountId);
@@ -434,7 +439,7 @@
         title: r.title, namespace: r.namespace,
         downloads: Boolean(r.delivery?.formats?.length || r.delivery?.platforms?.length)
       })) continue;
-      const kind = resolvedMedia(r, kinds);
+      const kind = resolvedMedia(r, kinds, mediaTypeOverrides);
       if (kind === 'unknown' || kind === 'unclassified') { unknown++; continue; }
       if (kind === 'video') { video++; continue; }
       const k = JSON.stringify([titleKey(r.title), family(kind)]);
@@ -1186,6 +1191,6 @@
     panel.dataset.installed = 'true'; render();
   }
   global.HumbleLibraryEntitlements = Object.freeze({ ENABLED, MAX_RECORDS, MAX_PAGES, MAX_REFRESH_PAGES, PAGE_SIZES, BATCH_ROWS, SYNC_DEFAULTS, collection, observation, refreshObservation, identity, scopeKey, admission, scan, checkpoint, syncBegin, advance, settle, syncSettings,
-    matchingItems, companionRecords, sharedRecord, resolvedMedia, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel,
+    matchingItems, companionRecords, sharedRecord, resolvedMedia, nativeMediaKey, historicalKinds, providerMedia, purchaseViews, syncView, projectForGL, flight, collect, createSync, installPanel,
     orderHistory, orderDates, readOrderHistory, ORDER_PAGES_PER_SYNC });
 })(globalThis);

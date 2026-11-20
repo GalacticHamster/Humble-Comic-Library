@@ -703,78 +703,12 @@
       details.append(empty);
     }
 
-    const classificationRow = document.createElement('div');
-    classificationRow.className = 'library-classification-row';
-
     const itemKind = typeof item === 'string' ? 'book' : (item.kind || item.mediaType || 'unclassified');
     const automaticKind = typeof item === 'string' ? 'book' : (item.automaticKind || item.kind || 'unclassified');
     const isOverridden = Boolean(typeof item === 'object' && (item.manualKind || (item.automaticKind && item.kind !== item.automaticKind)));
-
-    const badge = document.createElement('span');
-    badge.className = 'library-media-badge';
-    badge.dataset.mediaType = itemKind;
-    badge.textContent = mediaTypeLabel(itemKind);
-
-    const note = document.createElement('span');
-    note.className = 'library-classification-note';
-    if (isOverridden) {
-      note.textContent = `User override (automatic: ${mediaTypeLabel(automaticKind)})`;
-    } else {
-      note.textContent = `Automatic: ${mediaTypeLabel(automaticKind)}`;
-    }
-
-    const select = document.createElement('select');
-    select.className = 'library-classification-select';
-    select.setAttribute('aria-label', `Change media type for ${title}`);
-    const options = [
-      { value: 'book', label: 'Book / eBook' },
-      { value: 'comic', label: 'Comic' },
-      { value: 'game', label: 'Game' },
-      { value: 'software', label: 'Software' },
-      { value: 'audiobook', label: 'Audiobook' },
-      { value: 'video', label: 'Video' },
-      { value: 'unclassified', label: 'Unclassified' }
-    ];
-    for (const opt of options) {
-      const optionEl = document.createElement('option');
-      optionEl.value = opt.value;
-      optionEl.textContent = opt.label;
-      if (opt.value === itemKind) optionEl.selected = true;
-      select.append(optionEl);
-    }
-
-    select.addEventListener('change', async (e) => {
-      e.stopPropagation();
-      const newKind = select.value;
-      if (newKind === itemKind) return;
-      try {
-        await HumbleComicLibrary.storageRequest('setMediaOverride', item, newKind);
-        await render();
-      } catch (err) {
-        alert(`Failed to change media type: ${err.message}`);
-      }
-    });
-
-    classificationRow.append(badge, note, select);
-
-    if (isOverridden) {
-      const resetBtn = document.createElement('button');
-      resetBtn.type = 'button';
-      resetBtn.className = 'library-reset-classification-btn secondary';
-      resetBtn.textContent = 'Reset to automatic';
-      resetBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        try {
-          await HumbleComicLibrary.storageRequest('resetMediaOverride', item);
-          await render();
-        } catch (err) {
-          alert(`Failed to reset media type: ${err.message}`);
-        }
-      });
-      classificationRow.append(resetBtn);
-    }
-
-    details.append(classificationRow);
+    details.append(classificationControls({ title, kind: itemKind, automaticKind, overridden: isOverridden,
+      change: kind => HumbleComicLibrary.storageRequest('setMediaOverride', item, kind),
+      reset: () => HumbleComicLibrary.storageRequest('resetMediaOverride', item) }));
 
     row.append(details);
 
@@ -1014,6 +948,61 @@
 
   // A Humble Library copy with its own row in a title's purchases, laid out like Bundles & Orders contents.
   // With diagnostics on, copies not combined with an imported order say why; nothing is inferred from names.
+  // The media badge, selector and Reset to automatic, shared by imported and Library-synced titles.
+  function classificationControls({ title, kind, automaticKind, overridden, change, reset }) {
+    const classificationRow = document.createElement('div');
+    classificationRow.className = 'library-classification-row';
+    const badge = document.createElement('span');
+    badge.className = 'library-media-badge';
+    badge.dataset.mediaType = kind;
+    badge.textContent = mediaTypeLabel(kind);
+    const note = document.createElement('span');
+    note.className = 'library-classification-note';
+    note.textContent = overridden ? `User override (automatic: ${mediaTypeLabel(automaticKind)})` : `Automatic: ${mediaTypeLabel(automaticKind)}`;
+    const select = document.createElement('select');
+    select.className = 'library-classification-select';
+    select.setAttribute('aria-label', `Change media type for ${title}`);
+    for (const opt of [
+      { value: 'book', label: 'Book / eBook' }, { value: 'comic', label: 'Comic' }, { value: 'game', label: 'Game' }, { value: 'software', label: 'Software' },
+      { value: 'audiobook', label: 'Audiobook' }, { value: 'video', label: 'Video' }, { value: 'unclassified', label: 'Unclassified' }
+    ]) {
+      const optionEl = document.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      if (opt.value === kind) optionEl.selected = true;
+      select.append(optionEl);
+    }
+    select.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const newKind = select.value;
+      if (newKind === kind) return;
+      try {
+        await change(newKind);
+        await render();
+      } catch (err) {
+        alert(`Failed to change media type: ${err.message}`);
+      }
+    });
+    classificationRow.append(badge, note, select);
+    if (overridden) {
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'library-reset-classification-btn secondary';
+      resetBtn.textContent = 'Reset to automatic';
+      resetBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await reset();
+          await render();
+        } catch (err) {
+          alert(`Failed to reset media type: ${err.message}`);
+        }
+      });
+      classificationRow.append(resetBtn);
+    }
+    return classificationRow;
+  }
+
   function titleCopyRow(copy, title) {
     const li = document.createElement('li');
     li.className = 'library-provenance-item library-group-item';
@@ -1049,6 +1038,15 @@
     list.className = 'library-provenance-list library-title-purchases';
     list.append(...item.nativeCopies.map(copy => titleCopyRow(copy, item.title)));
     details.append(summary, list);
+    // A correction applies to this title's Library items only, each by its own Library ID.
+    const refs = item.nativeCopies.filter(copy => copy.nativeId).map(copy => ({ namespace: copy.namespace, nativeId: copy.nativeId }));
+    if (refs.length) {
+      const automatic = item.nativeCopies.find(copy => copy.automaticKind)?.automaticKind;
+      details.append(classificationControls({ title: item.title, kind: item.kind, automaticKind: automatic && automatic !== 'unknown' ? automatic : 'unclassified',
+        overridden: item.nativeCopies.some(copy => copy.manualKind),
+        change: kind => HumbleComicLibrary.storageRequest('setNativeMediaOverride', refs, kind),
+        reset: () => HumbleComicLibrary.storageRequest('setNativeMediaOverride', refs, null) }));
+    }
     row.append(details);
     return row;
   }
@@ -1216,7 +1214,7 @@
       renderedAccountId = humbleAccountId;
       if (rebuild) {
         const modelStarted = clock();
-        latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId });
+        latestGroupModel = HumbleLibraryBrowser.buildGroups({ items, purchaseSummaries, libraryEntitlements, humbleAccountId, mediaTypeOverrides: state.mediaTypeOverrides });
         // Reconciled once per data load; it is presentation only and never stored.
         latestReconciliation = latestGroupModel.native.present ? HumbleLibraryBrowser.reconcile(latestGroupModel.groups) : null;
         latestTitleLinks = latestGroupModel.native.present ? HumbleLibraryBrowser.titleLinks(latestGroupModel.groups, latestReconciliation) : null;
@@ -1701,7 +1699,7 @@
   for(const format of ['json','csv'])document.querySelector(format==='csv'?'#export-catalog-csv':'#export-catalog').addEventListener('click',async()=>{
     const status=document.querySelector('#local-status');
     try {
-      const saved=await chrome.storage.local.get({libraryItems:[],purchaseSummaries:[],libraryEntitlements:null,humbleAccountId:null});
+      const saved=await chrome.storage.local.get({libraryItems:[],purchaseSummaries:[],libraryEntitlements:null,humbleAccountId:null,mediaTypeOverrides:{}});
       const model=HumbleLibraryBrowser.buildGroups({items:saved.libraryItems,...saved});
       const reconciliation=model.native.present?HumbleLibraryBrowser.reconcile(model.groups):null;
       const links=model.native.present?HumbleLibraryBrowser.titleLinks(model.groups,reconciliation):null;
@@ -1737,7 +1735,7 @@
   // this page follows without a reload. Sync progress alone (checkpoints) only updates the sync
   // summary. Changed library data reloads the model from storage once per burst, and while a
   // sync streams batches, rebuilds are spaced to stay a small share of the time.
-  const MODEL_KEYS = ['libraryItems', 'purchaseSummaries', 'humbleAccountId'];
+  const MODEL_KEYS = ['libraryItems', 'purchaseSummaries', 'humbleAccountId', 'mediaTypeOverrides'];
   const DATA_KEYS = Object.keys(HumbleComicLibrary.LIBRARY_STATE_DEFAULTS).filter(key => key !== 'libraryEntitlements');
   let liveTimer = null, lastLiveAt = 0;
   function scheduleLiveRefresh() {

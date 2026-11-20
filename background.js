@@ -30,7 +30,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   // current route our content script reports. Origin, extension and tab checks above still apply.
   const page=humble?(typeof message.page==='string'&&message.page.startsWith('/')?message.page:new URL(sender.url).pathname):'';
   if(message.operation?.startsWith('entitlement')&&!extensionPage&&!(humble&&/^\/home\/library(?:\/|$)/u.test(page)&&Number.isInteger(sender.tab?.id))){respond({ok:false,error:'Open Humble Library to check entitlements.'});return false;}
-  if(['replace','restore','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
+  if(['replace','restore','setNativeMediaOverride','remove','shareSnapshot','verifyShareSnapshot','handoffAccounts','handoffSnapshot','handoffImport','handoffInventory','handoffPreview'].includes(message.operation)&&!extensionPage&&!(message.operation==='remove'&&JSON.stringify(message.args)==='[["hclPurchaseFocus"]]')){respond({ok:false,error:'Open Extension options to replace or clear the library.'});return false;}
   if(['selectProfile','renameProfile'].includes(message.operation)&&!extensionPage&&!(humble&&page.startsWith('/home/purchases'))){respond({ok:false,error:'Manage saved accounts in Extension options.'});return false;}
   const args=Array.isArray(message.args)?[...message.args]:[];
   if(message.operation==='begin')args[1]=sender.tab?.id??null;
@@ -105,7 +105,7 @@ async function shareMappedReminders({state,account,verify}){
 }
 const purchaseSync=GalacticPurchaseSync.createCoordinator({runtime:chrome.runtime,area:chrome.storage.local,alarms:chrome.alarms,service:purchaseHandoff,role:'hb',catalog:()=>libraryStore.execute('syncAccounts'),busy:async()=>Boolean((await chrome.storage.local.get({hclSyncControl:null})).hclSyncControl),onSynced:shareMappedReminders});
 purchaseSync.register();
-GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives','keyReminders'], 'hclSyncControl');
+GalacticPurchaseSync.observeCompanion(chrome,purchaseSync,'humble',['libraryItems','profileArchives','keyReminders','mediaTypeOverrides'], 'hclSyncControl');
 // Library sync batches commit every few seconds. Share them once the sync releases its lease
 // (finished, paused or stopped) rather than after every batch. An abandoned sync is shared at startup.
 chrome.storage.onChanged?.addListener((changes,area)=>{

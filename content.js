@@ -13,9 +13,9 @@ const GALACTIC_LIBRARY_REQUEST_TIMEOUT_MS = 30000;
 const GALACTIC_LIBRARY_MEDIA_TYPES = new Set(['book', 'game', 'audiobook', 'software']);
 const PURCHASE_FOCUS_MAX_AGE_MS = 15 * 60 * 1000;
 // What the catalogue's purchase markers read: imported orders and the active account's Library purchases.
-const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null };
+const CATALOGUE_LIBRARY_DEFAULTS = { purchaseSummaries: [], libraryItems: [], libraryEntitlements: { version: 1, scopes: [] }, humbleAccountId: null, mediaTypeOverrides: {} };
 // Storage that changes bundle-page ownership results.
-const LIBRARY_REBUILD_KEYS = ['libraryEntitlements', 'humbleAccountId', 'libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId'];
+const LIBRARY_REBUILD_KEYS = ['libraryEntitlements', 'humbleAccountId', 'libraryItems', 'historicalLibraryItems', 'humbleProfileLabel', 'purchaseSummaries', 'customCollectionMappings', 'galacticLibraryExtensionId', 'mediaTypeOverrides'];
 let purchaseFocusTimer;
 let bundleSummaryPreferences = {minimized:false,position:'bottom-right'};
 let galacticDiagnosticSequence=0;
@@ -91,7 +91,7 @@ function finishGalacticRendering(diagnostic){
 
   const comparison = { startedAt: performance.now(), refreshes: 0, storageMs: null, lastMatchMs: null, itemCount: 0, libraryCount: 0, completedItems: 0, emptyChecks: 0, job: 0, showDiagnostics: false, showNewItemsOnly: false, galactic: null };
   showComparisonProgress('Loading your local library…');
-  const storageDefaults = { libraryEntitlements: {version:1,scopes:[]}, humbleAccountId:null, humbleProfileLabel:'', libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
+  const storageDefaults = { libraryEntitlements: {version:1,scopes:[]}, humbleAccountId:null, humbleProfileLabel:'', mediaTypeOverrides: {}, libraryItems: [], historicalLibraryItems: [], purchaseSummaries: [], customCollectionMappings: [], showDiagnostics: false, showNewItemsOnly: false, galacticLibraryExtensionId: '', wishlistItems: [], bundleSummaryPreferences: {} };
   // Subscribe before the first await. An import/profile restore can finish
   // while a cold storage read is still returning its older snapshot.
   let storageRevision = 0;
@@ -1352,7 +1352,7 @@ function libraryDate(time) { return Number.isFinite(time) ? new Date(time).toISO
 function libraryPurchaseModel(state) {
   const browser = globalThis.HumbleLibraryBrowser, summaries = Array.isArray(state.purchaseSummaries) ? state.purchaseSummaries : [];
   if (!browser || !globalThis.HumbleLibraryEntitlements?.ENABLED) return { copies: null, purchases: summaries };
-  const model = browser.buildGroups({ items: state.libraryItems, purchaseSummaries: summaries, libraryEntitlements: state.libraryEntitlements, humbleAccountId: state.humbleAccountId });
+  const model = browser.buildGroups({ items: state.libraryItems, purchaseSummaries: summaries, libraryEntitlements: state.libraryEntitlements, humbleAccountId: state.humbleAccountId, mediaTypeOverrides: state.mediaTypeOverrides });
   if (!model.native.present) return { copies: null, purchases: summaries };
   const copies = browser.titleLinks(model.groups, browser.reconcile(model.groups));
   // A Library purchase combined with an imported order is that order. One that might be an imported

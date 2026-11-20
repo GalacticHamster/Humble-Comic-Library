@@ -53,7 +53,7 @@
     } catch { return { scope: null, error: true }; }
   }
 
-  function buildGroups({ items = [], purchaseSummaries = [], libraryEntitlements = null, humbleAccountId = null, entitlements = global.HumbleLibraryEntitlements } = {}) {
+  function buildGroups({ items = [], purchaseSummaries = [], libraryEntitlements = null, humbleAccountId = null, mediaTypeOverrides = null, entitlements = global.HumbleLibraryEntitlements } = {}) {
     const groups = new Map();
     const summaries = new Map((Array.isArray(purchaseSummaries) ? purchaseSummaries : []).filter(p => p && typeof p.purchaseKey === 'string' && p.purchaseKey).map(p => [p.purchaseKey, p]));
     const historical = (purchaseKey, sourceBundle) => {
@@ -84,7 +84,10 @@
     // Purchase dates matched from Humble's Order History by purchase name (see orderDates).
     const dated = native.scope && entitlements.orderDates ? entitlements.orderDates(native.scope) : new Map();
     for (const r of native.scope?.observations ?? []) {
-      const media = kinds ? entitlements.resolvedMedia(r, kinds) : r.mediaType;
+      // A local media correction for this entitlement applies here and in bundle-page matching.
+      const automatic = kinds ? entitlements.resolvedMedia(r, kinds) : r.mediaType;
+      const manualKey = entitlements?.nativeMediaKey?.(r), manual = manualKey && mediaTypeOverrides && Object.hasOwn(mediaTypeOverrides, manualKey) ? mediaTypeOverrides[manualKey] : null;
+      const media = manual ? entitlements.resolvedMedia(r, kinds, mediaTypeOverrides) : automatic;
       const key = 'n:' + r.parentId;
       if (!groups.has(key)) {
         const at = time(dated.get(r.parentId)?.purchasedAt);
@@ -94,6 +97,7 @@
       if (!g.name && r.parentTitle) g.name = r.parentTitle;
       g.items.push({ title: r.title, kind: media, category: category(media), source: 'native', status: r.purchaseStatus, excluded: r.purchaseStatus !== 'purchased',
         gifted: r.eligibility?.giftStatus === 'gifted', namespace: r.namespace, activation: r.activationStatus, nativeId: r.nativeId, route: entitlementRoute(r.nativeId),
+        ...(manual ? { manualKind: manual, automaticKind: automatic } : {}),
         downloads: Boolean(r.delivery?.formats?.length || r.delivery?.platforms?.length) });
       // When a sync first saw the purchase: its earliest entitlement. Unknown if any entitlement was
       // saved before first-seen times were recorded. Never a purchase date.
@@ -396,7 +400,8 @@
         if (!titles.has(k)) titles.set(k, { title: entry.title, kind: entry.kind && entry.kind !== 'unknown' ? entry.kind : 'unclassified', nativeOnly: true, provenance: [], nativeCopies: [] });
         const title = titles.get(k);
         const at = links?.purchaseDate ? links.purchaseDate(group) : group.purchasedAt ?? null, iso = at === null ? null : new Date(at).toISOString();
-        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt, purchasedAt: at });
+        title.nativeCopies.push({ purchase: group.name || '', type: group.type, parentId: group.parentId, route: entry.route, steam: entry.namespace === 'steam', media: entry.kind && entry.kind !== 'unknown' ? entry.kind : null, firstSeenAt: group.firstSeenAt, purchasedAt: at,
+          namespace: entry.namespace, nativeId: entry.nativeId, automaticKind: entry.automaticKind ?? entry.kind, ...(entry.manualKind ? { manualKind: entry.manualKind } : {}) });
         // One record per purchase name and date: repeat purchases with different dates keep each date.
         if (group.name && !title.provenance.some(rec => rec.sourceBundle === group.name && (rec.purchasedAt ?? null) === iso))
           title.provenance.push({ sourceBundle: group.name, ...(iso ? { purchasedAt: iso } : {}) });

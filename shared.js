@@ -1051,7 +1051,7 @@
   function nativeShare(scope,items){
     const E=global.HumbleLibraryEntitlements;if(!E?.ENABLED)return null;
     return E.companionRecords({libraryEntitlements:scope.state.libraryEntitlements,accountId:scope.stableId,
-      items,historicalItems:shareableHumbleItems(scope.state.historicalLibraryItems??[])});
+      items,historicalItems:shareableHumbleItems(scope.state.historicalLibraryItems??[]),mediaTypeOverrides:scope.state.mediaTypeOverrides??null});
   }
   async function companionAccounts(state){
     const A=global.GalacticPurchaseAdapters,rows=await A.accounts('hb',state),scopes=A.hbScopes(state);
@@ -1357,6 +1357,23 @@
         const libraryItems = (state.libraryItems ?? []).map(updateItem);
         const historicalLibraryItems = (state.historicalLibraryItems ?? []).map(updateItem);
         await area.set({ mediaTypeOverrides: overrides, libraryItems, historicalLibraryItems });
+        return true;
+      }
+      if (operation === 'setNativeMediaOverride') {
+        // Media corrections for Library sync entitlements of the active account. Each correction is
+        // keyed by one entitlement, so it survives syncs and never reaches another title with the same name.
+        const [refs, targetKind] = args, E = global.HumbleLibraryEntitlements;
+        if (!E?.ENABLED) throw new Error('Library entitlement collection is not enabled.');
+        if (targetKind !== null && !LIBRARY_ITEM_KINDS.has(targetKind)) throw new Error('Unsupported media type override.');
+        if (!Array.isArray(refs) || !refs.length || refs.length > 1000) throw new Error('Choose the Library items to correct.');
+        const state = await area.get(LIBRARY_STATE_DEFAULTS);
+        const scope = E.collection(state.libraryEntitlements).scopes.find(s => state.humbleAccountId && s.localAccountId === state.humbleAccountId);
+        const known = new Set((scope?.observations ?? []).map(E.nativeMediaKey));
+        const keys = refs.map(ref => E.nativeMediaKey({ namespace: ref?.namespace, nativeId: ref?.nativeId }));
+        if (keys.some(key => !known.has(key))) throw new Error('This Library item changed. Refresh the library and try again.');
+        const overrides = { ...(state.mediaTypeOverrides ?? {}) };
+        for (const key of keys) { if (targetKind === null) delete overrides[key]; else overrides[key] = targetKind; }
+        await area.set({ mediaTypeOverrides: overrides });
         return true;
       }
       if (operation === 'resetMediaOverride') {
