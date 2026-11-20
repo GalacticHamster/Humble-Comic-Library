@@ -2,14 +2,14 @@
 
 The companions and Galactic Library use the same presentation and author rules and mirrored decision fixtures. Identity and access are separate: a matching borrowed, temporary, historical or unknown-access record cannot prove permanent ownership.
 
-Humble Library and Fanatical Library additionally accept a game-only full-title
+Humble Library, Fanatical Library and Galactic Library additionally accept a game-only full-title
 alias for dotted initialisms of at least three single letters, such as
 `F.E.A.R. 2` / `FEAR 2`. The shared matching fixtures cover both directions and
 the sequel, edition, remaster, collection, subtitle and media boundaries.
 The alias preserves the complete title, sequel number, subtitle and edition;
 known identity conflicts still require review. It changes neither stored titles
-nor the shared matching policy. Galactic Library search remains independent:
-this local alias cannot manufacture an external match that GL did not return.
+nor the shared matching policy. Galactic Library applies the same alias when
+matching its own saved purchases.
 
 Software checks first establish optional companion availability, then request
 software capabilities. An absent/unlinked companion or unadvertised media type
